@@ -1,0 +1,40 @@
+appId: com.f95gamemanager.app
+productName: F95 Game Manager
+directories:
+  output: dist
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!_research/*'
+  - '!UnRen-1.0.11d'
+  - '!UnRen-1.0.11d/**'
+  - '!resources/unren'
+  - '!resources/unren/**'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.env,.env.*,.npmrc}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+extraResources:
+  - from: resources/unren
+    to: unren
+    filter:
+      - '**/*'
+      - '!_cabs'
+      - '!_cabs/**'
+  - from: node_modules/7zip-bin/win
+    to: 7zip/win
+    filter:
+      - '**/7za.exe'
+asarUnpack:
+  - resources/**
+  - '**/node_modules/7zip-bin/**'
+  - '**/7za.exe'
+  - '**/node_modules/node-unrar-js/**'
+win:
+  executableName: F95GameManager
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+npmRebuild: false

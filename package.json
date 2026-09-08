@@ -1,0 +1,46 @@
+{
+  "name": "f95-gamemanager",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop game manager for F95zone catalogs, downloads, and libraries",
+  "author": "F95 Game Manager",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "build": "npm run typecheck && electron-vite build",
+    "build:unpack": "npm run build && electron-builder --dir",
+    "build:win": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "^3.0.2",
+    "@electron-toolkit/utils": "^4.0.0",
+    "7zip-bin": "^5.2.0",
+    "cheerio": "^1.2.0",
+    "node-7z": "^3.0.0",
+    "node-unrar-js": "^2.0.2"
+  },
+  "devDependencies": {
+    "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/node": "^22.20.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^v6.0.0-beta.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "trustedDependencies": [
+    "electron",
+    "esbuild",
+    "electron-winstaller"
+  ]
+}
