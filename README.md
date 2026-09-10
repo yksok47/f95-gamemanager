@@ -10,13 +10,13 @@ I'll be looking at feasibility of implementing "patching" in a future version, b
 
 Since it's already created, why not share it? Maybe you are looking for just this flavor of tool, if so then here you go:
 
-| | |
-| --- | --- |
-| **Version** | v1.0.1 |
-| **Release Date** | 2026-09-26 |
-| **OS** | Windows |
-| **Language** | English |
-| **Type** | Game manager / library tool |
+|                  |                             |
+| ---------------- | --------------------------- |
+| **Version**      | v1.0.1                      |
+| **Release Date** | 2026-09-26                  |
+| **OS**           | Windows                     |
+| **Language**     | English                     |
+| **Type**         | Game manager / library tool |
 
 ## Features
 
