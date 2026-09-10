@@ -31,6 +31,13 @@ asarUnpack:
   - '**/node_modules/node-unrar-js/**'
 win:
   executableName: F95GameManager
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: dir
+      arch:
+        - x64
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

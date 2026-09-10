@@ -29,15 +29,24 @@ jobs:
             exit 1
           fi
           bun pm pkg set version="$VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "Building version $VERSION"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build Windows installer
+      - name: Build Windows installer and unpacked app
         run: bun run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Zip unpacked portable build
+        shell: pwsh
+        run: |
+          $name = "f95-gamemanager-$env:VERSION-win-unpacked.zip"
+          if (-not (Test-Path "dist/win-unpacked")) { throw "dist/win-unpacked missing" }
+          Compress-Archive -Path "dist/win-unpacked" -DestinationPath "dist/$name" -Force
+          Write-Host "Created dist/$name"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -49,5 +58,6 @@ jobs:
             dist/*.exe
             dist/*.blockmap
             dist/latest*.yml
+            dist/*-win-unpacked.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
