@@ -93,7 +93,8 @@ import {
   p2pStatus,
   seedAllLocalPackages,
   subscribeP2pProgress,
-  onP2pEnabledChanged
+  onP2pEnabledChanged,
+  onTorrentMapChanged
 } from './p2p'
 
 
@@ -770,5 +771,21 @@ export function registerIpc(): void {
     for (const win of BrowserWindow.getAllWindows()) {
       win.webContents.send('p2p:progress', items)
     }
+  })
+
+  let sharedNotifyTimer: ReturnType<typeof setTimeout> | null = null
+  onTorrentMapChanged(() => {
+    if (sharedNotifyTimer) clearTimeout(sharedNotifyTimer)
+    sharedNotifyTimer = setTimeout(() => {
+      void p2pListShared()
+        .then((rows) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send('p2p:shared-changed', rows)
+          }
+        })
+        .catch((error) => {
+          console.warn('[p2p] shared-changed notify failed', error)
+        })
+    }, 50)
   })
 }

@@ -189,8 +189,13 @@ export default function App(): JSX.Element {
       }
     }
     void loadShared()
+    const stop = window.api.p2p.onSharedChanged((rows) => {
+      if (!settings.p2pEnabled) return
+      setP2pShared(rows)
+    })
     return () => {
       cancelled = true
+      stop()
     }
   }, [settings.p2pEnabled, p2pTransfers])
 

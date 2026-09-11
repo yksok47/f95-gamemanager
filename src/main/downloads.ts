@@ -7,6 +7,7 @@ import { isArchivePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload } from './open-url'
+import { onLibraryPackageAdded } from './p2p/controller'
 import { getDownloadsDirSync } from './settings-store'
 import { sendToRenderer } from './windows'
 
@@ -233,6 +234,14 @@ async function indexArchive(entry: TrackedDownload): Promise<void> {
     await addGameFileFromDownload(entry.context, entry.savePath, hash, size)
     entry.hash = hash
     entry.libraryStatus = 'indexed'
+    void onLibraryPackageAdded({
+      filePath: entry.savePath,
+      contentHash: hash,
+      gameName: entry.context.title,
+      gameVersion: entry.context.version,
+      f95ThreadId: entry.context.threadId,
+      f95ThreadUrl: entry.context.threadUrl
+    })
   } catch (error) {
     console.warn('Could not add archive to game files', error)
     entry.libraryStatus = 'error'

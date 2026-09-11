@@ -225,6 +225,13 @@ const api = {
       return () => {
         ipcRenderer.removeListener('p2p:progress', wrapped)
       }
+    },
+    onSharedChanged: (listener: (items: TorrentMapEntry[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: TorrentMapEntry[]): void => listener(items)
+      ipcRenderer.on('p2p:shared-changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('p2p:shared-changed', wrapped)
+      }
     }
   }
 }

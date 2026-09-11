@@ -90,21 +90,34 @@ export default function DownloadsPage({
   onFlagQuarantine
 }: DownloadsPageProps): JSX.Element {
   const finished = items.some((item) => item.status === 'completed' || item.status === 'cancelled')
-  // In-flight only — completed downloads move to Files / shared list (no duplicate row).
-  const downloading = p2pTransfers.filter(
-    (t) =>
-      t.state === 'downloading' ||
-      t.state === 'checking' ||
-      t.state === 'paused' ||
-      t.state === 'quarantined' ||
-      t.state === 'error'
-  )
+  const shared = p2pEnabled ? p2pShared : []
+  const sharedHashes = new Set(shared.map((entry) => entry.contentHash.toLowerCase()))
   const liveByHash = new Map(
     p2pTransfers
       .filter((t) => t.contentHash)
       .map((t) => [t.contentHash!.toLowerCase(), t] as const)
   )
-  const shared = p2pEnabled ? p2pShared : []
+  // In-flight only — completed downloads move to Files / shared list (no duplicate row).
+  const downloading = p2pTransfers.filter((t) => {
+    const inflight =
+      t.state === 'downloading' ||
+      t.state === 'checking' ||
+      t.state === 'paused' ||
+      t.state === 'quarantined' ||
+      t.state === 'error'
+    if (!inflight) return false
+    // Reseed of a mapped share must not sit above Sharing as "Downloading".
+    if (
+      t.id.startsWith('seed:') &&
+      t.contentHash &&
+      sharedHashes.has(t.contentHash.toLowerCase()) &&
+      t.state !== 'paused' &&
+      t.state !== 'error'
+    ) {
+      return false
+    }
+    return true
+  })
 
   return (
     <div className="settings-page">

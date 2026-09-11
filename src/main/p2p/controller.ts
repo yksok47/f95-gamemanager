@@ -42,6 +42,7 @@ import {
   p2pRevealQuarantine,
   p2pSeedPath,
   p2pStopTransfer,
+  touchP2pProgress,
   waitForTorrentInfoHash
 } from './webtorrent-service'
 import {
@@ -162,6 +163,8 @@ export async function p2pSeed(filePath: string, meta?: {
     f95ThreadId: meta?.f95ThreadId ?? null,
     f95ThreadUrl: meta?.f95ThreadUrl ?? null
   })
+  // Map write can land after the last torrent progress tick (idle seeders emit nothing).
+  touchP2pProgress()
   const claim = await signShareClaim(
     {
       contentHash,
@@ -570,6 +573,32 @@ export async function onLibraryPackageRemoved(contentHash?: string | null): Prom
     await removeTorrentMapEntry(h)
   } catch (error) {
     console.warn('[p2p] torrent-map remove after library delete failed', error)
+  }
+}
+
+/** When P2P is on, seed a newly indexed library archive so it shows up without restart. */
+export async function onLibraryPackageAdded(opts: {
+  filePath: string
+  contentHash: string
+  gameName?: string
+  gameVersion?: string | null
+  f95ThreadId?: number | null
+  f95ThreadUrl?: string | null
+}): Promise<void> {
+  const settings = await getSettings()
+  if (!settings.p2pEnabled) return
+  const contentHash = opts.contentHash.trim().toLowerCase()
+  if (!contentHash) return
+  try {
+    await p2pSeed(opts.filePath, {
+      contentHash,
+      gameName: opts.gameName,
+      gameVersion: opts.gameVersion ?? null,
+      f95ThreadId: opts.f95ThreadId ?? null,
+      f95ThreadUrl: opts.f95ThreadUrl ?? null
+    })
+  } catch (error) {
+    console.warn('[p2p] auto-seed after library add failed', error)
   }
 }
 

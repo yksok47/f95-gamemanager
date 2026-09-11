@@ -52,6 +52,7 @@ type TorrentLike = {
   numPeers: number
   files: { path: string; name: string; length: number }[]
   done: boolean
+  ready?: boolean
   paused?: boolean
   wires?: Array<{ destroy: () => void; remoteAddress?: string | null; remotePort?: number | null }>
   discovery?: {
@@ -282,6 +283,34 @@ export async function p2pRejectQuarantine(id: string): Promise<void> {
 
 
 
+function isSeedTransfer(id: string): boolean {
+  return id.startsWith('seed:')
+}
+
+/** skipVerify can mark pieces without setting torrent.done until a later _checkDone tick. */
+function torrentLooksComplete(torrent: TorrentLike): boolean {
+  if (torrent.done) return true
+  const length = torrent.length ?? 0
+  const downloaded = torrent.downloaded ?? 0
+  if (length > 0 && downloaded >= length) return true
+  const progress = torrent.progress ?? 0
+  return length > 0 && progress >= 1
+}
+
+function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress['state'] {
+  if (quarantineIds.has(id)) return 'quarantined'
+  if (pausedIds.has(id)) return 'paused'
+  if (isSeedTransfer(id)) {
+    // Local share: create-torrent hashing has no infoHash yet. After metadata,
+    // we already have the file — never label that as a download.
+    if (normalizeInfoHash(torrent.infoHash) || torrentLooksComplete(torrent) || torrent.ready) {
+      return 'seeding'
+    }
+    return 'checking'
+  }
+  return torrentLooksComplete(torrent) ? 'seeding' : 'downloading'
+}
+
 function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void {
   hookPeerRewrite(torrent)
   torrentById.set(id, torrent)
@@ -296,6 +325,7 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
     if (forcedQuarantine && state !== 'error') nextState = 'quarantined'
     else if (forcedPause && state !== 'error' && state !== 'paused') nextState = 'paused'
 
+    const complete = torrentLooksComplete(torrent) || nextState === 'seeding'
     progressById.set(id, {
       id,
       contentHash: meta?.contentHash ?? prev?.contentHash,
@@ -307,7 +337,7 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
       length: torrent.length ?? prev?.length ?? 0,
       downloadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.downloadSpeed ?? 0),
       uploadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.uploadSpeed ?? 0),
-      progress: torrent.progress ?? 0,
+      progress: complete ? Math.max(torrent.progress ?? 0, 1) : (torrent.progress ?? 0),
       numPeers: countUniqueRemotePeerIps(torrent),
       error,
       gameName: meta?.gameName ?? prev?.gameName,
@@ -317,19 +347,23 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
     emit()
   }
 
-  if (!pausedIds.has(id)) {
-    update(torrent.done ? 'seeding' : 'downloading')
-  } else {
-    update('paused')
+  const refresh = (): void => {
+    update(liveTorrentState(id, torrent))
   }
-  if (torrent.done && id.startsWith('add:') && !pausedIds.has(id) && !quarantineIds.has(id)) {
+
+  refresh()
+  if (torrentLooksComplete(torrent) && id.startsWith('add:') && !pausedIds.has(id) && !quarantineIds.has(id)) {
     void enterQuarantine(id, torrent, meta)
   }
   torrentById.set(id, torrent)
   if (trackedListenerIds.has(id)) return
   trackedListenerIds.add(id)
-  torrent.on('download', () => update(torrent.done ? 'seeding' : 'downloading'))
-  torrent.on('upload', () => update(torrent.done ? 'seeding' : 'downloading'))
+  torrent.on('download', refresh)
+  torrent.on('upload', refresh)
+  torrent.on('metadata', refresh)
+  torrent.on('ready', refresh)
+  torrent.on('seed', refresh)
+  torrent.on('wire', refresh)
   torrent.on('done', () => {
     if (pausedIds.has(id)) {
       update('paused')
@@ -344,6 +378,11 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
   torrent.on('error', (err: unknown) => {
     update('error', err instanceof Error ? err.message : String(err))
   })
+}
+
+/** Re-push current transfer snapshots so the renderer can refresh the shared list. */
+export function touchP2pProgress(): void {
+  emit()
 }
 
 
@@ -901,7 +940,24 @@ export async function waitForTorrentInfoHash(
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const cur = progressById.get(id)
-    if (cur?.infoHash) return cur
+    const live = torrentById.get(id)
+    const infoHash =
+      cur?.infoHash || (live ? normalizeInfoHash(live.infoHash) : null)
+    if (infoHash) {
+      if (cur) return { ...cur, infoHash }
+      return {
+        id,
+        infoHash,
+        state: live ? liveTorrentState(id, live) : 'checking',
+        downloaded: live?.downloaded ?? 0,
+        uploaded: live?.uploaded ?? 0,
+        length: live?.length ?? 0,
+        downloadSpeed: 0,
+        uploadSpeed: 0,
+        progress: live?.progress ?? 0,
+        numPeers: live ? countUniqueRemotePeerIps(live) : 0
+      }
+    }
     if (cur?.state === 'error') {
       throw new Error(cur.error || 'P2P seed failed')
     }
@@ -950,8 +1006,12 @@ export async function p2pResume(id: string): Promise<P2pTransferProgress | null>
   } catch (error) {
     console.warn('[p2p] resume failed', error)
   }
-  const state = torrent?.done ? 'seeding' : 'downloading'
-  const next = { ...cur, state: state as P2pTransferProgress['state'] }
+  const state = torrent
+    ? liveTorrentState(id, torrent)
+    : isSeedTransfer(id)
+      ? 'seeding'
+      : 'downloading'
+  const next = { ...cur, state }
   progressById.set(id, next)
   emit()
   return next

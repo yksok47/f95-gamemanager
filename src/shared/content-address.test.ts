@@ -40,3 +40,11 @@ test('normalizeInfoHash lowercases 40-char hex', () => {
   )
   expect(normalizeInfoHash('not-a-hash')).toBeNull()
 })
+
+test('normalizeInfoHash accepts 20-byte buffers from WebTorrent', () => {
+  const hex = 'aabbccddeeff00112233445566778899aabbccdd'
+  const bytes = Uint8Array.from({ length: 20 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16))
+  expect(normalizeInfoHash(bytes)).toBe(hex)
+  expect(normalizeInfoHash(Buffer.from(bytes))).toBe(hex)
+  expect(normalizeInfoHash(new Uint8Array(19))).toBeNull()
+})

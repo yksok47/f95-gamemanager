@@ -4,6 +4,18 @@ import type { TorrentMapEntry, TorrentMapStore } from '@shared/p2p'
 import { getAppPaths } from '../paths'
 
 let loaded: TorrentMapStore | null = null
+const changeListeners = new Set<() => void>()
+
+export function onTorrentMapChanged(listener: () => void): () => void {
+  changeListeners.add(listener)
+  return () => {
+    changeListeners.delete(listener)
+  }
+}
+
+function notifyChanged(): void {
+  for (const listener of changeListeners) listener()
+}
 
 function empty(): TorrentMapStore {
   return { version: 1, entries: {} }
@@ -51,6 +63,7 @@ async function writeStore(store: TorrentMapStore): Promise<void> {
   const file = getAppPaths().p2pTorrentMapFile
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify(store, null, 2), 'utf8')
+  notifyChanged()
 }
 
 export async function listTorrentMapEntries(): Promise<TorrentMapEntry[]> {

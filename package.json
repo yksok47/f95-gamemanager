@@ -6,6 +6,7 @@
   "author": "F95 Game Manager",
   "main": "./out/main/index.js",
   "scripts": {
+    "ensure-electron": "bun ./node_modules/electron/install.js",
     "dev": "electron-vite dev",
     "dev:peer": "electron-vite build && electron . --user-data-dir=.userdata-p2p-b",
     "dev:both": "concurrently \"bun dev\" \"bun dev:peer\"",
@@ -17,7 +18,7 @@
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
-    "postinstall": "electron-builder install-app-deps",
+    "postinstall": "bun run ensure-electron && electron-builder install-app-deps",
     "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {
