@@ -1,14 +1,93 @@
 /**
- * Thin REST client for METADATA_BASE_URL.
+ * Thin REST client for METADATA_BASE_URL (Tracker metadata-api).
  * Swarm announce is NOT here — WebTorrent → TRACKER_ANNOUNCE_URL (opentracker).
+ *
+ * Routes (locked with Tracker API.md):
+ *   GET  /health
+ *   POST /api/v1/packages
+ *   GET  /api/v1/packages/{contentHash}
+ *   GET  /api/v1/packages?normalizedName=|infoHash=
+ *   POST /api/v1/packages/{contentHash}/seeders
+ *   POST /api/v1/packages/{contentHash}/flags
+ * No metadata POST /announce. Popularity = uniqueSeederPubkeyCount.
  */
 
-import type { FlagPackagePayload, MetadataHealth, PackageMetadata, PackageStats } from '@shared/p2p'
+import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageMetadata, PackageStats } from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
 
+const API_PREFIX = '/api/v1'
+
+type ApiFlags = { broken?: boolean; harmful?: boolean }
+
+type ApiPackage = {
+  contentHash: string
+  infoHash?: string | null
+  normalizedName: string
+  gameName?: string
+  f95ThreadId?: string | number | null
+  f95ThreadUrl?: string | null
+  flags?: ApiFlags | PackageFlag[]
+  uniqueSeederPubkeyCount?: number
+  sizeBytes?: number
+  updatedAt?: string
+  createdAt?: string
+}
+
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
+}
+
+function flagsFromApi(raw: ApiPackage['flags'], contentHash: string): PackageFlag[] {
+  if (Array.isArray(raw)) return raw
+  if (!raw || typeof raw !== 'object') return []
+  const out: PackageFlag[] = []
+  const createdAt = new Date().toISOString()
+  if (raw.broken) {
+    out.push({ kind: 'broken', seederPubkey: '', createdAt, note: `contentHash=${contentHash}` })
+  }
+  if (raw.harmful) {
+    out.push({ kind: 'harmful', seederPubkey: '', createdAt, note: `contentHash=${contentHash}` })
+  }
+  return out
+}
+
+function parseThreadId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
+  return {
+    contentHash: String(pkg.contentHash || '').toLowerCase(),
+    infoHash: pkg.infoHash ? String(pkg.infoHash).toLowerCase() : null,
+    normalizedName: pkg.normalizedName || '',
+    gameName: pkg.gameName || pkg.normalizedName || '',
+    f95ThreadId: parseThreadId(pkg.f95ThreadId),
+    f95ThreadUrl: pkg.f95ThreadUrl ? String(pkg.f95ThreadUrl) : null,
+    uniqueSeederPubkeyCount: Number(pkg.uniqueSeederPubkeyCount) || 0,
+    flags: flagsFromApi(pkg.flags, String(pkg.contentHash || '')),
+    sizeBytes: pkg.sizeBytes,
+    updatedAt: pkg.updatedAt || pkg.createdAt
+  }
+}
+
+function claimBodyForApi(claim: ShareClaimPostBody): Record<string, unknown> {
+  return {
+    contentHash: claim.contentHash,
+    infoHash: claim.infoHash,
+    normalizedName: claim.normalizedName,
+    seederPubkey: claim.seederPubkey,
+    ts: claim.ts,
+    signature: claim.signature,
+    gameName: claim.gameName ?? '',
+    f95ThreadId: claim.f95ThreadId == null || claim.f95ThreadId === '' ? '' : String(claim.f95ThreadId),
+    f95ThreadUrl: claim.f95ThreadUrl ?? ''
+  }
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -38,14 +117,19 @@ export async function metadataHealth(): Promise<MetadataHealth> {
   }
 }
 
-/** POST /packages — share-claim v1 body (only when P2P enabled; caller gates) */
+/** POST /api/v1/packages — share-claim v1 (only when P2P enabled; caller gates) */
 export async function registerPackage(claim: ShareClaimPostBody): Promise<PackageMetadata> {
-  return request<PackageMetadata>('POST', '/packages', claim)
+  const pkg = await request<ApiPackage>('POST', `${API_PREFIX}/packages`, claimBodyForApi(claim))
+  return toPackageMetadata(pkg)
 }
 
 export async function getPackage(contentHash: string): Promise<PackageMetadata | null> {
   try {
-    return await request<PackageMetadata>('GET', `/packages/${encodeURIComponent(contentHash)}`)
+    const pkg = await request<ApiPackage>(
+      'GET',
+      `${API_PREFIX}/packages/${encodeURIComponent(contentHash)}`
+    )
+    return toPackageMetadata(pkg)
   } catch {
     return null
   }
@@ -54,20 +138,38 @@ export async function getPackage(contentHash: string): Promise<PackageMetadata |
 export async function findPackagesByName(normalizedName: string): Promise<PackageMetadata[]> {
   try {
     const q = encodeURIComponent(normalizedName)
-    return await request<PackageMetadata[]>('GET', `/packages?normalizedName=${q}`)
+    const raw = await request<{ items?: ApiPackage[] } | ApiPackage[]>(
+      'GET',
+      `${API_PREFIX}/packages?normalizedName=${q}`
+    )
+    const items = Array.isArray(raw) ? raw : Array.isArray(raw.items) ? raw.items : []
+    return items.map(toPackageMetadata)
   } catch {
     return []
   }
 }
 
+/** Stats endpoint is not on metadata-api v1 yet — derive from package row when present. */
 export async function getPackageStats(contentHash: string): Promise<PackageStats | null> {
-  try {
-    return await request<PackageStats>('GET', `/packages/${encodeURIComponent(contentHash)}/stats`)
-  } catch {
-    return null
+  const pkg = await getPackage(contentHash)
+  if (!pkg) return null
+  return {
+    contentHash: pkg.contentHash,
+    infoHash: pkg.infoHash,
+    uniqueSeederPubkeyCount: pkg.uniqueSeederPubkeyCount
   }
 }
 
 export async function flagPackage(contentHash: string, payload: FlagPackagePayload): Promise<PackageMetadata> {
-  return request<PackageMetadata>('POST', `/packages/${encodeURIComponent(contentHash)}/flags`, payload)
+  const body = {
+    seederPubkey: payload.seederPubkey,
+    flags: [payload.kind],
+    note: payload.note ?? ''
+  }
+  const pkg = await request<ApiPackage>(
+    'POST',
+    `${API_PREFIX}/packages/${encodeURIComponent(contentHash)}/flags`,
+    body
+  )
+  return toPackageMetadata(pkg)
 }

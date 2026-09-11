@@ -36,6 +36,7 @@ import {
   listTorrentMapEntries,
   upsertTorrentMapEntry
 } from './torrent-map-store'
+import { syncLocalPackagesIntoTorrentMap } from './local-packages'
 import { stat } from 'fs/promises'
 
 async function requireEnabled(): Promise<void> {
@@ -129,9 +130,19 @@ export async function p2pListProgress(): Promise<P2pTransferProgress[]> {
   return listP2pProgress()
 }
 
-/** When P2P turns on: seed all known local package paths from torrent map. */
-export async function seedAllLocalPackages(): Promise<{ started: number; errors: string[] }> {
+/**
+ * When P2P turns on: sync library/download archives into torrent map, then seed.
+ * WebTorrent load is best-effort — native rebuild may be missing; errors are collected.
+ */
+export async function seedAllLocalPackages(): Promise<{
+  started: number
+  errors: string[]
+  mapped: number
+  skippedUnhashed: number
+  candidates: number
+}> {
   await requireEnabled()
+  const sync = await syncLocalPackagesIntoTorrentMap()
   const entries = await listTorrentMapEntries()
   let started = 0
   const errors: string[] = []
@@ -148,7 +159,13 @@ export async function seedAllLocalPackages(): Promise<{ started: number; errors:
       errors.push(`${entry.contentHash}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
-  return { started, errors }
+  return {
+    started,
+    errors,
+    mapped: sync.upserted,
+    skippedUnhashed: sync.skippedUnhashed,
+    candidates: sync.candidates
+  }
 }
 
 export async function onP2pEnabledChanged(enabled: boolean): Promise<void> {

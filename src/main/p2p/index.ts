@@ -10,3 +10,4 @@ export {
   listP2pProgress,
   onP2pProgress
 } from './webtorrent-service'
+export * from './local-packages'

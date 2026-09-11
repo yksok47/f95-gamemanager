@@ -5,7 +5,7 @@
  * infoHash    = WebTorrent/BT SHA-1 of torrent info (swarm key)
  *
  * Swarm announce → opentracker via TRACKER_ANNOUNCE_URL (WebTorrent announce list).
- * Metadata REST → METADATA_BASE_URL (infoHash↔game/thread, flags, unique seeder pubkeys).
+ * Metadata REST → METADATA_BASE_URL/api/v1 (infoHash↔game/thread, flags, unique seeder pubkeys).
  * Popularity = unique verified Ed25519 seeder pubkeys. Never send F95 credentials.
  */
 
