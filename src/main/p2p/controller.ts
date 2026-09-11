@@ -16,6 +16,7 @@ import { getUntrustedDownloadsDirSync, getSettings } from '../settings-store'
 import { hashFile } from '../hash'
 import { getP2pIdentity, signShareClaim, signMessageBytes } from './identity'
 import { getAnnounceList, getP2pEnv } from './env'
+import { probeNativeWebRtc } from './webtorrent-compat'
 import {
   flagPackage,
   reportPackageInstall,
@@ -84,9 +85,11 @@ export async function p2pStatus(): Promise<{
   transfers: P2pTransferProgress[]
   metadata: Awaited<ReturnType<typeof metadataHealth>>
   tracker: { ok: boolean; message?: string }
+  webrtc: { ok: boolean; message: string; holePunch: boolean }
 }> {
   const settings = await getSettings()
   const enabled = Boolean(settings.p2pEnabled)
+  const webrtc = probeNativeWebRtc()
   const [metadata, tracker] = await Promise.all([
     enabled ? metadataHealth() : Promise.resolve({ ok: false, message: 'p2p disabled' }),
     enabled ? trackerAnnounceHealth() : Promise.resolve({ ok: false, message: 'p2p disabled' })
@@ -98,7 +101,12 @@ export async function p2pStatus(): Promise<{
     announceList: getAnnounceList(),
     transfers: listP2pProgress(),
     metadata,
-    tracker
+    tracker,
+    webrtc: {
+      ok: webrtc.ok,
+      message: webrtc.message,
+      holePunch: webrtc.ok && Boolean(getP2pEnv().trackerWebRtcUrl)
+    }
   }
 }
 
@@ -402,13 +410,14 @@ export async function listPackagesForDiscovery(
 function buildMagnet(infoHash: string, displayName?: string): string {
   const normalized = normalizeInfoHash(infoHash)
   if (!normalized) throw new Error('Invalid infoHash (need 40-char hex)')
-  const { trackerAnnounceUrl, trackerAnnounceUdpUrl } = getP2pEnv()
+  const { trackerAnnounceUrl, trackerAnnounceUdpUrl, trackerWebRtcUrl } = getP2pEnv()
   // Do not use URLSearchParams for xt — it encodes ":" to %3A and WebTorrent
   // then throws "Invalid torrent identifier".
   const parts = [`xt=urn:btih:${normalized}`]
   if (displayName) parts.push(`dn=${encodeURIComponent(displayName)}`)
   parts.push(`tr=${encodeURIComponent(trackerAnnounceUrl)}`)
   if (trackerAnnounceUdpUrl) parts.push(`tr=${encodeURIComponent(trackerAnnounceUdpUrl)}`)
+  if (trackerWebRtcUrl) parts.push(`tr=${encodeURIComponent(trackerWebRtcUrl)}`)
   return `magnet:?${parts.join('&')}`
 }
 

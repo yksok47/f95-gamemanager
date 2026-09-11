@@ -81,10 +81,20 @@ Note: metadata `listPackages` will require `f95ThreadId` soon (catalog filter); 
 
 ## NAT / hole-punching (no user port forwards)
 
-Users must not open router ports. WebTorrent uses **WebRTC ICE**:
+TCP to an HTTP/UDP tracker (**opentracker**) cannot punch holes. It only returns `IP:port` and tries a direct TCP connect. That works on LAN / UPnP / forwarded ports — not across two home NATs.
 
-1. **STUN** (default): stun:stun.l.google.com:19302 (+ backups), overridable via P2P_STUN_URLS (comma-separated). Wired on the WebTorrent client 	racker.rtcConfig.iceServers.
-2. **WebRTC native**: needs working 
-ode-datachannel (Electron rebuild / VS Build Tools on Windows). The interim JS stub only proves TCP+HTTP announce on friendly networks — it does **not** hole-punch across home NATs.
-3. **TURN** (future): relay for symmetric NATs when STUN alone fails — not shipped yet.
+Hole punching is **WebRTC ICE**. The app does it when all three are in place:
+
+1. **Native `node-datachannel`** — rebuild for this Electron ABI (`bun run rebuild:native` after VS Build Tools with “Desktop development with C++”). Until that loads, Settings → P2P shows `WebRTC: stub` and stays TCP-only.
+2. **WebSocket tracker** — HTTP opentracker cannot exchange ICE offers. Run `bittorrent-tracker` (or equivalent) with WebSocket and set **Settings → WebRTC tracker URL** to `ws://your-host:8000` / `wss://…`. Example: `npx bittorrent-tracker --http false --udp false --ws --port 8000`.
+3. **STUN** (built-in: Google/Cloudflare) discovers public candidates. Override with `P2P_STUN_URLS`.
+4. **TURN (you host)** — required for symmetric NAT / CGNAT when STUN punch fails. Users still do nothing. Set on the app process:
+   ```
+   P2P_TURN_URLS=turn:your-host:3478
+   P2P_TURN_USERNAME=…
+   P2P_TURN_CREDENTIAL=…
+   ```
+   `coturn` on the same Oracle box as the tracker is the usual deploy.
+
+Same-LAN peers still use LSD + TCP even without WebRTC. Cross-internet without native WebRTC + ws tracker will not connect unless a port is reachable (UPnP may map one automatically; many routers/CGNAT refuse).
 

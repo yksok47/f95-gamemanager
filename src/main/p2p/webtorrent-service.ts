@@ -25,7 +25,7 @@ import { getAnnounceList, getIceServers } from './env'
 import { loadCachedTorrentFile, saveCachedTorrentFile } from './torrent-file-cache'
 import { upsertTorrentMapEntry } from './torrent-map-store'
 import { normalizeInfoHash, normalizePackageFilename } from '@shared/content-address'
-import { registerWebtorrentCompat } from './webtorrent-compat'
+import { registerWebtorrentCompat, probeNativeWebRtc } from './webtorrent-compat'
 
 const execFileAsync = promisify(execFile)
 
@@ -664,19 +664,28 @@ async function ensureClient(): Promise<WebTorrentLike> {
     registerWebtorrentCompat()
     const mod = (await import('webtorrent')) as { default?: new () => WebTorrentLike } & (new () => WebTorrentLike)
     const WebTorrent = mod.default ?? mod
-    // STUN enables ICE hole-punching so peers behind home NATs can connect
-    // without opening ports. Requires real WebRTC (node-datachannel), not the JS stub.
-    // Private tracker swarm: DHT off (public). LSD on for same-LAN peers under hairpin NAT.
+    const iceServers = getIceServers()
+    const webrtc = probeNativeWebRtc()
+    console.info(
+      '[p2p] WebTorrent client',
+      webrtc.ok ? 'WebRTC ICE enabled' : 'TCP-only (no hole-punch)',
+      'iceServers=',
+      iceServers.length,
+      'wsTracker=',
+      Boolean(getAnnounceList().some((u) => u.startsWith('ws')))
+    )
+    // STUN/TURN ICE hole-punching needs native node-datachannel AND a ws:// tracker
+    // for SDP signaling. HTTP opentracker only yields TCP IP:port (needs reachable ports).
     client = new (WebTorrent as unknown as new (opts?: object) => WebTorrentLike)({
       dht: false,
       // LSD: LAN multicast so two PCs on the same subnet find each other even when the
       // tracker only returns the shared WAN IP (hairpin NAT). DHT stays off.
       lsd: true,
-      // Prefer TCP for local Docker-tracker peers; uTP to bridge IPs is flaky on Windows.
+      // TCP for LAN/Docker; WebRTC (if native) handles NAT. uTP to bridge IPs is flaky on Windows.
       utp: false,
       tracker: {
         rtcConfig: {
-          iceServers: getIceServers()
+          iceServers
         }
       }
     })

@@ -39,6 +39,14 @@ function normalizeUrl(value: unknown, fallback: string): string {
   return trimmed || fallback
 }
 
+function normalizeWebRtcUrl(value: unknown, fallback: string): string {
+  const raw = typeof value === 'string' ? value.trim() : undefined
+  const next = raw === undefined ? fallback.trim() : raw
+  if (!next) return ''
+  if (next.startsWith('ws://') || next.startsWith('wss://')) return next.replace(/\/$/, '')
+  return ''
+}
+
 function normalizeDir(value: unknown, fallback: string): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
@@ -52,6 +60,7 @@ function emptySettings(): AppSettings {
     p2pEnabled: false,
     trackerAnnounceUrl: envOrDefault('TRACKER_ANNOUNCE_URL'),
     metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
+    trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
     ...defaultFolders()
   }
 }
@@ -73,7 +82,8 @@ function normalizeSettings(value: unknown): AppSettings {
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
     p2pEnabled: Boolean(raw.p2pEnabled),
     trackerAnnounceUrl: normalizeUrl(raw.trackerAnnounceUrl, envOrDefault('TRACKER_ANNOUNCE_URL')),
-    metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL'))
+    metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL')),
+    trackerWebRtcUrl: normalizeWebRtcUrl(raw.trackerWebRtcUrl, envOrDefault('TRACKER_WEBRTC_URL'))
   }
 }
 
@@ -124,6 +134,10 @@ export function getTrackerAnnounceUrlSync(): string {
 
 export function getMetadataBaseUrlSync(): string {
   return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
+}
+
+export function getTrackerWebRtcUrlSync(): string {
+  return loaded?.trackerWebRtcUrl ?? envOrDefault('TRACKER_WEBRTC_URL')
 }
 
 export async function getSettings(): Promise<AppSettings> {

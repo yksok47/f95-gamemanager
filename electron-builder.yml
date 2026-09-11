@@ -29,6 +29,7 @@ asarUnpack:
   - '**/node_modules/7zip-bin/**'
   - '**/7za.exe'
   - '**/node_modules/node-unrar-js/**'
+  - '**/node_modules/node-datachannel/**'
 win:
   executableName: F95GameManager
   target:

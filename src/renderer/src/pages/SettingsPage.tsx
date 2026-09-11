@@ -30,21 +30,24 @@ export default function SettingsPage({
   const [addAs, setAddAs] = useState<TagTier>('gold')
   const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
+  const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
   const [serviceStatus, setServiceStatus] = useState<{
     metadata?: { ok: boolean; message?: string }
     tracker?: { ok: boolean; message?: string }
+    webrtc?: { ok: boolean; message?: string; holePunch?: boolean }
   } | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
 
   useEffect(() => {
     setAnnounceDraft(settings.trackerAnnounceUrl)
     setMetadataDraft(settings.metadataBaseUrl)
-  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl])
+    setWebrtcDraft(settings.trackerWebRtcUrl)
+  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
 
   useEffect(() => {
     if (tab !== 'p2p') return
     void refreshP2pStatus()
-  }, [tab, settings.p2pEnabled, settings.trackerAnnounceUrl, settings.metadataBaseUrl])
+  }, [tab, settings.p2pEnabled, settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
 
 
   useEffect(() => {
@@ -128,12 +131,14 @@ export default function SettingsPage({
       const status = (await window.api.p2p.status()) as {
         metadata?: { ok: boolean; message?: string }
         tracker?: { ok: boolean; message?: string }
+        webrtc?: { ok: boolean; message?: string; holePunch?: boolean }
       }
-      setServiceStatus({ metadata: status.metadata, tracker: status.tracker })
+      setServiceStatus({ metadata: status.metadata, tracker: status.tracker, webrtc: status.webrtc })
     } catch (err) {
       setServiceStatus({
         metadata: { ok: false, message: err instanceof Error ? err.message : 'status failed' },
-        tracker: { ok: false, message: err instanceof Error ? err.message : 'status failed' }
+        tracker: { ok: false, message: err instanceof Error ? err.message : 'status failed' },
+        webrtc: { ok: false, message: err instanceof Error ? err.message : 'status failed' }
       })
     } finally {
       setStatusBusy(false)
@@ -263,13 +268,52 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
+            <div className="folder-field">
+              <span className="filter-label">WebRTC tracker URL (ws/wss — hole punching)</span>
+              <p className="muted download-meta">
+                HTTP opentracker cannot punch holes. Point this at a WebSocket tracker you run
+                (SDP signaling). Leave empty for TCP-only.
+              </p>
+              <div className="folder-path-row">
+                <input
+                  className="folder-path"
+                  value={webrtcDraft}
+                  disabled={saving}
+                  placeholder="ws://your-host:8000"
+                  onChange={(event) => setWebrtcDraft(event.target.value)}
+                  onBlur={() => {
+                    const next = webrtcDraft.trim()
+                    setWebrtcDraft(next)
+                    if (next !== settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: next })
+                  }}
+                />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setWebrtcDraft('')
+                    if (settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: '' })
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
 
             <div className="folder-field">
               <span className="filter-label">Service status</span>
               <p className="muted download-meta">
                 {[
                   `Metadata: ${serviceStatus?.metadata?.ok ? 'ok' : 'down'}${serviceStatus?.metadata?.message ? ` (${serviceStatus.metadata.message})` : ''}`,
-                  `Tracker: ${serviceStatus?.tracker?.ok ? 'ok' : 'down'}${serviceStatus?.tracker?.message ? ` (${serviceStatus.tracker.message})` : ''}`
+                  `Tracker: ${serviceStatus?.tracker?.ok ? 'ok' : 'down'}${serviceStatus?.tracker?.message ? ` (${serviceStatus.tracker.message})` : ''}`,
+                  `WebRTC: ${serviceStatus?.webrtc?.ok ? 'native' : 'stub'}${
+                    serviceStatus?.webrtc?.holePunch
+                      ? ' · hole-punch ready'
+                      : serviceStatus?.webrtc?.ok
+                        ? ' · set a ws:// tracker to punch holes'
+                        : ' · TCP only (rebuild node-datachannel)'
+                  }`
                 ].join(' · ')}
               </p>
               <button

@@ -108,6 +108,11 @@ export type AppSettings = {
   trackerAnnounceUrl: string
   /** Metadata REST base (no trailing slash needed). Default http://localhost:8080 */
   metadataBaseUrl: string
+  /**
+   * WebSocket tracker (ws:// or wss://) used for WebRTC ICE signaling / hole-punching.
+   * HTTP opentracker cannot exchange SDP. Empty disables WebRTC announce.
+   */
+  trackerWebRtcUrl: string
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

@@ -167,11 +167,14 @@ export type PackageListResponse = {
 export const P2P_ENV_KEYS = {
   TRACKER_ANNOUNCE_URL: 'TRACKER_ANNOUNCE_URL',
   METADATA_BASE_URL: 'METADATA_BASE_URL',
-  TRACKER_ANNOUNCE_UDP_URL: 'TRACKER_ANNOUNCE_UDP_URL'
+  TRACKER_ANNOUNCE_UDP_URL: 'TRACKER_ANNOUNCE_UDP_URL',
+  TRACKER_WEBRTC_URL: 'TRACKER_WEBRTC_URL'
 } as const
 
 export const P2P_ENV_DEFAULTS = {
   TRACKER_ANNOUNCE_URL: 'http://130.61.67.157:6969/announce',
   METADATA_BASE_URL: 'http://130.61.67.157:6767',
-  TRACKER_ANNOUNCE_UDP_URL: 'udp://130.61.67.157:6969/announce'
+  TRACKER_ANNOUNCE_UDP_URL: 'udp://130.61.67.157:6969/announce',
+  /** WebSocket tracker for WebRTC ICE signaling (not opentracker HTTP). Empty = disabled. */
+  TRACKER_WEBRTC_URL: ''
 } as const
