@@ -1,4 +1,7 @@
 import { basename, dirname, join } from 'path'
+import { execFile } from 'node:child_process'
+import { networkInterfaces } from 'node:os'
+import { promisify } from 'node:util'
 /**
  * WebTorrent engine — Electron MAIN process only (Node APIs).
  * Client: webtorrent ≥2.3 (NOT webtorrent-hybrid). Magnet + seed(path).
@@ -23,6 +26,8 @@ import { loadCachedTorrentFile, saveCachedTorrentFile } from './torrent-file-cac
 import { upsertTorrentMapEntry } from './torrent-map-store'
 import { normalizeInfoHash, normalizePackageFilename } from '@shared/content-address'
 import { registerWebtorrentCompat } from './webtorrent-compat'
+
+const execFileAsync = promisify(execFile)
 
 type WebTorrentLike = {
   add: (uri: string | Buffer | Uint8Array, opts?: object, cb?: (torrent: TorrentLike) => void) => TorrentLike
@@ -375,6 +380,121 @@ function disconnectTorrentPeers(torrent: TorrentLike): void {
 }
 
 
+
+function ownLanIpv4s(): Set<string> {
+  const out = new Set<string>()
+  for (const list of Object.values(networkInterfaces())) {
+    for (const info of list ?? []) {
+      const v4 = info.family === 'IPv4' || (info.family as unknown) === 4
+      if (!v4 || info.internal) continue
+      out.add(info.address)
+    }
+  }
+  return out
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const p = ip.split('.').map((x) => Number(x))
+  if (p.length !== 4 || p.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null
+  return ((p[0]! << 24) >>> 0) + (p[1]! << 16) + (p[2]! << 8) + p[3]!
+}
+
+function intToIpv4(n: number): string {
+  return `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`
+}
+
+/** /24 (or tighter) hosts on our NICs — capped. Used when ARP is cold. */
+function lanSubnetIpv4s(limit = 64): string[] {
+  const own = ownLanIpv4s()
+  const found: string[] = []
+  for (const list of Object.values(networkInterfaces())) {
+    for (const info of list ?? []) {
+      const v4 = info.family === 'IPv4' || (info.family as unknown) === 4
+      if (!v4 || info.internal || !info.cidr) continue
+      const [base, bitsRaw] = info.cidr.split('/')
+      const bits = Number(bitsRaw)
+      if (!base || !Number.isFinite(bits) || bits < 24 || bits > 30) continue
+      const ipInt = ipv4ToInt(base)
+      if (ipInt == null) continue
+      const size = 2 ** (32 - bits)
+      const net = ipInt & ~(size - 1)
+      for (let i = 1; i < size - 1 && found.length < limit; i++) {
+        const ip = intToIpv4(net + i)
+        if (own.has(ip)) continue
+        found.push(ip)
+      }
+      if (found.length >= limit) return found
+    }
+  }
+  return found
+}
+
+async function lanNeighborIpv4s(): Promise<string[]> {
+  const own = ownLanIpv4s()
+  const found = new Set<string>()
+  try {
+    if (process.platform === 'win32') {
+      const { stdout } = await execFileAsync('arp', ['-a'], {
+        timeout: 4000,
+        windowsHide: true,
+        encoding: 'utf8'
+      })
+      for (const m of String(stdout).matchAll(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/g)) {
+        const ip = m[1]!
+        if (own.has(ip) || ip.startsWith('127.') || ip.startsWith('224.') || ip.startsWith('239.')) continue
+        if (ip.endsWith('.255') || ip.startsWith('255.') || ip === '0.0.0.0') continue
+        found.add(ip)
+      }
+    } else {
+      const { stdout } = await execFileAsync('ip', ['neigh'], { timeout: 4000, encoding: 'utf8' })
+      for (const m of String(stdout).matchAll(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/g)) {
+        const ip = m[1]!
+        if (own.has(ip) || ip.startsWith('127.')) continue
+        found.add(ip)
+      }
+    }
+  } catch (error) {
+    console.warn('[p2p] LAN neighbor lookup failed', error)
+  }
+  let list = [...found]
+  if (list.length < 2) {
+    for (const ip of lanSubnetIpv4s(64)) {
+      if (!found.has(ip)) list.push(ip)
+      if (list.length >= 64) break
+    }
+  }
+  return list.slice(0, 64)
+}
+
+const hairpinLanDialed = new WeakMap<object, Set<number>>()
+
+function scheduleHairpinLanDials(
+  torrent: TorrentLike,
+  port: number,
+  addPeer: (peer: string, source?: unknown) => boolean,
+  source?: unknown
+): void {
+  let ports = hairpinLanDialed.get(torrent as object)
+  if (!ports) {
+    ports = new Set<number>()
+    hairpinLanDialed.set(torrent as object, ports)
+  }
+  if (ports.has(port)) return
+  ports.add(port)
+  void (async () => {
+    const neighbors = await lanNeighborIpv4s()
+    for (const ip of neighbors) {
+      const addr = `${ip}:${port}`
+      try {
+        console.info('[p2p] hairpin LAN dial', addr)
+        addPeer(addr, source)
+      } catch (error) {
+        console.warn('[p2p] hairpin LAN dial failed', addr, error)
+      }
+    }
+  })()
+}
+
 const peerRewriteHooked = new WeakSet<object>()
 
 let cachedPublicIp: string | null = null
@@ -439,8 +559,9 @@ async function refreshPublicIp(force = false): Promise<string | null> {
  * Peer address rewrite:
  * - Loopback tracker (Docker): any peer → 127.0.0.1:port (bridge IPs are unreachable from host).
  * - Production hairpin NAT: tracker returns our WAN IP for local seeders.
- *   Own listen port → 127.0.0.1 (self). Other same-WAN peers are left alone — LSD
- *   finds them on the LAN (rewriting to this NIC would still be ourselves).
+ *   Own listen port → 127.0.0.1 (self). Other same-WAN peers keep the WAN address
+ *   (router hairpin may work) and we also dial LAN candidates on that port
+ *   (ARP neighbors, else a capped /24) because LSD alone is flaky on Windows.
  */
 function rewritePeerAddress(addr: string): string {
   const parsed = parsePeerAddr(addr)
@@ -459,8 +580,18 @@ function rewritePeerAddress(addr: string): string {
   if (localListenPorts().has(portNum)) {
     return `127.0.0.1:${port}`
   }
-  // Same WAN, other port: do not map onto this host's LAN IP — leave for LSD.
+  // Same WAN, other port: leave WAN for hairpin; LAN dials happen in hookPeerRewrite.
   return addr
+}
+
+function isSameWanOtherPeer(addr: string): number | null {
+  const parsed = parsePeerAddr(addr)
+  if (!parsed || !cachedPublicIp) return null
+  if (parsed.host !== cachedPublicIp) return null
+  const portNum = Number(parsed.port)
+  if (!Number.isFinite(portNum) || portNum <= 0) return null
+  if (localListenPorts().has(portNum)) return null
+  return portNum
 }
 
 function hookPeerRewrite(torrent: TorrentLike): void {
@@ -474,7 +605,14 @@ function hookPeerRewrite(torrent: TorrentLike): void {
     if (typeof peer === 'string' && next !== peer) {
       console.info('[p2p] rewrite tracker peer', peer, '->', next)
     }
-    return original(next as string, source)
+    const ok = original(next as string, source)
+    if (typeof peer === 'string') {
+      const lanPort = isSameWanOtherPeer(peer)
+      if (lanPort != null) {
+        scheduleHairpinLanDials(torrent, lanPort, original, source)
+      }
+    }
+    return ok
   }
 }
 
