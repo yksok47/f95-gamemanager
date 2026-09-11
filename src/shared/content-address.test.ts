@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isContentHash, isInfoHash, normalizePackageFilename } from './content-address'
+import { isContentHash, isInfoHash, normalizeInfoHash, normalizePackageFilename } from './content-address'
 
 describe('normalizePackageFilename', () => {
   test('lowercases basename and collapses whitespace', () => {
@@ -29,4 +29,14 @@ describe('hash validators', () => {
     expect(isInfoHash('b'.repeat(41))).toBe(false)
     expect(isInfoHash(undefined)).toBe(false)
   })
+})
+
+test('normalizeInfoHash lowercases 40-char hex', () => {
+  expect(normalizeInfoHash('AABBCCDDEEFF00112233445566778899AABBCCDD')).toBe(
+    'aabbccddeeff00112233445566778899aabbccdd'
+  )
+  expect(normalizeInfoHash('urn:btih:aabbccddeeff00112233445566778899aabbccdd')).toBe(
+    'aabbccddeeff00112233445566778899aabbccdd'
+  )
+  expect(normalizeInfoHash('not-a-hash')).toBeNull()
 })

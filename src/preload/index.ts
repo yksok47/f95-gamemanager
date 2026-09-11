@@ -25,8 +25,9 @@ import type {
 } from '@shared/types'
 import type {
   PackageFlagKind,
+  PackageListQuery,
+  PackageListResponse,
   PackageMetadata,
-  P2pDownloadOptionStub,
   P2pTransferProgress
 } from '@shared/p2p'
 
@@ -198,8 +199,10 @@ const api = {
     remove: (id: string): Promise<void> => ipcRenderer.invoke('p2p:remove', id),
     progress: (): Promise<P2pTransferProgress[]> => ipcRenderer.invoke('p2p:progress'),
     seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
-    downloadOptions: (filename: string): Promise<P2pDownloadOptionStub[]> =>
-      ipcRenderer.invoke('p2p:downloadOptions', filename),
+    listPackages: (query?: PackageListQuery): Promise<PackageListResponse> =>
+      ipcRenderer.invoke('p2p:listPackages', query),
+    downloadByHash: (contentHash: string): Promise<P2pTransferProgress> =>
+      ipcRenderer.invoke('p2p:downloadByHash', contentHash),
     flag: (contentHash: string, kind: PackageFlagKind, note?: string): Promise<PackageMetadata> =>
       ipcRenderer.invoke('p2p:flag', contentHash, kind, note),
     onProgress: (listener: (items: P2pTransferProgress[]) => void): (() => void) => {

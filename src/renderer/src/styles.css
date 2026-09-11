@@ -2461,55 +2461,110 @@ body.is-save-dragging * {
 }
 
 
-/* P2P scaffolding */
+/* P2P discovery (dedicated page — not download-link rows) */
 .p2p-toggle-row {
   display: flex;
   align-items: center;
   gap: 10px;
   margin: 8px 0 18px;
 }
-.p2p-download-options {
-  margin-top: 6px;
-  padding: 8px 10px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  background: var(--bg-raised);
-}
-.p2p-download-options-head {
+.p2p-discovery-controls {
   display: flex;
-  gap: 10px;
-  align-items: baseline;
-  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 12px 0 16px;
 }
-.p2p-option-list {
+.p2p-discovery-search {
+  flex: 1 1 240px;
+  min-width: 200px;
+  max-width: 480px;
+}
+.p2p-discovery-sort {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.p2p-discovery-flagged {
+  margin: 0;
+}
+.p2p-discovery-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
-.p2p-option-main {
+.p2p-discovery-item {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+}
+.p2p-discovery-main {
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+.p2p-discovery-sub {
+  font-size: 0.9rem;
+  margin-top: 2px;
+}
+.p2p-discovery-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 0.85rem;
+}
+.p2p-discovery-stats {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  align-items: center;
+  align-items: flex-end;
+}
+.p2p-share-count {
+  font-size: 0.9rem;
+  color: var(--muted, #9aa3b2);
 }
 .p2p-flag-warning {
   color: #f0a0a0;
-  margin: 4px 0;
+  margin: 8px 0 4px;
   font-size: 0.85rem;
 }
 .p2p-option-actions {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  margin-top: 8px;
 }
 .p2p-flag-note {
   margin-top: 8px;
   width: 100%;
   max-width: 420px;
 }
-.p2p-link:disabled {
-  opacity: 0.75;
-  cursor: not-allowed;
+.p2p-discovery-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+}
+.p2p-discovery-pager {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.p2p-transfers {
+  margin-top: 24px;
+}
+.p2p-transfer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
 }

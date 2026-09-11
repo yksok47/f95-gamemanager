@@ -74,16 +74,17 @@ import {
 } from './subscriptions-store'
 import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed } from './follow-sync'
 import { openInAppWindow } from './open-url'
-import type { PackageFlagKind } from '@shared/p2p'
+import type { PackageFlagKind, PackageListQuery } from '@shared/p2p'
 import {
   flagPackageAs,
+  listPackagesForDiscovery,
   p2pAdd,
+  p2pDownloadByContentHash,
   p2pListProgress,
   p2pRemoveTransfer,
   p2pSeed,
   p2pStatus,
   seedAllLocalPackages,
-  stubDownloadOptions,
   subscribeP2pProgress,
   onP2pEnabledChanged
 } from './p2p'
@@ -678,9 +679,16 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
-  ipcMain.handle('p2p:downloadOptions', async (_event, filename: string) => {
+  ipcMain.handle('p2p:listPackages', async (_event, query?: PackageListQuery) => {
     try {
-      return await stubDownloadOptions(String(filename || ''))
+      return await listPackagesForDiscovery(query && typeof query === 'object' ? query : {})
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:downloadByHash', async (_event, contentHash: string) => {
+    try {
+      return await p2pDownloadByContentHash(String(contentHash || ''))
     } catch (error) {
       throw toIpcError(error)
     }

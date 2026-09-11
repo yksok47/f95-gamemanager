@@ -6,13 +6,18 @@
  *   GET  /health
  *   POST /api/v1/packages
  *   GET  /api/v1/packages/{contentHash}
- *   GET  /api/v1/packages?normalizedName=|infoHash=
+ *   GET  /api/v1/packages — browse/search catalog (paginated)
+ *       query: contentHash, infoHash, normalizedName, f95ThreadId, q,
+ *              includeFlagged (default true), sort=updated|popularity, limit/offset
+ *       response: { items, limit, offset, total }
  *   POST /api/v1/packages/{contentHash}/seeders
  *   POST /api/v1/packages/{contentHash}/flags
  * No metadata POST /announce. Popularity = uniqueSeederPubkeyCount.
+ * Discovery is catalog browse/search (GET /api/v1/packages) — not P2P-this-F95-link.
  */
 
-import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageMetadata, PackageStats } from '@shared/p2p'
+import { normalizeInfoHash } from '@shared/content-address'
+import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageListQuery, PackageListResponse, PackageMetadata, PackageStats } from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
 
@@ -64,7 +69,7 @@ function parseThreadId(value: unknown): number | null {
 function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
   return {
     contentHash: String(pkg.contentHash || '').toLowerCase(),
-    infoHash: pkg.infoHash ? String(pkg.infoHash).toLowerCase() : null,
+    infoHash: normalizeInfoHash(pkg.infoHash),
     normalizedName: pkg.normalizedName || '',
     gameName: pkg.gameName || pkg.normalizedName || '',
     f95ThreadId: parseThreadId(pkg.f95ThreadId),
@@ -79,7 +84,7 @@ function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
 function claimBodyForApi(claim: ShareClaimPostBody): Record<string, unknown> {
   return {
     contentHash: claim.contentHash,
-    infoHash: claim.infoHash,
+    infoHash: normalizeInfoHash(claim.infoHash) ?? '',
     normalizedName: claim.normalizedName,
     seederPubkey: claim.seederPubkey,
     ts: claim.ts,
@@ -137,16 +142,52 @@ export async function getPackage(contentHash: string): Promise<PackageMetadata |
 
 export async function findPackagesByName(normalizedName: string): Promise<PackageMetadata[]> {
   try {
-    const q = encodeURIComponent(normalizedName)
-    const raw = await request<{ items?: ApiPackage[] } | ApiPackage[]>(
-      'GET',
-      `${API_PREFIX}/packages?normalizedName=${q}`
-    )
-    const items = Array.isArray(raw) ? raw : Array.isArray(raw.items) ? raw.items : []
-    return items.map(toPackageMetadata)
+    const res = await listPackages({ normalizedName, limit: 100, offset: 0 })
+    return res.items
   } catch {
     return []
   }
+}
+
+function appendQuery(params: URLSearchParams, key: string, value: unknown): void {
+  if (value === undefined || value === null) return
+  if (typeof value === 'string' && !value.trim()) return
+  params.set(key, String(value))
+}
+
+/**
+ * Browse/search the metadata package catalog.
+ * Soft-fails to empty page if METADATA_BASE_URL is unreachable (catalog may still be rebuilding).
+ */
+export async function listPackages(query: PackageListQuery = {}): Promise<PackageListResponse> {
+  const params = new URLSearchParams()
+  appendQuery(params, 'contentHash', query.contentHash)
+  appendQuery(params, 'infoHash', normalizeInfoHash(query.infoHash) ?? undefined)
+  appendQuery(params, 'normalizedName', query.normalizedName)
+  appendQuery(params, 'f95ThreadId', query.f95ThreadId)
+  appendQuery(params, 'q', query.q)
+  if (query.includeFlagged !== undefined) {
+    params.set('includeFlagged', query.includeFlagged ? 'true' : 'false')
+  }
+  appendQuery(params, 'sort', query.sort)
+  appendQuery(params, 'limit', query.limit)
+  appendQuery(params, 'offset', query.offset)
+  const qs = params.toString()
+  const path = qs ? `${API_PREFIX}/packages?${qs}` : `${API_PREFIX}/packages`
+  const raw = await request<
+    | PackageListResponse
+    | { items?: ApiPackage[]; limit?: number; offset?: number; total?: number }
+    | ApiPackage[]
+  >('GET', path)
+  if (Array.isArray(raw)) {
+    const items = raw.map(toPackageMetadata)
+    return { items, limit: items.length, offset: 0, total: items.length }
+  }
+  const items = Array.isArray(raw.items) ? raw.items.map(toPackageMetadata) : []
+  const limit = typeof raw.limit === 'number' ? raw.limit : query.limit ?? items.length
+  const offset = typeof raw.offset === 'number' ? raw.offset : query.offset ?? 0
+  const total = typeof raw.total === 'number' ? raw.total : items.length
+  return { items, limit, offset, total }
 }
 
 /** Stats endpoint is not on metadata-api v1 yet — derive from package row when present. */

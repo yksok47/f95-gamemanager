@@ -16,7 +16,6 @@ import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engine
 import { formatPlaytime, formatRelativeTime, formatSessionTime, formatUpdateDate, gameUpdateState, isRelativeDate } from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
 import DownloadRow from '../components/DownloadRow'
-import P2pDownloadOptions from '../components/P2pDownloadOptions'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
@@ -40,7 +39,6 @@ type DetailsTab =
   | 'reviews'
 
 type GameDetailsPageProps = {
-  p2pEnabled?: boolean
   summary: GameSummary
   subscribed: boolean
   rarity?: GameRarity
@@ -152,8 +150,7 @@ export default function GameDetailsPage({
   onToggleFollow,
   onRefresh,
   onSetRarity,
-  onSessionExpired,
-  p2pEnabled = false
+  onSessionExpired
 }: GameDetailsPageProps): JSX.Element {
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
@@ -1023,10 +1020,6 @@ export default function GameDetailsPage({
                           >
                             {linkLabel(link)}
                           </button>
-                          <P2pDownloadOptions
-                            filename={link.label || link.url}
-                            p2pEnabled={Boolean(p2pEnabled)}
-                          />
                         </li>
                       ))}
                     </ul>

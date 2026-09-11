@@ -13,6 +13,7 @@ import AppNav, { type AppView } from './components/AppNav'
 import DownloadsDock from './components/DownloadsDock'
 import CatalogPage from './pages/CatalogPage'
 import DownloadsPage from './pages/DownloadsPage'
+import P2pPage from './pages/P2pPage'
 import FollowedPage from './pages/FollowedPage'
 import LibraryPage from './pages/LibraryPage'
 import GameDetailsPage from './pages/GameDetailsPage'
@@ -308,12 +309,13 @@ export default function App(): JSX.Element {
           onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
           onSessionExpired={handleSessionExpired}
         />
+      ) : view === 'p2p' ? (
+        <P2pPage p2pEnabled={Boolean(settings.p2pEnabled)} />
       ) : (
         <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
       )}
       {details ? (
         <GameDetailsPage
-              p2pEnabled={settings.p2pEnabled}
           summary={{
             ...details,
             rarity: rarityById.get(details.threadId) ?? details.rarity,

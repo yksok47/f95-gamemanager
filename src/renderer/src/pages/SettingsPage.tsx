@@ -125,8 +125,9 @@ export default function SettingsPage({
         <h2 className="settings-heading">P2P / torrenting</h2>
         <p className="muted settings-lead">
           Off by default. When enabled, this app seeds all local packages via WebTorrent in the
-          main process and registers share claims with the metadata service. Never sends F95
-          credentials. Swarm announce uses TRACKER_ANNOUNCE_URL (opentracker).
+          main process and registers share claims with the metadata service. Discover shared
+          packages on the P2P page (metadata catalog by hash/name — not F95 download links).
+          Never sends F95 credentials. Swarm announce uses TRACKER_ANNOUNCE_URL (opentracker).
         </p>
         <label className="p2p-toggle-row">
           <input
@@ -135,7 +136,7 @@ export default function SettingsPage({
             disabled={saving}
             onChange={(event) => void persist({ p2pEnabled: event.target.checked })}
           />
-          <span>Enable P2P seeding / downloads (stub wiring)</span>
+          <span>Enable P2P seeding / downloads</span>
         </label>
 
         <h2 className="settings-heading">Favorite tags</h2>

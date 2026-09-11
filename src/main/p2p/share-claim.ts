@@ -1,3 +1,5 @@
+import { normalizeInfoHash } from '../../shared/content-address'
+
 /**
  * Share-claim v1 — exact message format locked with Tracker.
  *
@@ -23,7 +25,7 @@ export type ShareClaimV1Input = {
 
 export function buildShareClaimMessage(input: ShareClaimV1Input): string {
   const contentHash = input.contentHash.trim().toLowerCase()
-  const infoHash = (input.infoHash ?? '').trim().toLowerCase()
+  const infoHash = normalizeInfoHash(input.infoHash) ?? ''
   const normalizedName = input.normalizedName
   const ts = input.ts ?? Math.floor(Date.now() / 1000)
   // Exact 5 lines, no trailing newline after ts line

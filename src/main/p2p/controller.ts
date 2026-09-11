@@ -3,11 +3,12 @@
  * When enabled: intent is seed all local packages (wired via torrent map + library paths).
  */
 
-import { normalizePackageFilename } from '@shared/content-address'
+import { normalizeInfoHash, normalizePackageFilename } from '@shared/content-address'
 import type {
   PackageFlagKind,
+  PackageListQuery,
+  PackageListResponse,
   PackageMetadata,
-  P2pDownloadOptionStub,
   P2pIdentityPublic,
   P2pTransferProgress
 } from '@shared/p2p'
@@ -20,6 +21,7 @@ import {
   findPackagesByName,
   getPackage,
   getPackageStats,
+  listPackages,
   metadataHealth,
   registerPackage
 } from './metadata-client'
@@ -87,7 +89,7 @@ export async function p2pSeed(filePath: string, meta?: {
   const progress = await p2pSeedPath(filePath, { contentHash })
   await upsertTorrentMapEntry({
     contentHash,
-    infoHash: progress.infoHash ?? null,
+    infoHash: normalizeInfoHash(progress.infoHash),
     path: filePath,
     normalizedName,
     sizeBytes: st.size,
@@ -100,7 +102,7 @@ export async function p2pSeed(filePath: string, meta?: {
     const claim = await signShareClaim(
       {
         contentHash,
-        infoHash: progress.infoHash,
+        infoHash: normalizeInfoHash(progress.infoHash),
         normalizedName
       },
       {
@@ -209,30 +211,47 @@ export async function flagPackageAs(
   })
 }
 
-/** UI placeholder options — stub counts clearly marked until metadata is live */
-export async function stubDownloadOptions(filename: string): Promise<P2pDownloadOptionStub[]> {
-  const normalizedName = normalizePackageFilename(filename)
-  const remote = await findPackagesByName(normalizedName).catch(() => [])
-  if (remote.length) {
-    return remote.map((pkg) => ({
-      contentHash: pkg.contentHash,
-      normalizedName: pkg.normalizedName,
-      label: pkg.gameName || pkg.normalizedName,
-      uniqueSeederPubkeyCount: pkg.uniqueSeederPubkeyCount,
-      flags: pkg.flags,
-      stub: false
-    }))
+/** Browse/search metadata catalog for the dedicated P2P discovery UI (not F95 download rows). */
+export async function listPackagesForDiscovery(
+  query: PackageListQuery = {}
+): Promise<PackageListResponse> {
+  return listPackages({
+    limit: 50,
+    offset: 0,
+    sort: 'popularity',
+    includeFlagged: true,
+    ...query
+  })
+}
+
+function buildMagnet(infoHash: string, displayName?: string): string {
+  const normalized = normalizeInfoHash(infoHash)
+  if (!normalized) throw new Error('Invalid infoHash (need 40-char hex)')
+  const { trackerAnnounceUrl, trackerAnnounceUdpUrl } = getP2pEnv()
+  const params = new URLSearchParams()
+  params.set('xt', `urn:btih:${normalized}`)
+  if (displayName) params.set('dn', displayName)
+  params.append('tr', trackerAnnounceUrl)
+  if (trackerAnnounceUdpUrl) params.append('tr', trackerAnnounceUdpUrl)
+  return `magnet:?${params.toString()}`
+}
+
+/**
+ * Download a shared package by contentHash using tracker metadata + infoHash swarm.
+ * Requires p2pEnabled. Soft metadata miss throws a clear error.
+ */
+export async function p2pDownloadByContentHash(contentHash: string): Promise<P2pTransferProgress> {
+  await requireEnabled()
+  const hash = contentHash.trim().toLowerCase()
+  const pkg = await getPackage(hash)
+  if (!pkg) {
+    throw new Error('Package not found in metadata catalog for that contentHash.')
   }
-  return [
-    {
-      contentHash: null,
-      normalizedName,
-      label: `${normalizedName || filename} (P2P stub)`,
-      uniqueSeederPubkeyCount: 3,
-      flags: [],
-      stub: true
-    }
-  ]
+  if (!pkg.infoHash) {
+    throw new Error('Package has no infoHash yet — cannot join swarm.')
+  }
+  const magnet = buildMagnet(pkg.infoHash, pkg.gameName || pkg.normalizedName || hash)
+  return p2pAddMagnet(magnet, { contentHash: pkg.contentHash })
 }
 
 export async function getCachedOrHash(filePath: string): Promise<string> {

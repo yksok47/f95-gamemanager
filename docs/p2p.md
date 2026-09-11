@@ -21,9 +21,18 @@ TRACKER_ANNOUNCE_UDP_URL=udp://localhost:6969/announce   # optional
 - `GET /health`
 - `POST /api/v1/packages` — share-claim v1 body (dual-hash + seederPubkey + base64 sig)
 - `GET /api/v1/packages/{contentHash}`
-- `GET /api/v1/packages?normalizedName=` or `?infoHash=` → `{ items: [...] }`
+- `GET /api/v1/packages` — **discovery catalog** (browse/search). No filter = list all, paginated.
+  - Query: `contentHash`, `infoHash` (40-char hex), `normalizedName`, `f95ThreadId`, `q` (substring on gameName|normalizedName), `includeFlagged` (default true), `sort=updated|popularity`, `limit`/`offset`
+  - Response: `{ items, limit, offset, total }` — package rows include hashes, game/thread, flags, `uniqueSeederPubkeyCount`
 - `POST /api/v1/packages/{contentHash}/flags` — body `{ flags: ["broken"|"harmful"], seederPubkey, note? }`
 - Popularity = `uniqueSeederPubkeyCount` (unique seeder pubkeys). Flags: `broken` | `harmful`.
+- `infoHash` is always normalized to lowercase 40-char hex before metadata/share POSTs and in UI.
+
+## Discovery UI (not F95 download links)
+- P2P lives on its **own nav page** (`P2P`). Do **not** attach P2P controls to Game Details download-link rows.
+- Browse/search what the metadata API already knows is available (packages others shared).
+- Download via P2P by `contentHash` → metadata → `infoHash` magnet (requires Settings `p2pEnabled`).
+- Seeding remains opt-in (`p2pEnabled` default OFF) + seed-all local packages when enabled.
 
 ## Share-claim v1
 ```
@@ -43,6 +52,7 @@ ts=<unixSeconds>
 ## Settings / local seed path
 - `p2pEnabled` default **false**. When on → sync game-files `archivePath` (+ downloadsDir archives) into torrent map, then seed-all (best-effort).
 - Unhashed downloads are skipped until hashed/seeded individually.
+- Discovery/download UI is separate from F95 link rows; toggle only gates swarm + share-claim work.
 
 ## Windows notes (2026-09-11)
 - webtorrent@2.8.x installs via bun, but postinstall / electron-builder `install-app-deps` needs Visual Studio Build Tools (node-gyp) for `node-datachannel`.

@@ -4,16 +4,27 @@ import { buildShareClaimMessage } from './share-claim'
 
 describe('buildShareClaimMessage', () => {
   test('exact 5-line v1 format, no trailing newline', () => {
+    const infoHash = 'b'.repeat(40)
     const msg = buildShareClaimMessage({
       contentHash: 'AA',
-      infoHash: 'BB',
+      infoHash: infoHash.toUpperCase(),
       normalizedName: 'name',
       ts: 100
     })
     expect(msg).toBe(
-      'f95-gm:share:v1\ncontentHash=aa\ninfoHash=bb\nnormalizedName=name\nts=100'
+      `f95-gm:share:v1\ncontentHash=aa\ninfoHash=${infoHash}\nnormalizedName=name\nts=100`
     )
     expect(msg.endsWith('\n')).toBe(false)
+  })
+
+  test('invalid infoHash becomes empty (must be 40-char hex)', () => {
+    const msg = buildShareClaimMessage({
+      contentHash: 'aa',
+      infoHash: 'BB',
+      normalizedName: 'name',
+      ts: 100
+    })
+    expect(msg).toContain('infoHash=\n')
   })
 
   test('empty infoHash allowed', () => {

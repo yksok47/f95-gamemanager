@@ -111,6 +111,30 @@ export type P2pDownloadOptionStub = {
   stub: boolean
 }
 
+/** GET /api/v1/packages browse/search query (metadata catalog — not F95 links). */
+export type PackageListSort = 'updated' | 'popularity'
+
+export type PackageListQuery = {
+  contentHash?: string
+  infoHash?: string
+  normalizedName?: string
+  f95ThreadId?: number | string
+  /** Substring match on gameName or normalizedName */
+  q?: string
+  /** When false, omit broken|harmful flagged packages. Default true on API. */
+  includeFlagged?: boolean
+  sort?: PackageListSort
+  limit?: number
+  offset?: number
+}
+
+export type PackageListResponse = {
+  items: PackageMetadata[]
+  limit: number
+  offset: number
+  total: number
+}
+
 /**
  * Env keys locked from Tracker compose (localhost defaults for stubs):
  *   TRACKER_ANNOUNCE_URL=http://localhost:6969/announce
