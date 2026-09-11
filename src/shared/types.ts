@@ -104,6 +104,10 @@ export type AppSettings = {
   libraryDir: string
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */
   p2pEnabled: boolean
+  /** WebTorrent announce (opentracker). Default http://localhost:6969/announce */
+  trackerAnnounceUrl: string
+  /** Metadata REST base (no trailing slash needed). Default http://localhost:8080 */
+  metadataBaseUrl: string
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

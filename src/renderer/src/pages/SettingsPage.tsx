@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { AppSettings, CatalogTag, FavoriteTag, TagTier } from '@shared/types'
+import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAG_TIERS } from '@shared/types'
 import { sortFavoriteTags } from '../lib/favorites'
 
@@ -23,6 +24,13 @@ export default function SettingsPage({
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [addAs, setAddAs] = useState<TagTier>('gold')
+  const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
+  const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
+
+  useEffect(() => {
+    setAnnounceDraft(settings.trackerAnnounceUrl)
+    setMetadataDraft(settings.metadataBaseUrl)
+  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl])
 
   useEffect(() => {
     let cancelled = false
@@ -125,9 +133,9 @@ export default function SettingsPage({
         <h2 className="settings-heading">P2P / torrenting</h2>
         <p className="muted settings-lead">
           Off by default. When enabled, this app seeds all local packages via WebTorrent in the
-          main process and registers share claims with the metadata service. Discover shared
-          packages on the P2P page (metadata catalog by hash/name — not F95 download links).
-          Never sends F95 credentials. Swarm announce uses TRACKER_ANNOUNCE_URL (opentracker).
+          main process and registers share claims with the metadata service. Discover shared packages on the P2P page, scoped to one game thread
+          (not F95 download-link rows). Never sends F95 credentials. Seed-all runs when P2P is
+          enabled. Edit announce + metadata URLs below (localhost defaults for local Tracker).
         </p>
         <label className="p2p-toggle-row">
           <input
@@ -138,6 +146,65 @@ export default function SettingsPage({
           />
           <span>Enable P2P seeding / downloads</span>
         </label>
+
+        <div className="folder-field">
+          <span className="filter-label">Tracker announce URL</span>
+          <p className="muted settings-lead">WebTorrent swarm announce (opentracker). Env: TRACKER_ANNOUNCE_URL.</p>
+          <div className="folder-path-row">
+            <input
+              className="folder-path"
+              value={announceDraft}
+              disabled={saving}
+              placeholder={P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL}
+              onChange={(event) => setAnnounceDraft(event.target.value)}
+              onBlur={() => {
+                const next = announceDraft.trim() || P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL
+                setAnnounceDraft(next)
+                if (next !== settings.trackerAnnounceUrl) void persist({ trackerAnnounceUrl: next })
+              }}
+            />
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setAnnounceDraft(P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL)
+                void persist({ trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL })
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+        <div className="folder-field">
+          <span className="filter-label">Metadata base URL</span>
+          <p className="muted settings-lead">REST catalog host (no path). Env: METADATA_BASE_URL.</p>
+          <div className="folder-path-row">
+            <input
+              className="folder-path"
+              value={metadataDraft}
+              disabled={saving}
+              placeholder={P2P_ENV_DEFAULTS.METADATA_BASE_URL}
+              onChange={(event) => setMetadataDraft(event.target.value)}
+              onBlur={() => {
+                const next = metadataDraft.trim() || P2P_ENV_DEFAULTS.METADATA_BASE_URL
+                setMetadataDraft(next)
+                if (next !== settings.metadataBaseUrl) void persist({ metadataBaseUrl: next })
+              }}
+            />
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setMetadataDraft(P2P_ENV_DEFAULTS.METADATA_BASE_URL)
+                void persist({ metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL })
+              }}
+            >
+              Reset
+            </button>
+          </div>
+        </div>
 
         <h2 className="settings-heading">Favorite tags</h2>
         <p className="muted settings-lead">

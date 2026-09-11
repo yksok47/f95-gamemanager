@@ -681,7 +681,7 @@ export function registerIpc(): void {
   })
   ipcMain.handle('p2p:listPackages', async (_event, query?: PackageListQuery) => {
     try {
-      return await listPackagesForDiscovery(query && typeof query === 'object' ? query : {})
+      return await listPackagesForDiscovery(query && typeof query === 'object' ? (query as PackageListQuery) : ({ f95ThreadId: '' } as PackageListQuery))
     } catch (error) {
       throw toIpcError(error)
     }

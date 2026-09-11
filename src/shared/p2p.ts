@@ -111,15 +111,16 @@ export type P2pDownloadOptionStub = {
   stub: boolean
 }
 
-/** GET /api/v1/packages browse/search query (metadata catalog — not F95 links). */
+/** GET /api/v1/packages — per-thread discovery (Tracker requires f95ThreadId). */
 export type PackageListSort = 'updated' | 'popularity'
 
 export type PackageListQuery = {
+  /** Required by live Tracker API — bare /packages without thread → 400 */
+  f95ThreadId: number | string
   contentHash?: string
   infoHash?: string
   normalizedName?: string
-  f95ThreadId?: number | string
-  /** Substring match on gameName or normalizedName */
+  /** Substring match on gameName or normalizedName (within thread) */
   q?: string
   /** When false, omit broken|harmful flagged packages. Default true on API. */
   includeFlagged?: boolean

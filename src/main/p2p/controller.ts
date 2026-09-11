@@ -184,8 +184,11 @@ export async function lookupPackageMeta(contentHash: string): Promise<PackageMet
   return getPackage(contentHash)
 }
 
-export async function lookupPackagesByFilename(filename: string): Promise<PackageMetadata[]> {
-  return findPackagesByName(normalizePackageFilename(filename))
+export async function lookupPackagesByFilename(
+  filename: string,
+  f95ThreadId: number | string
+): Promise<PackageMetadata[]> {
+  return findPackagesByName(normalizePackageFilename(filename), f95ThreadId)
 }
 
 export async function flagPackageAs(
@@ -211,9 +214,9 @@ export async function flagPackageAs(
   })
 }
 
-/** Browse/search metadata catalog for the dedicated P2P discovery UI (not F95 download rows). */
+/** Per-thread metadata discovery for the dedicated P2P UI (not F95 download rows). */
 export async function listPackagesForDiscovery(
-  query: PackageListQuery = {}
+  query: PackageListQuery
 ): Promise<PackageListResponse> {
   return listPackages({
     limit: 50,

@@ -6,14 +6,15 @@
  *   GET  /health
  *   POST /api/v1/packages
  *   GET  /api/v1/packages/{contentHash}
- *   GET  /api/v1/packages — browse/search catalog (paginated)
- *       query: contentHash, infoHash, normalizedName, f95ThreadId, q,
+ *   GET  /api/v1/packages — per-thread browse/search (paginated)
+ *       REQUIRED: f95ThreadId — bare GET → 400
+ *       optional within thread: contentHash, infoHash, normalizedName, q,
  *              includeFlagged (default true), sort=updated|popularity, limit/offset
  *       response: { items, limit, offset, total }
  *   POST /api/v1/packages/{contentHash}/seeders
  *   POST /api/v1/packages/{contentHash}/flags
  * No metadata POST /announce. Popularity = uniqueSeederPubkeyCount.
- * Discovery is catalog browse/search (GET /api/v1/packages) — not P2P-this-F95-link.
+ * Discovery is per-thread (f95ThreadId) — not global browse, not F95 download-link rows.
  */
 
 import { normalizeInfoHash } from '@shared/content-address'
@@ -140,9 +141,12 @@ export async function getPackage(contentHash: string): Promise<PackageMetadata |
   }
 }
 
-export async function findPackagesByName(normalizedName: string): Promise<PackageMetadata[]> {
+export async function findPackagesByName(
+  normalizedName: string,
+  f95ThreadId: number | string
+): Promise<PackageMetadata[]> {
   try {
-    const res = await listPackages({ normalizedName, limit: 100, offset: 0 })
+    const res = await listPackages({ f95ThreadId, normalizedName, limit: 100, offset: 0 })
     return res.items
   } catch {
     return []
@@ -155,16 +159,25 @@ function appendQuery(params: URLSearchParams, key: string, value: unknown): void
   params.set(key, String(value))
 }
 
+function requireThreadId(query: PackageListQuery): string {
+  const raw = query.f95ThreadId
+  if (raw === undefined || raw === null || String(raw).trim() === '') {
+    throw new Error('f95ThreadId is required for GET /api/v1/packages (Tracker API)')
+  }
+  return String(raw).trim()
+}
+
 /**
- * Browse/search the metadata package catalog.
- * Soft-fails to empty page if METADATA_BASE_URL is unreachable (catalog may still be rebuilding).
+ * Per-thread browse/search of the metadata package catalog.
+ * Requires f95ThreadId (live API returns 400 without it).
  */
-export async function listPackages(query: PackageListQuery = {}): Promise<PackageListResponse> {
+export async function listPackages(query: PackageListQuery): Promise<PackageListResponse> {
+  const f95ThreadId = requireThreadId(query)
   const params = new URLSearchParams()
+  appendQuery(params, 'f95ThreadId', f95ThreadId)
   appendQuery(params, 'contentHash', query.contentHash)
   appendQuery(params, 'infoHash', normalizeInfoHash(query.infoHash) ?? undefined)
   appendQuery(params, 'normalizedName', query.normalizedName)
-  appendQuery(params, 'f95ThreadId', query.f95ThreadId)
   appendQuery(params, 'q', query.q)
   if (query.includeFlagged !== undefined) {
     params.set('includeFlagged', query.includeFlagged ? 'true' : 'false')

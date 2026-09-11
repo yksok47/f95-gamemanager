@@ -199,7 +199,7 @@ const api = {
     remove: (id: string): Promise<void> => ipcRenderer.invoke('p2p:remove', id),
     progress: (): Promise<P2pTransferProgress[]> => ipcRenderer.invoke('p2p:progress'),
     seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
-    listPackages: (query?: PackageListQuery): Promise<PackageListResponse> =>
+    listPackages: (query: PackageListQuery): Promise<PackageListResponse> =>
       ipcRenderer.invoke('p2p:listPackages', query),
     downloadByHash: (contentHash: string): Promise<P2pTransferProgress> =>
       ipcRenderer.invoke('p2p:downloadByHash', contentHash),

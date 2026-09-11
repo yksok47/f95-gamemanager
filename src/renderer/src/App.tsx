@@ -14,6 +14,7 @@ import DownloadsDock from './components/DownloadsDock'
 import CatalogPage from './pages/CatalogPage'
 import DownloadsPage from './pages/DownloadsPage'
 import P2pPage from './pages/P2pPage'
+import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import FollowedPage from './pages/FollowedPage'
 import LibraryPage from './pages/LibraryPage'
 import GameDetailsPage from './pages/GameDetailsPage'
@@ -84,9 +85,12 @@ export default function App(): JSX.Element {
     favoriteTags: [],
     downloadsDir: '',
     libraryDir: '',
-    p2pEnabled: false
+    p2pEnabled: false,
+    trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL,
+    metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL
   })
   const [detailsStack, setDetailsStack] = useState<GameSummary[]>([])
+  const [p2pScope, setP2pScope] = useState<{ threadId: number; title: string } | null>(null)
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
   const details = detailsStack.at(-1) ?? null
   const favoriteTags = settings.favoriteTags
@@ -265,6 +269,9 @@ export default function App(): JSX.Element {
         libraryCount={libraryCount}
         downloadCount={activeDownloadCount}
         onViewChange={(next) => {
+          if (next === 'p2p' && details) {
+            setP2pScope({ threadId: details.threadId, title: details.title })
+          }
           setDetailsStack([])
           setView(next)
         }}
@@ -310,7 +317,11 @@ export default function App(): JSX.Element {
           onSessionExpired={handleSessionExpired}
         />
       ) : view === 'p2p' ? (
-        <P2pPage p2pEnabled={Boolean(settings.p2pEnabled)} />
+        <P2pPage
+          p2pEnabled={Boolean(settings.p2pEnabled)}
+          games={subscriptions.map((g) => ({ threadId: g.threadId, title: g.title }))}
+          initialThreadId={p2pScope?.threadId ?? null}
+        />
       ) : (
         <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
       )}

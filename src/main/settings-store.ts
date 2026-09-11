@@ -1,6 +1,7 @@
 ﻿import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute } from 'path'
 import { TAG_TIERS, type AppSettings, type FavoriteTag, type TagTier } from '@shared/types'
+import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { getAppPaths } from './paths'
 
 let loaded: AppSettings | null = null
@@ -26,6 +27,18 @@ function defaultFolders(): Pick<AppSettings, 'downloadsDir' | 'libraryDir'> {
   }
 }
 
+function envOrDefault(key: keyof typeof P2P_ENV_DEFAULTS): string {
+  const raw = process.env[key]
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  return P2P_ENV_DEFAULTS[key]
+}
+
+function normalizeUrl(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed || fallback
+}
+
 function normalizeDir(value: unknown, fallback: string): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
@@ -34,7 +47,13 @@ function normalizeDir(value: unknown, fallback: string): string {
 }
 
 function emptySettings(): AppSettings {
-  return { favoriteTags: [], p2pEnabled: false, ...defaultFolders() }
+  return {
+    favoriteTags: [],
+    p2pEnabled: false,
+    trackerAnnounceUrl: envOrDefault('TRACKER_ANNOUNCE_URL'),
+    metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
+    ...defaultFolders()
+  }
 }
 
 function normalizeSettings(value: unknown): AppSettings {
@@ -52,7 +71,9 @@ function normalizeSettings(value: unknown): AppSettings {
     favoriteTags,
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
-    p2pEnabled: Boolean(raw.p2pEnabled)
+    p2pEnabled: Boolean(raw.p2pEnabled),
+    trackerAnnounceUrl: normalizeUrl(raw.trackerAnnounceUrl, envOrDefault('TRACKER_ANNOUNCE_URL')),
+    metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL'))
   }
 }
 
@@ -90,6 +111,14 @@ export function getDownloadsDirSync(): string {
 
 export function getLibraryDirSync(): string {
   return loaded?.libraryDir ?? getAppPaths().libraryDir
+}
+
+export function getTrackerAnnounceUrlSync(): string {
+  return loaded?.trackerAnnounceUrl ?? envOrDefault('TRACKER_ANNOUNCE_URL')
+}
+
+export function getMetadataBaseUrlSync(): string {
+  return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
 }
 
 export async function getSettings(): Promise<AppSettings> {

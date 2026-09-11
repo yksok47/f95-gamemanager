@@ -2468,6 +2468,43 @@ body.is-save-dragging * {
   gap: 10px;
   margin: 8px 0 18px;
 }
+
+.p2p-thread-picker {
+  margin: 12px 0 16px;
+}
+.p2p-thread-picker-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+.p2p-thread-picker-item {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #333);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.p2p-thread-picker-item:hover {
+  border-color: var(--accent, #7aa2ff);
+}
+.p2p-thread-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  margin: 8px 0 4px;
+}
 .p2p-discovery-controls {
   display: flex;
   flex-wrap: wrap;
