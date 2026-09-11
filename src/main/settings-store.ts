@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
+﻿import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute } from 'path'
 import { TAG_TIERS, type AppSettings, type FavoriteTag, type TagTier } from '@shared/types'
 import { getAppPaths } from './paths'
@@ -34,7 +34,7 @@ function normalizeDir(value: unknown, fallback: string): string {
 }
 
 function emptySettings(): AppSettings {
-  return { favoriteTags: [], ...defaultFolders() }
+  return { favoriteTags: [], p2pEnabled: false, ...defaultFolders() }
 }
 
 function normalizeSettings(value: unknown): AppSettings {
@@ -51,7 +51,8 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     favoriteTags,
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
-    libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir)
+    libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
+    p2pEnabled: Boolean(raw.p2pEnabled)
   }
 }
 

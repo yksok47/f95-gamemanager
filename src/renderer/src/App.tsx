@@ -82,7 +82,8 @@ export default function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings>({
     favoriteTags: [],
     downloadsDir: '',
-    libraryDir: ''
+    libraryDir: '',
+    p2pEnabled: false
   })
   const [detailsStack, setDetailsStack] = useState<GameSummary[]>([])
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
@@ -312,6 +313,7 @@ export default function App(): JSX.Element {
       )}
       {details ? (
         <GameDetailsPage
+              p2pEnabled={settings.p2pEnabled}
           summary={{
             ...details,
             rarity: rarityById.get(details.threadId) ?? details.rarity,

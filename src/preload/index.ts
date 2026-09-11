@@ -23,6 +23,12 @@ import type {
   FollowSyncStatus,
   UnRenAction
 } from '@shared/types'
+import type {
+  PackageFlagKind,
+  PackageMetadata,
+  P2pDownloadOptionStub,
+  P2pTransferProgress
+} from '@shared/p2p'
 
 const api = {
   auth: {
@@ -175,6 +181,34 @@ const api = {
   shell: {
     open: (url: string, context?: GameFileContext): Promise<void> =>
       ipcRenderer.invoke('shell:open', url, context)
+  },
+  p2p: {
+    status: (): Promise<unknown> => ipcRenderer.invoke('p2p:status'),
+    add: (magnetOrPath: string, contentHash?: string): Promise<P2pTransferProgress> =>
+      ipcRenderer.invoke('p2p:add', magnetOrPath, contentHash),
+    seed: (
+      filePath: string,
+      meta?: {
+        contentHash?: string
+        gameName?: string
+        f95ThreadId?: number | null
+        f95ThreadUrl?: string | null
+      }
+    ): Promise<P2pTransferProgress> => ipcRenderer.invoke('p2p:seed', filePath, meta),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('p2p:remove', id),
+    progress: (): Promise<P2pTransferProgress[]> => ipcRenderer.invoke('p2p:progress'),
+    seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
+    downloadOptions: (filename: string): Promise<P2pDownloadOptionStub[]> =>
+      ipcRenderer.invoke('p2p:downloadOptions', filename),
+    flag: (contentHash: string, kind: PackageFlagKind, note?: string): Promise<PackageMetadata> =>
+      ipcRenderer.invoke('p2p:flag', contentHash, kind, note),
+    onProgress: (listener: (items: P2pTransferProgress[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: P2pTransferProgress[]): void => listener(items)
+      ipcRenderer.on('p2p:progress', wrapped)
+      return () => {
+        ipcRenderer.removeListener('p2p:progress', wrapped)
+      }
+    }
   }
 }
 

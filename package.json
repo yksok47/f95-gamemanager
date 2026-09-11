@@ -22,7 +22,8 @@
     "7zip-bin": "^5.2.0",
     "cheerio": "^1.2.0",
     "node-7z": "^3.0.0",
-    "node-unrar-js": "^2.0.2"
+    "node-unrar-js": "^2.0.2",
+    "webtorrent": "^2.8.4"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "^2.0.0",

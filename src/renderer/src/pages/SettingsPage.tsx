@@ -122,6 +122,22 @@ export default function SettingsPage({
           </div>
         </div>
 
+        <h2 className="settings-heading">P2P / torrenting</h2>
+        <p className="muted settings-lead">
+          Off by default. When enabled, this app seeds all local packages via WebTorrent in the
+          main process and registers share claims with the metadata service. Never sends F95
+          credentials. Swarm announce uses TRACKER_ANNOUNCE_URL (opentracker).
+        </p>
+        <label className="p2p-toggle-row">
+          <input
+            type="checkbox"
+            checked={Boolean(settings.p2pEnabled)}
+            disabled={saving}
+            onChange={(event) => void persist({ p2pEnabled: event.target.checked })}
+          />
+          <span>Enable P2P seeding / downloads (stub wiring)</span>
+        </label>
+
         <h2 className="settings-heading">Favorite tags</h2>
         <p className="muted settings-lead">
           Pick favorite tags in three tiers. They appear on game tiles, stay colored in details, and

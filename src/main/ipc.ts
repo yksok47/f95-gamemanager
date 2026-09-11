@@ -74,6 +74,20 @@ import {
 } from './subscriptions-store'
 import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed } from './follow-sync'
 import { openInAppWindow } from './open-url'
+import type { PackageFlagKind } from '@shared/p2p'
+import {
+  flagPackageAs,
+  p2pAdd,
+  p2pListProgress,
+  p2pRemoveTransfer,
+  p2pSeed,
+  p2pStatus,
+  seedAllLocalPackages,
+  stubDownloadOptions,
+  subscribeP2pProgress,
+  onP2pEnabledChanged
+} from './p2p'
+
 
 function toIpcError(error: unknown): Error {
   if (error instanceof F95Error) {
@@ -248,8 +262,14 @@ export function registerIpc(): void {
 
   ipcMain.handle('settings:save', async (_event, next: Partial<AppSettings>) => {
     try {
+      const before = await getSettings()
       const settings = await saveSettings(next)
       applyConfiguredDownloadPath()
+      if (before.p2pEnabled !== settings.p2pEnabled) {
+        void onP2pEnabledChanged(settings.p2pEnabled).catch((error) =>
+          console.warn('[p2p] onP2pEnabledChanged failed', error)
+        )
+      }
       return settings
     } catch (error) {
       throw toIpcError(error)
@@ -600,6 +620,85 @@ export function registerIpc(): void {
       await openInAppWindow(String(url), { context })
     } catch (error) {
       throw toIpcError(error)
+    }
+  })
+
+  // --- P2P (WebTorrent main-process stubs) ---
+  ipcMain.handle('p2p:status', async () => {
+    try {
+      return await p2pStatus()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:add', async (_event, magnetOrPath: string, contentHash?: string) => {
+    try {
+      return await p2pAdd(String(magnetOrPath), contentHash ? String(contentHash) : undefined)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:seed',
+    async (
+      _event,
+      filePath: string,
+      meta?: {
+        contentHash?: string
+        gameName?: string
+        f95ThreadId?: number | null
+        f95ThreadUrl?: string | null
+      }
+    ) => {
+      try {
+        return await p2pSeed(String(filePath), meta)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+  ipcMain.handle('p2p:remove', async (_event, id: string) => {
+    try {
+      await p2pRemoveTransfer(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:progress', async () => {
+    try {
+      return await p2pListProgress()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:seedAll', async () => {
+    try {
+      return await seedAllLocalPackages()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:downloadOptions', async (_event, filename: string) => {
+    try {
+      return await stubDownloadOptions(String(filename || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:flag',
+    async (_event, contentHash: string, kind: PackageFlagKind, note?: string) => {
+      try {
+        return await flagPackageAs(String(contentHash), kind, note ? String(note) : undefined)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  subscribeP2pProgress((items) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('p2p:progress', items)
     }
   })
 }

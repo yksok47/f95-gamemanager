@@ -2459,3 +2459,57 @@ body.is-save-dragging * {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+/* P2P scaffolding */
+.p2p-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 18px;
+}
+.p2p-download-options {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+}
+.p2p-download-options-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.p2p-option-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.p2p-option-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.p2p-flag-warning {
+  color: #f0a0a0;
+  margin: 4px 0;
+  font-size: 0.85rem;
+}
+.p2p-option-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.p2p-flag-note {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 420px;
+}
+.p2p-link:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}

@@ -102,6 +102,8 @@ export type AppSettings = {
   favoriteTags: FavoriteTag[]
   downloadsDir: string
   libraryDir: string
+  /** OFF by default. When on, seed all local packages via WebTorrent (main). */
+  p2pEnabled: boolean
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
