@@ -25,17 +25,34 @@ export type P2pPeer = {
   protocol?: string
 }
 
+export type PackageFlagCounts = {
+  broken: number
+  harmful: number
+}
+
 export type PackageMetadata = {
   contentHash: string
   infoHash?: string | null
   normalizedName: string
   gameName: string
+  gameVersion?: string | null
   f95ThreadId: number | null
   f95ThreadUrl: string | null
   uniqueSeederPubkeyCount: number
+  /** Live swarm seeders from tracker scrape when the API provides it. */
+  seeders?: number | null
+  leechers?: number | null
+  /** Unique currently-active seeders (e.g. unique peer IPs); preferred over raw scrape. */
+  activeSeeders?: number | null
+  /** Unique clients that reported an install/approve. */
+  installCount?: number
+  /** Per-kind unique flag report counts (preferred over boolean flags). */
+  flagCounts?: PackageFlagCounts
   flags: PackageFlag[]
   peers?: P2pPeer[]
   sizeBytes?: number
+  /** Server clock when the package was first registered (trustworthy upload time). */
+  createdAt?: string
   updatedAt?: string
 }
 
@@ -68,6 +85,7 @@ export type TorrentMapEntry = {
   normalizedName: string
   sizeBytes: number
   gameName?: string
+  gameVersion?: string | null
   f95ThreadId?: number | null
   f95ThreadUrl?: string | null
   updatedAt: number
@@ -78,7 +96,7 @@ export type TorrentMapStore = {
   entries: Record<string, TorrentMapEntry>
 }
 
-export type P2pTransferState = 'idle' | 'checking' | 'downloading' | 'seeding' | 'paused' | 'error'
+export type P2pTransferState = 'idle' | 'checking' | 'downloading' | 'seeding' | 'paused' | 'quarantined' | 'error'
 
 export type P2pTransferProgress = {
   id: string
@@ -94,6 +112,10 @@ export type P2pTransferProgress = {
   progress: number
   numPeers: number
   error?: string
+  /** Display name for global Downloads / per-game filter */
+  gameName?: string
+  f95ThreadId?: number | null
+  normalizedName?: string
 }
 
 export type P2pIdentityPublic = {
@@ -137,10 +159,10 @@ export type PackageListResponse = {
 }
 
 /**
- * Env keys locked from Tracker compose (localhost defaults for stubs):
- *   TRACKER_ANNOUNCE_URL=http://localhost:6969/announce
- *   METADATA_BASE_URL=http://localhost:8080
- *   optional udp://localhost:6969/announce
+ * Env keys (production Oracle defaults; override in Settings → P2P or process.env):
+ *   TRACKER_ANNOUNCE_URL=http://130.61.67.157:6969/announce
+ *   METADATA_BASE_URL=http://130.61.67.157:6767
+ *   optional TRACKER_ANNOUNCE_UDP_URL=udp://130.61.67.157:6969/announce
  */
 export const P2P_ENV_KEYS = {
   TRACKER_ANNOUNCE_URL: 'TRACKER_ANNOUNCE_URL',
@@ -149,7 +171,7 @@ export const P2P_ENV_KEYS = {
 } as const
 
 export const P2P_ENV_DEFAULTS = {
-  TRACKER_ANNOUNCE_URL: 'http://localhost:6969/announce',
-  METADATA_BASE_URL: 'http://localhost:8080',
-  TRACKER_ANNOUNCE_UDP_URL: 'udp://localhost:6969/announce'
+  TRACKER_ANNOUNCE_URL: 'http://130.61.67.157:6969/announce',
+  METADATA_BASE_URL: 'http://130.61.67.157:6767',
+  TRACKER_ANNOUNCE_UDP_URL: 'udp://130.61.67.157:6969/announce'
 } as const

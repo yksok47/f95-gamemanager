@@ -8,6 +8,7 @@ import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url
 import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, registerSaveThumbScheme } from "./renpy/save-meta";
 import { getSettings } from "./settings-store";
+import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
 import { loadSession, persistSessionNow } from "./session-store";
 
 registerSaveThumbScheme();
@@ -58,9 +59,14 @@ app.whenReady().then(async () => {
 
   attachGuestWindowOpenHandler();
   await loadSession();
-  await getSettings();
+  const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
+  if (settings.p2pEnabled) {
+    void onP2pEnabledChanged(true).catch((error) =>
+      console.warn("[p2p] resume on startup failed", error)
+    );
+  }
   registerSaveThumbProtocol();
   createWindow();
   void adoptRunningLibrarySessions().catch((error) =>
@@ -88,5 +94,7 @@ app.on("before-quit", (event) => {
     .catch((error) => console.warn("Could not persist session on quit", error))
     .then(() => flushPlaySessions())
     .catch((error) => console.warn("Could not save playtime on quit", error))
+    .then(() => destroyWebTorrent())
+    .catch((error) => console.warn("[p2p] destroy on quit failed", error))
     .finally(() => app.exit(0));
 });

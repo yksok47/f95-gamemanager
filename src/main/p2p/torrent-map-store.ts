@@ -25,6 +25,7 @@ function normalize(value: unknown): TorrentMapStore {
         normalizedName: typeof e.normalizedName === 'string' ? e.normalizedName : '',
         sizeBytes: typeof e.sizeBytes === 'number' ? e.sizeBytes : 0,
         gameName: typeof e.gameName === 'string' ? e.gameName : undefined,
+      gameVersion: typeof e.gameVersion === 'string' ? e.gameVersion : undefined,
         f95ThreadId: typeof e.f95ThreadId === 'number' ? e.f95ThreadId : null,
         f95ThreadUrl: typeof e.f95ThreadUrl === 'string' ? e.f95ThreadUrl : null,
         updatedAt: typeof e.updatedAt === 'number' ? e.updatedAt : Date.now()

@@ -21,6 +21,9 @@ import { normalizeInfoHash } from '@shared/content-address'
 import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageListQuery, PackageListResponse, PackageMetadata, PackageStats } from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
+import { appendFile } from 'fs/promises'
+import { join } from 'path'
+import { getAppPaths } from '../paths'
 
 const API_PREFIX = '/api/v1'
 
@@ -31,10 +34,17 @@ type ApiPackage = {
   infoHash?: string | null
   normalizedName: string
   gameName?: string
+  gameVersion?: string | null
   f95ThreadId?: string | number | null
   f95ThreadUrl?: string | null
   flags?: ApiFlags | PackageFlag[]
+  flagCounts?: { broken?: number; harmful?: number }
   uniqueSeederPubkeyCount?: number
+  seeders?: number | null
+  leechers?: number | null
+  activeSeeders?: number | null
+  installCount?: number
+  completed?: number
   sizeBytes?: number
   updatedAt?: string
   createdAt?: string
@@ -67,17 +77,44 @@ function parseThreadId(value: unknown): number | null {
   return null
 }
 
+function flagCountsFromApi(pkg: ApiPackage, flags: PackageFlag[]): { broken: number; harmful: number } {
+  const fromApi = pkg.flagCounts
+  if (fromApi && typeof fromApi === 'object') {
+    return {
+      broken: Math.max(0, Number(fromApi.broken) || 0),
+      harmful: Math.max(0, Number(fromApi.harmful) || 0)
+    }
+  }
+  // Fall back: count array entries, or treat boolean flags as at least 1.
+  let broken = flags.filter((f) => f.kind === 'broken').length
+  let harmful = flags.filter((f) => f.kind === 'harmful').length
+  if (!Array.isArray(pkg.flags) && pkg.flags && typeof pkg.flags === 'object') {
+    if (pkg.flags.broken) broken = Math.max(broken, 1)
+    if (pkg.flags.harmful) harmful = Math.max(harmful, 1)
+  }
+  return { broken, harmful }
+}
+
 function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
+  const flags = flagsFromApi(pkg.flags, String(pkg.contentHash || ''))
+  const installRaw = pkg.installCount ?? pkg.completed
   return {
     contentHash: String(pkg.contentHash || '').toLowerCase(),
     infoHash: normalizeInfoHash(pkg.infoHash),
     normalizedName: pkg.normalizedName || '',
     gameName: pkg.gameName || pkg.normalizedName || '',
+    gameVersion: pkg.gameVersion ? String(pkg.gameVersion) : null,
     f95ThreadId: parseThreadId(pkg.f95ThreadId),
     f95ThreadUrl: pkg.f95ThreadUrl ? String(pkg.f95ThreadUrl) : null,
     uniqueSeederPubkeyCount: Number(pkg.uniqueSeederPubkeyCount) || 0,
-    flags: flagsFromApi(pkg.flags, String(pkg.contentHash || '')),
+    seeders: pkg.seeders == null ? null : Number(pkg.seeders) || 0,
+    leechers: pkg.leechers == null ? null : Number(pkg.leechers) || 0,
+    activeSeeders: pkg.activeSeeders == null ? null : Number(pkg.activeSeeders) || 0,
+    installCount: installRaw == null ? 0 : Math.max(0, Number(installRaw) || 0),
+    flagCounts: flagCountsFromApi(pkg, flags),
+    flags,
     sizeBytes: pkg.sizeBytes,
+    createdAt: pkg.createdAt || undefined,
     updatedAt: pkg.updatedAt || pkg.createdAt
   }
 }
@@ -91,10 +128,24 @@ function claimBodyForApi(claim: ShareClaimPostBody): Record<string, unknown> {
     ts: claim.ts,
     signature: claim.signature,
     gameName: claim.gameName ?? '',
+    gameVersion: claim.gameVersion?.trim() ? claim.gameVersion.trim() : undefined,
     f95ThreadId: claim.f95ThreadId == null || claim.f95ThreadId === '' ? '' : String(claim.f95ThreadId),
-    f95ThreadUrl: claim.f95ThreadUrl ?? ''
+    f95ThreadUrl: claim.f95ThreadUrl ?? '',
+    sizeBytes: typeof claim.sizeBytes === 'number' && claim.sizeBytes > 0 ? claim.sizeBytes : undefined
   }
 }
+
+const METADATA_FETCH_TIMEOUT_MS = 12_000
+
+async function appendDiscoveryLog(line: string): Promise<void> {
+  try {
+    const file = join(getAppPaths().userData, 'p2p-discovery.log')
+    await appendFile(file, `${new Date().toISOString()} ${line}\n`, 'utf8')
+  } catch {
+    /* ignore log failures */
+  }
+}
+
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const { metadataBaseUrl } = getP2pEnv()
@@ -103,10 +154,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     method,
     headers: body
       ? { 'content-type': 'application/json', accept: 'application/json' }
-      : { accept: 'application/json' }
+      : { accept: 'application/json' },
+    signal: AbortSignal.timeout(METADATA_FETCH_TIMEOUT_MS)
   }
   if (body !== undefined) init.body = JSON.stringify(body)
-  const res = await fetch(url, init)
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`metadata ${method} ${url} failed: ${reason}`)
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`metadata ${method} ${path} → ${res.status} ${text.slice(0, 200)}`)
@@ -187,6 +245,8 @@ export async function listPackages(query: PackageListQuery): Promise<PackageList
   appendQuery(params, 'offset', query.offset)
   const qs = params.toString()
   const path = qs ? `${API_PREFIX}/packages?${qs}` : `${API_PREFIX}/packages`
+  console.info('[p2p-metadata] GET', path, 'base=', getP2pEnv().metadataBaseUrl)
+  void appendDiscoveryLog(`GET ${path} base=${getP2pEnv().metadataBaseUrl}`)
   const raw = await request<
     | PackageListResponse
     | { items?: ApiPackage[]; limit?: number; offset?: number; total?: number }
@@ -200,6 +260,8 @@ export async function listPackages(query: PackageListQuery): Promise<PackageList
   const limit = typeof raw.limit === 'number' ? raw.limit : query.limit ?? items.length
   const offset = typeof raw.offset === 'number' ? raw.offset : query.offset ?? 0
   const total = typeof raw.total === 'number' ? raw.total : items.length
+  console.info('[p2p-metadata] listPackages thread=%s items=%s total=%s', f95ThreadId, items.length, total)
+  void appendDiscoveryLog(`listPackages thread=${f95ThreadId} items=${items.length} total=${total}`)
   return { items, limit, offset, total }
 }
 
@@ -226,4 +288,22 @@ export async function flagPackage(contentHash: string, payload: FlagPackagePaylo
     body
   )
   return toPackageMetadata(pkg)
+}
+/** Best-effort install signal after Approve. Soft-fails if Tracker has no endpoint yet. */
+export async function reportPackageInstall(contentHash: string, payload: {
+  seederPubkey: string
+  ts: number
+  signature: string
+}): Promise<void> {
+  const hash = contentHash.trim().toLowerCase()
+  if (!hash) return
+  try {
+    await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/installs`, {
+      seederPubkey: payload.seederPubkey,
+      ts: payload.ts,
+      signature: payload.signature
+    })
+  } catch (error) {
+    console.warn('[p2p-metadata] install report failed (Tracker may not support it yet)', error)
+  }
 }

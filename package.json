@@ -7,6 +7,8 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "dev:peer": "electron-vite build && electron . --user-data-dir=.userdata-p2p-b",
+    "dev:both": "concurrently \"bun dev\" \"bun dev:peer\"",
     "start": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
@@ -15,7 +17,8 @@
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "node scripts/postinstall-native.mjs",
+    "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -32,6 +35,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
     "electron": "^44.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "^v6.0.0-beta.1",

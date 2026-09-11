@@ -6,6 +6,9 @@ out
 *.log*
 .env
 .env.*
-.reference
-.p2p-spike/
 
+# Agent throwaway scripts/research (only scratch dir allowed)
+.agent-scratch/
+
+# Local Electron user-data for extra instances (e.g. npm run dev:peer)
+.userdata-*/

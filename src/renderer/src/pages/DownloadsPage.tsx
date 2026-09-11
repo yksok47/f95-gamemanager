@@ -1,9 +1,15 @@
 import type { JSX } from 'react'
 import type { DownloadRecord } from '@shared/types'
+import type { P2pTransferProgress, TorrentMapEntry } from '@shared/p2p'
 import DownloadRow from '../components/DownloadRow'
+import P2pTransferRow from '../components/P2pTransferRow'
+import { formatBytes, formatSpeed } from '../lib/downloads'
 
 type DownloadsPageProps = {
   items: DownloadRecord[]
+  p2pEnabled: boolean
+  p2pTransfers?: P2pTransferProgress[]
+  p2pShared?: TorrentMapEntry[]
   onCancel: (id: string) => void
   onPause: (id: string) => void
   onResume: (id: string) => void
@@ -12,10 +18,61 @@ type DownloadsPageProps = {
   onOpenFile: (id: string) => void
   onClearFinished: () => void
   onOpenFolder: () => void
+  onPauseP2p?: (id: string) => void
+  onResumeP2p?: (id: string) => void
+  onStopP2p?: (id: string) => void
+  onRevealQuarantine?: (id: string) => void
+  onApproveQuarantine?: (id: string) => void
+  onRejectQuarantine?: (id: string) => void
+  onFlagQuarantine?: (id: string) => void
+}
+
+function shortHash(value: string | null | undefined): string {
+  if (!value) return ''
+  return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value
+}
+
+function SharedRow({
+  entry,
+  live
+}: {
+  entry: TorrentMapEntry
+  live?: P2pTransferProgress
+}): JSX.Element {
+  const gameLabel =
+    entry.gameName?.trim() ||
+    (entry.f95ThreadId != null ? `Thread ${entry.f95ThreadId}` : 'Unknown game')
+  const packageLabel = entry.normalizedName || shortHash(entry.contentHash) || entry.path
+  const up =
+    live && live.uploadSpeed > 0 ? `↑ ${formatSpeed(live.uploadSpeed)}` : live ? '↑ 0 B/s' : ''
+  const down = live && live.downloadSpeed > 0 ? `↓ ${formatSpeed(live.downloadSpeed)}` : ''
+  const peers = live ? `peers ${live.numPeers}` : ''
+
+  return (
+    <article className="download-row">
+      <div className="download-row-main">
+        <div className="download-row-title">
+          <strong title={gameLabel}>{gameLabel}</strong>
+          <span className="download-status download-status-completed">Sharing</span>
+        </div>
+        <p className="muted download-url" title={entry.path}>
+          {packageLabel}
+        </p>
+        <p className="muted download-meta">
+          {[formatBytes(entry.sizeBytes), up, down, peers]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </div>
+    </article>
+  )
 }
 
 export default function DownloadsPage({
   items,
+  p2pEnabled,
+  p2pTransfers = [],
+  p2pShared = [],
   onCancel,
   onPause,
   onResume,
@@ -23,9 +80,31 @@ export default function DownloadsPage({
   onShowInFolder,
   onOpenFile,
   onClearFinished,
-  onOpenFolder
+  onOpenFolder,
+  onPauseP2p,
+  onResumeP2p,
+  onStopP2p,
+  onRevealQuarantine,
+  onApproveQuarantine,
+  onRejectQuarantine,
+  onFlagQuarantine
 }: DownloadsPageProps): JSX.Element {
   const finished = items.some((item) => item.status === 'completed' || item.status === 'cancelled')
+  // In-flight only — completed downloads move to Files / shared list (no duplicate row).
+  const downloading = p2pTransfers.filter(
+    (t) =>
+      t.state === 'downloading' ||
+      t.state === 'checking' ||
+      t.state === 'paused' ||
+      t.state === 'quarantined' ||
+      t.state === 'error'
+  )
+  const liveByHash = new Map(
+    p2pTransfers
+      .filter((t) => t.contentHash)
+      .map((t) => [t.contentHash!.toLowerCase(), t] as const)
+  )
+  const shared = p2pEnabled ? p2pShared : []
 
   return (
     <div className="settings-page">
@@ -66,6 +145,48 @@ export default function DownloadsPage({
           </div>
         )}
       </section>
+
+      {p2pEnabled ? (
+        <section className="settings-card downloads-p2p-card">
+          <div className="downloads-page-header">
+            <div>
+              <h1>P2P</h1>
+            </div>
+          </div>
+
+          {downloading.length ? (
+            <div className="downloads-page-list">
+              {downloading.map((item) => (
+                <P2pTransferRow
+                  key={`p2p-dl-${item.id}`}
+                  item={item}
+                  onPause={(id) => onPauseP2p?.(id)}
+                  onResume={(id) => onResumeP2p?.(id)}
+                  onStop={(id) => onStopP2p?.(id)}
+                  onRevealQuarantine={(id) => onRevealQuarantine?.(id)}
+                  onApproveQuarantine={(id) => onApproveQuarantine?.(id)}
+                  onRejectQuarantine={(id) => onRejectQuarantine?.(id)}
+                  onFlagQuarantine={(id) => onFlagQuarantine?.(id)}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {shared.length === 0 && downloading.length === 0 ? (
+            <p className="muted">No shared packages yet.</p>
+          ) : shared.length === 0 ? null : (
+            <div className="downloads-page-list">
+              {shared.map((entry) => (
+                <SharedRow
+                  key={entry.contentHash}
+                  entry={entry}
+                  live={liveByHash.get(entry.contentHash.toLowerCase())}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   )
 }

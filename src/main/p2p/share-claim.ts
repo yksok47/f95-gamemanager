@@ -46,6 +46,7 @@ export type ShareClaimPostBody = {
   ts: number
   signature: string
   gameName?: string
+  gameVersion?: string | null
   f95ThreadId?: number | string | null
   f95ThreadUrl?: string | null
   sizeBytes?: number

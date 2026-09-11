@@ -7,6 +7,7 @@ import {
   type JSX,
   type PointerEvent as ReactPointerEvent
 } from 'react'
+import { confirm } from './ConfirmDialog'
 import type { GameLibraryFile, RenpySaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
@@ -414,7 +415,7 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
     const paths = [...selected]
     if (!paths.length) return
     const noun = paths.length === 1 ? 'save' : 'saves'
-    if (!window.confirm(`Delete ${paths.length} ${noun}?`)) return
+    if (!(await confirm({ title: 'Delete saves', message: `Delete ${paths.length} ${noun}?`, confirmLabel: 'Delete', danger: true }))) return
     await withInfo(() => window.api.renpy.deleteSaves(activeId, paths, lookupTitle))
     setSelected(new Set())
   }

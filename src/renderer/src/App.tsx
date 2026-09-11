@@ -10,11 +10,11 @@ import type {
   Subscription
 } from '@shared/types'
 import AppNav, { type AppView } from './components/AppNav'
+import { ConfirmHost } from './components/ConfirmDialog'
 import DownloadsDock from './components/DownloadsDock'
 import CatalogPage from './pages/CatalogPage'
 import DownloadsPage from './pages/DownloadsPage'
-import P2pPage from './pages/P2pPage'
-import { P2P_ENV_DEFAULTS } from '@shared/p2p'
+import { P2P_ENV_DEFAULTS, type P2pTransferProgress, type TorrentMapEntry } from '@shared/p2p'
 import FollowedPage from './pages/FollowedPage'
 import LibraryPage from './pages/LibraryPage'
 import GameDetailsPage from './pages/GameDetailsPage'
@@ -90,11 +90,22 @@ export default function App(): JSX.Element {
     metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL
   })
   const [detailsStack, setDetailsStack] = useState<GameSummary[]>([])
-  const [p2pScope, setP2pScope] = useState<{ threadId: number; title: string } | null>(null)
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
+  const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
+  const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
   const details = detailsStack.at(-1) ?? null
   const favoriteTags = settings.favoriteTags
-  const activeDownloadCount = downloads.filter(isActiveDownload).length
+// Nav badge = in-progress downloads only (not background seeding/uploads)
+  const activeP2pCount = settings.p2pEnabled
+    ? p2pTransfers.filter(
+        (t) =>
+          t.state === 'downloading' ||
+          t.state === 'checking' ||
+          t.state === 'paused' ||
+          t.state === 'quarantined'
+      ).length
+    : 0
+  const activeDownloadCount = downloads.filter(isActiveDownload).length + activeP2pCount
   const libraryByThread = useLibraryByThread()
   const libraryCount = libraryByThread.size
 
@@ -149,7 +160,70 @@ export default function App(): JSX.Element {
     setDownloads(await window.api.downloads.remove(id))
   }, [])
 
-  const handleClearFinishedDownloads = useCallback(async (): Promise<void> => {
+  useEffect(() => {
+    let cancelled = false
+    void window.api.p2p.progress().then((items) => {
+      if (!cancelled) setP2pTransfers(items)
+    })
+    const stop = window.api.p2p.onProgress((items) => {
+      setP2pTransfers(items)
+    })
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadShared(): Promise<void> {
+      if (!settings.p2pEnabled) {
+        if (!cancelled) setP2pShared([])
+        return
+      }
+      try {
+        const rows = await window.api.p2p.listShared()
+        if (!cancelled) setP2pShared(rows)
+      } catch {
+        if (!cancelled) setP2pShared([])
+      }
+    }
+    void loadShared()
+    return () => {
+      cancelled = true
+    }
+  }, [settings.p2pEnabled, p2pTransfers])
+
+  const handlePauseP2p = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.pause(id)
+  }, [])
+
+  const handleResumeP2p = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.resume(id)
+  }, [])
+
+  const handleStopP2p = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.remove(id, true)
+  }, [])
+
+  const handleRevealQuarantine = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.revealQuarantine(id)
+  }, [])
+
+  const handleApproveQuarantine = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.approveQuarantine(id)
+  }, [])
+
+  const handleRejectQuarantine = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.rejectQuarantine(id)
+  }, [])
+
+  const handleFlagQuarantine = useCallback(async (id: string): Promise<void> => {
+    await window.api.p2p.flagQuarantine(id)
+  }, [])
+
+
+    const handleClearFinishedDownloads = useCallback(async (): Promise<void> => {
     setDownloads(await window.api.downloads.clearFinished())
   }, [])
 
@@ -261,6 +335,7 @@ export default function App(): JSX.Element {
 
   return (
     <div className={view !== 'downloads' && activeDownloadCount ? 'app-shell app-shell-dock' : 'app-shell'}>
+      <ConfirmHost />
       <AppNav
         view={view}
         username={session.username}
@@ -269,9 +344,6 @@ export default function App(): JSX.Element {
         libraryCount={libraryCount}
         downloadCount={activeDownloadCount}
         onViewChange={(next) => {
-          if (next === 'p2p' && details) {
-            setP2pScope({ threadId: details.threadId, title: details.title })
-          }
           setDetailsStack([])
           setView(next)
         }}
@@ -289,6 +361,9 @@ export default function App(): JSX.Element {
       ) : view === 'downloads' ? (
         <DownloadsPage
           items={downloads}
+          p2pEnabled={Boolean(settings.p2pEnabled)}
+          p2pTransfers={p2pTransfers}
+          p2pShared={p2pShared}
           onCancel={(id) => void handleCancelDownload(id)}
           onPause={(id) => void handlePauseDownload(id)}
           onResume={(id) => void handleResumeDownload(id)}
@@ -297,6 +372,13 @@ export default function App(): JSX.Element {
           onOpenFile={(id) => void window.api.downloads.openFile(id)}
           onClearFinished={() => void handleClearFinishedDownloads()}
           onOpenFolder={() => void window.api.downloads.openFolder()}
+          onPauseP2p={(id) => void handlePauseP2p(id)}
+          onResumeP2p={(id) => void handleResumeP2p(id)}
+          onStopP2p={(id) => void handleStopP2p(id)}
+          onRevealQuarantine={(id) => void handleRevealQuarantine(id)}
+          onApproveQuarantine={(id) => void handleApproveQuarantine(id)}
+          onRejectQuarantine={(id) => void handleRejectQuarantine(id)}
+          onFlagQuarantine={(id) => void handleFlagQuarantine(id)}
         />
       ) : view === 'followed' ? (
         <FollowedPage
@@ -315,12 +397,6 @@ export default function App(): JSX.Element {
           onToggleFollow={handleToggleFollow}
           onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
           onSessionExpired={handleSessionExpired}
-        />
-      ) : view === 'p2p' ? (
-        <P2pPage
-          p2pEnabled={Boolean(settings.p2pEnabled)}
-          games={subscriptions.map((g) => ({ threadId: g.threadId, title: g.title }))}
-          initialThreadId={p2pScope?.threadId ?? null}
         />
       ) : (
         <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
@@ -352,6 +428,7 @@ export default function App(): JSX.Element {
           onRefresh={handleRefresh}
           onSetRarity={handleSetRarity}
           onSessionExpired={handleSessionExpired}
+          p2pEnabled={Boolean(settings.p2pEnabled)}
         />
       ) : null}
       {view === 'downloads' ? null : (

@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import { ToolbarSlot } from './ToolbarPortal'
 
-export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'p2p' | 'settings'
+export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'settings'
 
 type AppNavProps = {
   view: AppView
@@ -54,13 +54,6 @@ export default function AppNav({
           onClick={() => onViewChange('downloads')}
         >
           Downloads{downloadCount ? ` (${downloadCount})` : ''}
-        </button>
-        <button
-          className={view === 'p2p' ? 'nav-btn nav-btn-active' : 'nav-btn'}
-          type="button"
-          onClick={() => onViewChange('p2p')}
-        >
-          P2P
         </button>
       </div>
       <ToolbarSlot />

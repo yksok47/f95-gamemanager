@@ -28,7 +28,13 @@ TRACKER_ANNOUNCE_UDP_URL=udp://localhost:6969/announce   # optional
 - Popularity = `uniqueSeederPubkeyCount` (unique seeder pubkeys). Flags: `broken` | `harmful`.
 - `infoHash` is always normalized to lowercase 40-char hex before metadata/share POSTs and in UI.
 
-## Discovery UI (not F95 download links)
+## Discovery / management UI
+- **No standalone P2P nav page.**
+- Per-game: **P2P downloads** section on the game **Downloads** tab (download only — no share/upload UI there).
+- Global **Downloads** page: dedicated **P2P** section — flat list of downloads + shares with game name, status, down/up speeds (not grouped by game).
+- Sharing remains opt-in via Settings (p2pEnabled / seed-all); monitor shares on the Downloads page.
+
+## Discovery UI (catalog)
 - P2P lives on its **own nav page** (`P2P`). Do **not** attach P2P controls to Game Details download-link rows.
 - Browse/search what the metadata API already knows is available (packages others shared).
 - Download via P2P by `contentHash` → metadata → `infoHash` magnet (requires Settings `p2pEnabled`).
@@ -72,3 +78,13 @@ Announce spike proved TCP+HTTP seed works without native WebRTC:
 Verify: enable P2P in settings (or call main seed IPC) with tracker up; `registerWebtorrentCompat` log then seed/add without native rebuild. `bun run typecheck` + `bun run test:p2p`.
 
 Note: metadata `listPackages` will require `f95ThreadId` soon (catalog filter); discovery UI owns that wire-up.
+
+## NAT / hole-punching (no user port forwards)
+
+Users must not open router ports. WebTorrent uses **WebRTC ICE**:
+
+1. **STUN** (default): stun:stun.l.google.com:19302 (+ backups), overridable via P2P_STUN_URLS (comma-separated). Wired on the WebTorrent client 	racker.rtcConfig.iceServers.
+2. **WebRTC native**: needs working 
+ode-datachannel (Electron rebuild / VS Build Tools on Windows). The interim JS stub only proves TCP+HTTP announce on friendly networks — it does **not** hole-punch across home NATs.
+3. **TURN** (future): relay for symmetric NATs when STUN alone fails — not shipped yet.
+

@@ -1,5 +1,5 @@
 ﻿import { mkdir, readFile, writeFile } from 'fs/promises'
-import { dirname, isAbsolute } from 'path'
+import { dirname, isAbsolute, join } from 'path'
 import { TAG_TIERS, type AppSettings, type FavoriteTag, type TagTier } from '@shared/types'
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { getAppPaths } from './paths'
@@ -107,6 +107,11 @@ async function writeStore(settings: AppSettings): Promise<void> {
 
 export function getDownloadsDirSync(): string {
   return loaded?.downloadsDir ?? getAppPaths().downloadsDir
+}
+
+/** Quarantine folder for P2P downloads awaiting Approve / Reject / Flag. */
+export function getUntrustedDownloadsDirSync(): string {
+  return join(getDownloadsDirSync(), 'untrusted')
 }
 
 export function getLibraryDirSync(): string {

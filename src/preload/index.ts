@@ -28,7 +28,8 @@ import type {
   PackageListQuery,
   PackageListResponse,
   PackageMetadata,
-  P2pTransferProgress
+  P2pTransferProgress,
+  TorrentMapEntry
 } from '@shared/p2p'
 
 const api = {
@@ -192,12 +193,17 @@ const api = {
       meta?: {
         contentHash?: string
         gameName?: string
+        gameVersion?: string | null
         f95ThreadId?: number | null
         f95ThreadUrl?: string | null
       }
     ): Promise<P2pTransferProgress> => ipcRenderer.invoke('p2p:seed', filePath, meta),
-    remove: (id: string): Promise<void> => ipcRenderer.invoke('p2p:remove', id),
+    remove: (id: string, deleteFiles?: boolean): Promise<void> =>
+      ipcRenderer.invoke('p2p:remove', id, Boolean(deleteFiles)),
+    pause: (id: string): Promise<P2pTransferProgress | null> => ipcRenderer.invoke('p2p:pause', id),
+    resume: (id: string): Promise<P2pTransferProgress | null> => ipcRenderer.invoke('p2p:resume', id),
     progress: (): Promise<P2pTransferProgress[]> => ipcRenderer.invoke('p2p:progress'),
+    listShared: (): Promise<TorrentMapEntry[]> => ipcRenderer.invoke('p2p:listShared'),
     seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
     listPackages: (query: PackageListQuery): Promise<PackageListResponse> =>
       ipcRenderer.invoke('p2p:listPackages', query),
@@ -205,6 +211,14 @@ const api = {
       ipcRenderer.invoke('p2p:downloadByHash', contentHash),
     flag: (contentHash: string, kind: PackageFlagKind, note?: string): Promise<PackageMetadata> =>
       ipcRenderer.invoke('p2p:flag', contentHash, kind, note),
+    approveQuarantine: (id: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:approveQuarantine', id),
+    rejectQuarantine: (id: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:rejectQuarantine', id),
+    revealQuarantine: (id: string): Promise<string> =>
+      ipcRenderer.invoke('p2p:revealQuarantine', id),
+    flagQuarantine: (id: string, note?: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:flagQuarantine', id, note),
     onProgress: (listener: (items: P2pTransferProgress[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: P2pTransferProgress[]): void => listener(items)
       ipcRenderer.on('p2p:progress', wrapped)

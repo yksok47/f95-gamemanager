@@ -92,7 +92,7 @@ export async function signMessageBytes(message: string): Promise<{ seederPubkey:
 /** Build + sign share-claim v1 POST body fields. */
 export async function signShareClaim(
   input: ShareClaimV1Input,
-  extra?: Partial<Pick<ShareClaimPostBody, 'gameName' | 'f95ThreadId' | 'f95ThreadUrl' | 'sizeBytes'>>
+  extra?: Partial<Pick<ShareClaimPostBody, 'gameName' | 'gameVersion' | 'f95ThreadId' | 'f95ThreadUrl' | 'sizeBytes'>>
 ): Promise<ShareClaimPostBody> {
   const ts = input.ts ?? Math.floor(Date.now() / 1000)
   const contentHash = input.contentHash.trim().toLowerCase()

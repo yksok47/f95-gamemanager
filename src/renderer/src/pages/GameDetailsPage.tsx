@@ -16,6 +16,8 @@ import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engine
 import { formatPlaytime, formatRelativeTime, formatSessionTime, formatUpdateDate, gameUpdateState, isRelativeDate } from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
 import DownloadRow from '../components/DownloadRow'
+import GameP2pSection from '../components/GameP2pSection'
+import { confirm } from '../components/ConfirmDialog'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
@@ -49,6 +51,8 @@ type GameDetailsPageProps = {
   onRefresh?: (threadId: number) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
   onSessionExpired: () => Promise<void>
+  /** When false/undefined, P2P section is hidden */
+  p2pEnabled?: boolean
 }
 
 function rarityLabel(rarity: GameRarity): string {
@@ -150,13 +154,15 @@ export default function GameDetailsPage({
   onToggleFollow,
   onRefresh,
   onSetRarity,
-  onSessionExpired
+  onSessionExpired,
+  p2pEnabled = false
 }: GameDetailsPageProps): JSX.Element {
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [tab, setTab] = useState<DetailsTab>('description')
+  const [p2pReloadKey, setP2pReloadKey] = useState(0)
   const [lightbox, setLightbox] = useState<number | null>(null)
   const [coverBroken, setCoverBroken] = useState(!summary.coverUrl)
   const [fullCoverReady, setFullCoverReady] = useState(false)
@@ -165,6 +171,8 @@ export default function GameDetailsPage({
   const [installBytes, setInstallBytes] = useState<number | null>(null)
   const [transfers, setTransfers] = useState<DownloadRecord[]>([])
   const [installError, setInstallError] = useState<string | null>(null)
+  const [shareP2pBusy, setShareP2pBusy] = useState<string | null>(null)
+  const [shareP2pError, setShareP2pError] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
   const [refreshingMeta, setRefreshingMeta] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
@@ -390,7 +398,7 @@ export default function GameDetailsPage({
       { id: 'description', label: 'Description', hidden: settled && !details?.descriptionHtml },
       { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
       { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
-      { id: 'downloads', label: 'Downloads', count: downloadCount, hidden: settled && !downloadCount },
+      { id: 'downloads', label: 'Downloads', count: downloadCount || undefined },
       { id: 'files', label: 'Files', count: files.length },
       { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
       { id: 'unren', label: 'UnRen', hidden: !isRenpy },
@@ -584,7 +592,7 @@ export default function GameDetailsPage({
   }
 
   async function uninstallFile(id: string): Promise<void> {
-    if (!window.confirm('Uninstall this version? The extracted folder will be deleted.')) return
+    if (!(await confirm({ title: 'Uninstall version', message: 'Uninstall this version? The extracted folder will be deleted.', confirmLabel: 'Uninstall', danger: true }))) return
     setInstallError(null)
     try {
       await window.api.library.uninstall(id)
@@ -594,7 +602,7 @@ export default function GameDetailsPage({
   }
 
   async function removeArchive(id: string): Promise<void> {
-    if (!window.confirm('Delete the archive for this version? The install folder is kept.')) return
+    if (!(await confirm({ title: 'Delete archive', message: 'Delete the archive for this version? The install folder is kept.', confirmLabel: 'Delete archive', danger: true }))) return
     setInstallError(null)
     try {
       await window.api.library.removeArchive(id)
@@ -604,7 +612,7 @@ export default function GameDetailsPage({
   }
 
   async function removeVersion(id: string): Promise<void> {
-    if (!window.confirm('Remove this version? The archive and the extracted folder will both be deleted.')) {
+    if (!(await confirm({ title: 'Remove version', message: 'Remove this version? The archive and the extracted folder will both be deleted.', confirmLabel: 'Remove', danger: true }))) {
       return
     }
     setInstallError(null)
@@ -612,6 +620,32 @@ export default function GameDetailsPage({
       setFiles(await window.api.library.removeVersion(id))
     } catch (err) {
       setInstallError(err instanceof Error ? err.message : 'Could not remove that version.')
+    }
+  }
+
+  async function shareViaP2p(file: GameLibraryFile): Promise<void> {
+    if (!p2pEnabled) {
+      setShareP2pError('Enable P2P in Settings first.')
+      return
+    }
+    if (!file.archivePath) {
+      setShareP2pError('No archive path to share.')
+      return
+    }
+    setShareP2pBusy(file.id)
+    setShareP2pError(null)
+    try {
+      await window.api.p2p.seed(file.archivePath, {
+        contentHash: file.hash || undefined,
+        gameName: title,
+        gameVersion: file.version || version || undefined,
+        f95ThreadId: summary.threadId,
+        f95ThreadUrl: threadUrl || undefined
+      })
+    } catch (err) {
+      setShareP2pError(err instanceof Error ? err.message : 'P2P share failed')
+    } finally {
+      setShareP2pBusy(null)
     }
   }
 
@@ -640,6 +674,13 @@ export default function GameDetailsPage({
         label: 'Show archive',
         onClick: () => void window.api.library.showArchive(file.id)
       })
+      if (p2pEnabled) {
+        items.push({
+          id: 'share-p2p',
+          label: shareP2pBusy === file.id ? 'Sharing…' : 'Share via P2P',
+          onClick: () => void shareViaP2p(file)
+        })
+      }
     }
     if (file.isInstalled) {
       items.push({
@@ -930,7 +971,10 @@ export default function GameDetailsPage({
             role="tab"
             aria-selected={tab === item.id}
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => setTab(item.id)}
+            onClick={() => {
+                  setTab(item.id)
+                  if (item.id === 'downloads') setP2pReloadKey((n) => n + 1)
+                }}
           >
             {item.label}
             {item.count ? <span className="details-tab-count">{item.count}</span> : null}
@@ -1003,9 +1047,9 @@ export default function GameDetailsPage({
         ) : null}
 
         {tab === 'downloads' ? (
-          downloadCount ? (
-            <div className="download-list">
-              {downloadSections.map((section) => {
+          <div className="download-list">
+            {downloadCount ? (
+              downloadSections.map((section) => {
                 const rows = section.groups.map((group) => (
                   <section key={group.title} className="download-group">
                     <h3>{group.title}</h3>
@@ -1032,17 +1076,27 @@ export default function GameDetailsPage({
                     {rows}
                   </section>
                 )
-              })}
-            </div>
-          ) : (
-            <p className="muted">{busy ? 'Loading download links…' : 'No download links were found in the first post.'}</p>
-          )
+              })
+            ) : (
+              <p className="muted">
+                {busy ? 'Loading download links…' : 'No F95 download links were found in the first post.'}
+              </p>
+            )}
+            {p2pEnabled ? (
+              <GameP2pSection
+                key={`p2p-${summary.threadId}-${p2pReloadKey}`}
+                threadId={summary.threadId}
+                gameName={title}
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {tab === 'files' ? (
           files.length ? (
             <div className="library-file-list">
               {installError ? <p className="error-text">{installError}</p> : null}
+              {shareP2pError ? <p className="error-text">{shareP2pError}</p> : null}
               {files.map((file) => (
                 <article key={file.id} className="library-file">
                   <div className="library-file-main">

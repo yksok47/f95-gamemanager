@@ -80,8 +80,15 @@ import {
   listPackagesForDiscovery,
   p2pAdd,
   p2pDownloadByContentHash,
+  flagQuarantinedDownload,
+  revealQuarantinedDownload,
+  rejectQuarantinedDownload,
+  approveQuarantinedDownload,
   p2pListProgress,
+  p2pListShared,
   p2pRemoveTransfer,
+  p2pPauseTransfer,
+  p2pResumeTransfer,
   p2pSeed,
   p2pStatus,
   seedAllLocalPackages,
@@ -647,6 +654,7 @@ export function registerIpc(): void {
       meta?: {
         contentHash?: string
         gameName?: string
+        gameVersion?: string | null
         f95ThreadId?: number | null
         f95ThreadUrl?: string | null
       }
@@ -658,9 +666,23 @@ export function registerIpc(): void {
       }
     }
   )
-  ipcMain.handle('p2p:remove', async (_event, id: string) => {
+  ipcMain.handle('p2p:remove', async (_event, id: string, deleteFiles?: boolean) => {
     try {
-      await p2pRemoveTransfer(String(id))
+      await p2pRemoveTransfer(String(id), Boolean(deleteFiles))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:pause', async (_event, id: string) => {
+    try {
+      return await p2pPauseTransfer(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:resume', async (_event, id: string) => {
+    try {
+      return await p2pResumeTransfer(String(id))
     } catch (error) {
       throw toIpcError(error)
     }
@@ -668,6 +690,13 @@ export function registerIpc(): void {
   ipcMain.handle('p2p:progress', async () => {
     try {
       return await p2pListProgress()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:listShared', async () => {
+    try {
+      return await p2pListShared()
     } catch (error) {
       throw toIpcError(error)
     }
@@ -698,6 +727,39 @@ export function registerIpc(): void {
     async (_event, contentHash: string, kind: PackageFlagKind, note?: string) => {
       try {
         return await flagPackageAs(String(contentHash), kind, note ? String(note) : undefined)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+
+  ipcMain.handle('p2p:approveQuarantine', async (_event, id: string) => {
+    try {
+      await approveQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:rejectQuarantine', async (_event, id: string) => {
+    try {
+      await rejectQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:revealQuarantine', async (_event, id: string) => {
+    try {
+      return await revealQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:flagQuarantine',
+    async (_event, id: string, note?: string) => {
+      try {
+        await flagQuarantinedDownload(String(id || ''), note ? String(note) : undefined)
       } catch (error) {
         throw toIpcError(error)
       }

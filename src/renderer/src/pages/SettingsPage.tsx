@@ -3,6 +3,9 @@ import type { AppSettings, CatalogTag, FavoriteTag, TagTier } from '@shared/type
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAG_TIERS } from '@shared/types'
 import { sortFavoriteTags } from '../lib/favorites'
+import Switch from '../components/Switch'
+
+type SettingsTab = 'general' | 'p2p' | 'tags'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -18,6 +21,7 @@ export default function SettingsPage({
   onSaveSettings
 }: SettingsPageProps): JSX.Element {
   const favoriteTags = settings.favoriteTags
+  const [tab, setTab] = useState<SettingsTab>('general')
   const [tags, setTags] = useState<CatalogTag[]>([])
   const [busy, setBusy] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -26,11 +30,22 @@ export default function SettingsPage({
   const [addAs, setAddAs] = useState<TagTier>('gold')
   const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
+  const [serviceStatus, setServiceStatus] = useState<{
+    metadata?: { ok: boolean; message?: string }
+    tracker?: { ok: boolean; message?: string }
+  } | null>(null)
+  const [statusBusy, setStatusBusy] = useState(false)
 
   useEffect(() => {
     setAnnounceDraft(settings.trackerAnnounceUrl)
     setMetadataDraft(settings.metadataBaseUrl)
   }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl])
+
+  useEffect(() => {
+    if (tab !== 'p2p') return
+    void refreshP2pStatus()
+  }, [tab, settings.p2pEnabled, settings.trackerAnnounceUrl, settings.metadataBaseUrl])
+
 
   useEffect(() => {
     let cancelled = false
@@ -101,182 +116,244 @@ export default function SettingsPage({
     await persist({ [key]: folder })
   }
 
+  const tabs: Array<{ id: SettingsTab; label: string }> = [
+    { id: 'general', label: 'General' },
+    { id: 'p2p', label: 'P2P' },
+    { id: 'tags', label: 'Favorite tags' }
+  ]
+
+  async function refreshP2pStatus(): Promise<void> {
+    setStatusBusy(true)
+    try {
+      const status = (await window.api.p2p.status()) as {
+        metadata?: { ok: boolean; message?: string }
+        tracker?: { ok: boolean; message?: string }
+      }
+      setServiceStatus({ metadata: status.metadata, tracker: status.tracker })
+    } catch (err) {
+      setServiceStatus({
+        metadata: { ok: false, message: err instanceof Error ? err.message : 'status failed' },
+        tracker: { ok: false, message: err instanceof Error ? err.message : 'status failed' }
+      })
+    } finally {
+      setStatusBusy(false)
+    }
+  }
+
   return (
     <div className="settings-page">
       <section className="settings-card">
         <h1>Settings</h1>
 
-        <h2 className="settings-heading">Folders</h2>
-        <p className="muted settings-lead">
-          Downloads always go to the downloads folder. Installed games will use the library folder.
-        </p>
-
-        <div className="folder-field">
-          <span className="filter-label">Downloads</span>
-          <div className="folder-path-row">
-            <input className="folder-path" value={settings.downloadsDir} readOnly />
-            <button className="ghost-btn" type="button" onClick={() => void chooseFolder('downloadsDir')}>
-              Browse
-            </button>
-          </div>
-        </div>
-        <div className="folder-field">
-          <span className="filter-label">Installed games</span>
-          <div className="folder-path-row">
-            <input className="folder-path" value={settings.libraryDir} readOnly />
-            <button className="ghost-btn" type="button" onClick={() => void chooseFolder('libraryDir')}>
-              Browse
-            </button>
-          </div>
-        </div>
-
-        <h2 className="settings-heading">P2P / torrenting</h2>
-        <p className="muted settings-lead">
-          Off by default. When enabled, this app seeds all local packages via WebTorrent in the
-          main process and registers share claims with the metadata service. Discover shared packages on the P2P page, scoped to one game thread
-          (not F95 download-link rows). Never sends F95 credentials. Seed-all runs when P2P is
-          enabled. Edit announce + metadata URLs below (localhost defaults for local Tracker).
-        </p>
-        <label className="p2p-toggle-row">
-          <input
-            type="checkbox"
-            checked={Boolean(settings.p2pEnabled)}
-            disabled={saving}
-            onChange={(event) => void persist({ p2pEnabled: event.target.checked })}
-          />
-          <span>Enable P2P seeding / downloads</span>
-        </label>
-
-        <div className="folder-field">
-          <span className="filter-label">Tracker announce URL</span>
-          <p className="muted settings-lead">WebTorrent swarm announce (opentracker). Env: TRACKER_ANNOUNCE_URL.</p>
-          <div className="folder-path-row">
-            <input
-              className="folder-path"
-              value={announceDraft}
-              disabled={saving}
-              placeholder={P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL}
-              onChange={(event) => setAnnounceDraft(event.target.value)}
-              onBlur={() => {
-                const next = announceDraft.trim() || P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL
-                setAnnounceDraft(next)
-                if (next !== settings.trackerAnnounceUrl) void persist({ trackerAnnounceUrl: next })
-              }}
-            />
+        <div className="details-tabs settings-tabs" role="tablist">
+          {tabs.map((item) => (
             <button
-              className="ghost-btn"
+              key={item.id}
+              className={tab === item.id ? 'details-tab details-tab-active' : 'details-tab'}
               type="button"
-              disabled={saving}
-              onClick={() => {
-                setAnnounceDraft(P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL)
-                void persist({ trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL })
-              }}
+              role="tab"
+              aria-selected={tab === item.id}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setTab(item.id)}
             >
-              Reset
+              {item.label}
             </button>
-          </div>
-        </div>
-        <div className="folder-field">
-          <span className="filter-label">Metadata base URL</span>
-          <p className="muted settings-lead">REST catalog host (no path). Env: METADATA_BASE_URL.</p>
-          <div className="folder-path-row">
-            <input
-              className="folder-path"
-              value={metadataDraft}
-              disabled={saving}
-              placeholder={P2P_ENV_DEFAULTS.METADATA_BASE_URL}
-              onChange={(event) => setMetadataDraft(event.target.value)}
-              onBlur={() => {
-                const next = metadataDraft.trim() || P2P_ENV_DEFAULTS.METADATA_BASE_URL
-                setMetadataDraft(next)
-                if (next !== settings.metadataBaseUrl) void persist({ metadataBaseUrl: next })
-              }}
-            />
-            <button
-              className="ghost-btn"
-              type="button"
-              disabled={saving}
-              onClick={() => {
-                setMetadataDraft(P2P_ENV_DEFAULTS.METADATA_BASE_URL)
-                void persist({ metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL })
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-
-        <h2 className="settings-heading">Favorite tags</h2>
-        <p className="muted settings-lead">
-          Pick favorite tags in three tiers. They appear on game tiles, stay colored in details, and
-          sit at the top of catalog filters.
-        </p>
-
-        <div className="favorite-tiers">
-          {TAG_TIERS.map((tier) => (
-            <div key={tier} className={`favorite-tier favorite-tier-${tier}`}>
-              <h2>{tierLabel(tier)}</h2>
-              {grouped[tier].length ? (
-                <div className="filter-chips">
-                  {grouped[tier].map((tag) => (
-                    <button
-                      key={tag.id}
-                      type="button"
-                      className={`chip chip-${tag.tier}`}
-                      title="Remove from favorites"
-                      onClick={() => removeTag(tag.id)}
-                    >
-                      {tag.name} ×
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted">No {tier} tags yet.</p>
-              )}
-            </div>
           ))}
         </div>
 
-        <div className="filter-row settings-add-row">
-          <span className="filter-label">Add as</span>
-          <select
-            className={`toolbar-select rarity-select rarity-select-${addAs}`}
-            value={addAs}
-            onChange={(event) => setAddAs(event.target.value as TagTier)}
-          >
-            {TAG_TIERS.map((tier) => (
-              <option key={tier} value={tier}>
-                {tierLabel(tier)}
-              </option>
-            ))}
-          </select>
-          <input
-            className="tag-search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Find a tag"
-          />
-          {saving ? <span className="muted">Saving…</span> : null}
-        </div>
+        {tab === 'general' ? (
+          <div className="settings-tab-body">
+            <div className="folder-field">
+              <span className="filter-label">Downloads</span>
+              <div className="folder-path-row">
+                <input className="folder-path" value={settings.downloadsDir} readOnly />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => void chooseFolder('downloadsDir')}
+                >
+                  Browse
+                </button>
+              </div>
+            </div>
+            <div className="folder-field">
+              <span className="filter-label">Installed games</span>
+              <div className="folder-path-row">
+                <input className="folder-path" value={settings.libraryDir} readOnly />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => void chooseFolder('libraryDir')}
+                >
+                  Browse
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'p2p' ? (
+          <div className="settings-tab-body">
+            <div className="p2p-safety-banner" role="alert">
+              <strong>Warning:</strong> P2P is inherently untrusted. Anyone can share archives —
+              including malware. Treat every download as dangerous until you have reviewed the
+              file yourself. Downloads land in an <code>untrusted</code> folder first; only Approve
+              moves them into your library.
+            </div>
+            <Switch
+              checked={Boolean(settings.p2pEnabled)}
+              disabled={saving}
+              onChange={(checked) => void persist({ p2pEnabled: checked })}
+              label="Enable P2P"
+            />
+
+            <div className="folder-field">
+              <span className="filter-label">Tracker announce URL</span>
+              <div className="folder-path-row">
+                <input
+                  className="folder-path"
+                  value={announceDraft}
+                  disabled={saving}
+                  placeholder={P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL}
+                  onChange={(event) => setAnnounceDraft(event.target.value)}
+                  onBlur={() => {
+                    const next = announceDraft.trim() || P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL
+                    setAnnounceDraft(next)
+                    if (next !== settings.trackerAnnounceUrl) void persist({ trackerAnnounceUrl: next })
+                  }}
+                />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setAnnounceDraft(P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL)
+                    void persist({ trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL })
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+            <div className="folder-field">
+              <span className="filter-label">Metadata base URL</span>
+              <div className="folder-path-row">
+                <input
+                  className="folder-path"
+                  value={metadataDraft}
+                  disabled={saving}
+                  placeholder={P2P_ENV_DEFAULTS.METADATA_BASE_URL}
+                  onChange={(event) => setMetadataDraft(event.target.value)}
+                  onBlur={() => {
+                    const next = metadataDraft.trim() || P2P_ENV_DEFAULTS.METADATA_BASE_URL
+                    setMetadataDraft(next)
+                    if (next !== settings.metadataBaseUrl) void persist({ metadataBaseUrl: next })
+                  }}
+                />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={saving}
+                  onClick={() => {
+                    setMetadataDraft(P2P_ENV_DEFAULTS.METADATA_BASE_URL)
+                    void persist({ metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL })
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+
+            <div className="folder-field">
+              <span className="filter-label">Service status</span>
+              <p className="muted download-meta">
+                {[
+                  `Metadata: ${serviceStatus?.metadata?.ok ? 'ok' : 'down'}${serviceStatus?.metadata?.message ? ` (${serviceStatus.metadata.message})` : ''}`,
+                  `Tracker: ${serviceStatus?.tracker?.ok ? 'ok' : 'down'}${serviceStatus?.tracker?.message ? ` (${serviceStatus.tracker.message})` : ''}`
+                ].join(' · ')}
+              </p>
+              <button
+                className="ghost-btn"
+                type="button"
+                disabled={statusBusy || saving || !settings.p2pEnabled}
+                onClick={() => void refreshP2pStatus()}
+              >
+                {statusBusy ? 'Checking…' : 'Refresh status'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'tags' ? (
+          <div className="settings-tab-body">
+            <div className="favorite-tiers">
+              {TAG_TIERS.map((tier) => (
+                <div key={tier} className={`favorite-tier favorite-tier-${tier}`}>
+                  <h2>{tierLabel(tier)}</h2>
+                  {grouped[tier].length ? (
+                    <div className="filter-chips">
+                      {grouped[tier].map((tag) => (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          className={`chip chip-${tag.tier}`}
+                          title="Remove from favorites"
+                          onClick={() => removeTag(tag.id)}
+                        >
+                          {tag.name} ×
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">No {tier} tags yet.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="filter-row settings-add-row">
+              <span className="filter-label">Add as</span>
+              <select
+                className={`toolbar-select rarity-select rarity-select-${addAs}`}
+                value={addAs}
+                onChange={(event) => setAddAs(event.target.value as TagTier)}
+              >
+                {TAG_TIERS.map((tier) => (
+                  <option key={tier} value={tier}>
+                    {tierLabel(tier)}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="tag-search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Find a tag"
+              />
+              {saving ? <span className="muted">Saving…</span> : null}
+            </div>
+
+            {busy ? <p className="muted">Loading tags…</p> : null}
+
+            <div className="filter-chips tag-results">
+              {visibleTags.map((tag) => {
+                const current = favoriteTags.find((item) => item.id === tag.id)
+                return (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    className={current ? `chip chip-${current.tier}` : 'chip'}
+                    onClick={() => assignTag(tag, addAs)}
+                  >
+                    {tag.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
 
         {error ? <p className="error-text">{error}</p> : null}
-        {busy ? <p className="muted">Loading tags…</p> : null}
-
-        <div className="filter-chips tag-results">
-          {visibleTags.map((tag) => {
-            const current = favoriteTags.find((item) => item.id === tag.id)
-            return (
-              <button
-                key={tag.id}
-                type="button"
-                className={current ? `chip chip-${current.tier}` : 'chip'}
-                onClick={() => assignTag(tag, addAs)}
-              >
-                {tag.name}
-              </button>
-            )
-          })}
-        </div>
       </section>
     </div>
   )

@@ -19,6 +19,7 @@ export type LocalPackageCandidate = {
   normalizedName: string
   sizeBytes: number
   gameName?: string
+  gameVersion?: string | null
   f95ThreadId?: number | null
   f95ThreadUrl?: string | null
 }
@@ -61,6 +62,7 @@ export async function discoverLocalPackageCandidates(): Promise<LocalPackageCand
         normalizedName: normalizePackageFilename(file.filename || file.archivePath),
         sizeBytes,
         gameName: file.title,
+        gameVersion: file.version || null,
         f95ThreadId: file.threadId || null,
         f95ThreadUrl: file.threadUrl || null
       })
@@ -126,6 +128,7 @@ export async function syncLocalPackagesIntoTorrentMap(): Promise<{
       normalizedName: c.normalizedName,
       sizeBytes: c.sizeBytes,
       gameName: c.gameName ?? prev?.gameName,
+      gameVersion: c.gameVersion ?? prev?.gameVersion ?? null,
       f95ThreadId: c.f95ThreadId ?? prev?.f95ThreadId ?? null,
       f95ThreadUrl: c.f95ThreadUrl ?? prev?.f95ThreadUrl ?? null
     })

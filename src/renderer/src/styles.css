@@ -2461,7 +2461,7 @@ body.is-save-dragging * {
 }
 
 
-/* P2P discovery (dedicated page — not download-link rows) */
+/* P2P — per-game Downloads tab + global Downloads section */
 .p2p-toggle-row {
   display: flex;
   align-items: center;
@@ -2571,6 +2571,54 @@ body.is-save-dragging * {
   margin: 8px 0 4px;
   font-size: 0.85rem;
 }
+
+.p2p-discovery-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.p2p-trust-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.p2p-trust-good {
+  color: #146c2e;
+  background: rgba(20, 108, 46, 0.12);
+  border-color: rgba(20, 108, 46, 0.35);
+}
+
+.p2p-trust-uncertain {
+  color: #5c6570;
+  background: rgba(92, 101, 112, 0.12);
+  border-color: rgba(92, 101, 112, 0.35);
+}
+
+.p2p-trust-caution {
+  color: #8a6d00;
+  background: rgba(212, 168, 0, 0.16);
+  border-color: rgba(212, 168, 0, 0.45);
+}
+
+.p2p-trust-bad {
+  color: #a11;
+  background: rgba(170, 17, 17, 0.1);
+  border-color: rgba(170, 17, 17, 0.35);
+}
+
+.p2p-trust-none {
+  color: #5c6570;
+  background: rgba(92, 101, 112, 0.08);
+  border-color: rgba(92, 101, 112, 0.25);
+}
 .p2p-option-actions {
   display: flex;
   gap: 6px;
@@ -2604,4 +2652,278 @@ body.is-save-dragging * {
   padding: 0;
   display: grid;
   gap: 4px;
+}
+
+
+.game-p2p-section {
+  margin-top: 28px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, #333);
+}
+
+.game-p2p-section > h2 {
+  margin-bottom: 6px;
+}
+
+.game-p2p-transfers {
+  margin: 16px 0 20px;
+}
+
+.game-p2p-share {
+  margin-top: 24px;
+}
+
+.p2p-transfer-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.p2p-transfer-main {
+  flex: 1;
+  min-width: 0;
+}
+
+
+.downloads-p2p-heading {
+  margin-top: 28px;
+}
+
+.game-p2p-section {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.game-p2p-section > h2 {
+  margin: 0 0 6px;
+}
+
+.game-p2p-active {
+  margin: 12px 0 16px;
+}
+
+.game-p2p-controls {
+  margin: 12px 0 16px;
+  align-items: center;
+}
+
+.game-p2p-controls .tag-search {
+  flex: 1 1 180px;
+  min-width: 160px;
+  max-width: 320px;
+}
+
+.game-p2p-pager {
+  margin-top: 12px;
+  align-items: center;
+}
+
+.p2p-check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.p2p-discovery-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.p2p-discovery-item {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+
+.p2p-discovery-main {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.p2p-flag-warning {
+  color: #f0a0a0;
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
+
+
+.settings-tabs {
+  margin: 12px 0 18px;
+}
+
+.settings-tab-body {
+  display: grid;
+  gap: 14px;
+}
+
+.ui-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+}
+
+.ui-switch-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ui-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.ui-switch-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  flex: 0 0 auto;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ui-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.ui-switch input:checked + .ui-switch-track {
+  background: rgba(240, 180, 41, 0.22);
+  border-color: var(--accent);
+}
+
+.ui-switch input:checked + .ui-switch-track .ui-switch-thumb {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+
+.ui-switch input:focus-visible + .ui-switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.ui-switch-label {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.game-p2p-controls {
+  gap: 8px;
+}
+
+.game-p2p-controls .tag-search {
+  flex: 1 1 200px;
+  min-width: 160px;
+  max-width: 360px;
+}
+
+.game-p2p-controls .toolbar-select {
+  flex: 0 0 auto;
+}
+
+
+.downloads-p2p-card {
+  margin-top: 16px;
+}
+
+.downloads-p2p-card h1 {
+  margin: 0 0 16px;
+}
+
+
+.p2p-safety-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid #a35b2a;
+  background: rgba(180, 80, 20, 0.18);
+  color: #f0c9a0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.p2p-safety-banner strong {
+  color: #ffb074;
+}
+
+.p2p-quarantine-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  justify-content: flex-end;
+}
+
+.p2p-quarantine-actions .danger-btn {
+  color: #f5a5a5;
+}
+
+
+/* In-app confirm (replaces window.confirm) */
+.app-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 10, 14, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.app-confirm-dialog {
+  width: min(420px, 100%);
+  padding: 20px 20px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #181b22;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  color: var(--text, #e8eaed);
+}
+
+.app-confirm-title {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.app-confirm-message {
+  margin: 0;
+  color: var(--muted, #9aa3b2);
+  font-size: 0.95rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.app-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
 }

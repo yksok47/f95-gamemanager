@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
+import { confirm } from './ConfirmDialog'
 import type { GameLibraryFile, RpgMakerInfo, RpgMakerSaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
@@ -91,7 +92,7 @@ export default function RpgMakerSavesPanel({
     const paths = [...selected]
     if (!paths.length) return
     const noun = paths.length === 1 ? 'save' : 'saves'
-    if (!window.confirm(`Delete ${paths.length} ${noun} from the game folder and AppData backup?`)) return
+    if (!(await confirm({ title: 'Delete saves', message: `Delete ${paths.length} ${noun} from the game folder and AppData backup?`, confirmLabel: 'Delete', danger: true }))) return
     setBusy(true)
     setError(null)
     try {
