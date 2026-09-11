@@ -7,3 +7,5 @@ out
 .env
 .env.*
 .reference
+.p2p-spike/
+

@@ -1,4 +1,4 @@
-# P2P scaffolding (phase 1)
+﻿# P2P scaffolding (phase 1)
 
 ## Stack
 - **WebTorrent ≥2.3** in Electron **main** only (Node). Not renderer. Not webtorrent-hybrid.
@@ -23,3 +23,11 @@ TRACKER_ANNOUNCE_UDP_URL=udp://localhost:6969/announce   # optional
 
 ## Settings
 - `p2pEnabled` default **false**. When on → seed all local packages (torrent map).
+
+## Windows spike notes (2026-09-11)
+
+- webtorrent@2.8.5 installs via bun, but postinstall / electron-builder install-app-deps fails without Visual Studio Build Tools (node-gyp).
+- Runtime import fails on missing native 
+ode-datachannel (uild/Release/node_datachannel.node) and optional ufferutil rebuild.
+- **Blocker:** install VS Build Tools with "Desktop development with C++", then re-run un run postinstall / @electron/rebuild for Electron 44, then re-spike seed(path) on a 1–5GB file.
+- Fallback (not built): aria2 RPC for multi-GB hashing if WebTorrent hashing is too slow.
