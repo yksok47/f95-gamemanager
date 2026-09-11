@@ -5,11 +5,17 @@
  *
  * Loaded ONLY when P2P is enabled (dynamic import). Stub-safe if dependency missing.
  *
+ * JS-fallback (interim): registerWebtorrentCompat() stubs missing node-datachannel
+ * native and hardens infoHash/arr2hex so TCP+HTTP announce works without VS Build Tools.
+ * infoHash exposed to metadata/UI is normalized 40-char hex; Buffer stays inside WT.
+ *
  * Fallback note (not built): aria2 RPC may later help multi-GB hashing performance.
  */
 
 import type { P2pTransferProgress } from '@shared/p2p'
 import { getAnnounceList } from './env'
+import { normalizeInfoHash } from '@shared/content-address'
+import { registerWebtorrentCompat } from './webtorrent-compat'
 
 type WebTorrentLike = {
   add: (uri: string, opts?: object, cb?: (torrent: TorrentLike) => void) => TorrentLike
@@ -51,7 +57,7 @@ function trackTorrent(id: string, torrent: TorrentLike, contentHash?: string): v
     progressById.set(id, {
       id,
       contentHash,
-      infoHash: torrent.infoHash || null,
+      infoHash: normalizeInfoHash(torrent.infoHash),
       path: torrent.files?.[0]?.path,
       state,
       downloaded: torrent.downloaded ?? 0,
@@ -82,7 +88,9 @@ async function ensureClient(): Promise<WebTorrentLike> {
   if (client) return client
   if (loadError) throw new Error(loadError)
   try {
-    // Dynamic import — do not load webtorrent when P2P is off
+    // Dynamic import — do not load webtorrent when P2P is off.
+    // Register NDC stub + arr2hex hex-string compat first (JS-fallback).
+    registerWebtorrentCompat()
     const mod = (await import('webtorrent')) as { default?: new () => WebTorrentLike } & (new () => WebTorrentLike)
     const WebTorrent = mod.default ?? mod
     client = new WebTorrent()

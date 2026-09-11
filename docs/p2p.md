@@ -61,3 +61,14 @@ ts=<unixSeconds>
 - Opentracker Docker may peg CPU / hang `/stats` on Docker Desktop Windows host publish — Tracker fixing (TCP-only or bittorrent-tracker swap). Announce URL stays `http://localhost:6969/announce`.
 - Fallback (not built): aria2 RPC for multi-GB hashing if WebTorrent hashing is too slow.
 
+## WebTorrent JS-fallback (interim, 2026-09-11)
+
+Announce spike proved TCP+HTTP seed works without native WebRTC:
+
+1. **node-datachannel stub** — `src/main/p2p/shims/node-datachannel-stub.mjs` registered via `webtorrent-compat-loader.mjs` before `import('webtorrent')`. App-owned; no permanent `node_modules` edit. Remove once `@electron/rebuild` produces `node_datachannel.node`.
+2. **infoHash / arr2hex** — parse-torrent@11 may supply hex strings; WT still calls `arr2hex`. Loader hardens `uint8-util` + torrent.js. Service exposes **40-char hex** via `normalizeInfoHash` for metadata/share POSTs; Buffer stays inside the WT client.
+3. Env defaults remain `TRACKER_ANNOUNCE_URL=http://localhost:6969/announce`, `METADATA_BASE_URL=http://localhost:8080`.
+
+Verify: enable P2P in settings (or call main seed IPC) with tracker up; `registerWebtorrentCompat` log then seed/add without native rebuild. `bun run typecheck` + `bun run test:p2p`.
+
+Note: metadata `listPackages` will require `f95ThreadId` soon (catalog filter); discovery UI owns that wire-up.

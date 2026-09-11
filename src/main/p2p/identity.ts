@@ -10,6 +10,7 @@ import { dirname } from 'path'
 import { safeStorage } from 'electron'
 import type { P2pIdentityPublic } from '@shared/p2p'
 import { getAppPaths } from '../paths'
+import { normalizeInfoHash } from '@shared/content-address'
 import { buildShareClaimMessage, type ShareClaimV1Input, type ShareClaimPostBody } from './share-claim'
 
 type StoredIdentity = {
@@ -95,7 +96,7 @@ export async function signShareClaim(
 ): Promise<ShareClaimPostBody> {
   const ts = input.ts ?? Math.floor(Date.now() / 1000)
   const contentHash = input.contentHash.trim().toLowerCase()
-  const infoHash = (input.infoHash ?? '').trim().toLowerCase()
+  const infoHash = normalizeInfoHash(input.infoHash) ?? ''
   const normalizedName = input.normalizedName
   const message = buildShareClaimMessage({ contentHash, infoHash, normalizedName, ts })
   const { seederPubkey, signature } = await signMessageBytes(message)
