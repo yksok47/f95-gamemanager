@@ -43,6 +43,7 @@ type ApiPackage = {
   seeders?: number | null
   leechers?: number | null
   activeSeeders?: number | null
+  listenAddrs?: string[] | null
   installCount?: number
   completed?: number
   sizeBytes?: number
@@ -115,12 +116,15 @@ function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
     flags,
     sizeBytes: pkg.sizeBytes,
     createdAt: pkg.createdAt || undefined,
-    updatedAt: pkg.updatedAt || pkg.createdAt
+    updatedAt: pkg.updatedAt || pkg.createdAt,
+    listenAddrs: Array.isArray(pkg.listenAddrs)
+      ? pkg.listenAddrs.map((a) => String(a)).filter(Boolean).slice(0, 8)
+      : undefined
   }
 }
 
 function claimBodyForApi(claim: ShareClaimPostBody): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     contentHash: claim.contentHash,
     infoHash: normalizeInfoHash(claim.infoHash) ?? '',
     normalizedName: claim.normalizedName,
@@ -133,6 +137,10 @@ function claimBodyForApi(claim: ShareClaimPostBody): Record<string, unknown> {
     f95ThreadUrl: claim.f95ThreadUrl ?? '',
     sizeBytes: typeof claim.sizeBytes === 'number' && claim.sizeBytes > 0 ? claim.sizeBytes : undefined
   }
+  if (Array.isArray(claim.listenAddrs)) {
+    body.listenAddrs = claim.listenAddrs.map((a) => String(a)).filter(Boolean).slice(0, 8)
+  }
+  return body
 }
 
 const METADATA_FETCH_TIMEOUT_MS = 12_000
@@ -289,6 +297,25 @@ export async function flagPackage(contentHash: string, payload: FlagPackagePaylo
   )
   return toPackageMetadata(pkg)
 }
+
+/** Refresh seeder row (e.g. listenAddrs) without a full package create. */
+export async function upsertPackageSeeder(
+  contentHash: string,
+  payload: { seederPubkey: string; ts: number; signature: string; listenAddrs?: string[] }
+): Promise<void> {
+  const hash = contentHash.trim().toLowerCase()
+  if (!hash) return
+  const body: Record<string, unknown> = {
+    seederPubkey: payload.seederPubkey,
+    ts: payload.ts,
+    signature: payload.signature
+  }
+  if (Array.isArray(payload.listenAddrs)) {
+    body.listenAddrs = payload.listenAddrs.map((a) => String(a)).filter(Boolean).slice(0, 8)
+  }
+  await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/seeders`, body)
+}
+
 /** Best-effort install signal after Approve. Soft-fails if Tracker has no endpoint yet. */
 export async function reportPackageInstall(contentHash: string, payload: {
   seederPubkey: string

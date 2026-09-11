@@ -50,4 +50,6 @@ export type ShareClaimPostBody = {
   f95ThreadId?: number | string | null
   f95ThreadUrl?: string | null
   sizeBytes?: number
+  /** Optional reachable endpoints host:port (max 8). */
+  listenAddrs?: string[]
 }

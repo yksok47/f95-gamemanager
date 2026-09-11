@@ -26,6 +26,7 @@ import { loadCachedTorrentFile, saveCachedTorrentFile } from './torrent-file-cac
 import { upsertTorrentMapEntry } from './torrent-map-store'
 import { normalizeInfoHash, normalizePackageFilename } from '@shared/content-address'
 import { registerWebtorrentCompat, probeNativeWebRtc } from './webtorrent-compat'
+import { listTailscalePeerIpv4s } from './listen-addrs'
 
 const execFileAsync = promisify(execFile)
 
@@ -495,6 +496,9 @@ async function lanNeighborIpv4s(): Promise<string[]> {
   } catch (error) {
     console.warn('[p2p] LAN neighbor lookup failed', error)
   }
+  for (const ip of await listTailscalePeerIpv4s()) {
+    if (!own.has(ip)) found.add(ip)
+  }
   let list = [...found]
   if (list.length < 2) {
     for (const ip of lanSubnetIpv4s(64)) {
@@ -728,6 +732,45 @@ export function onP2pProgress(listener: (items: P2pTransferProgress[]) => void):
   return () => {
     listeners.delete(listener)
   }
+}
+
+
+export function getTorrentListenPort(): number | null {
+  const tp = client?.torrentPort
+  return typeof tp === 'number' && tp > 0 ? tp : null
+}
+
+/** Dial metadata listenAddrs (and raw host:port strings) on a live torrent. */
+export function p2pDialListenAddrs(
+  infoHashOrId: string,
+  addrs: string[] | null | undefined
+): number {
+  if (!addrs?.length) return 0
+  const key = normalizeInfoHash(infoHashOrId) || infoHashOrId
+  let torrent: TorrentLike | undefined = torrentById.get(infoHashOrId) || torrentById.get(key)
+  if (!torrent && client) {
+    torrent = client.torrents.find(
+      (x) => normalizeInfoHash(x.infoHash) === key || x.infoHash === infoHashOrId
+    )
+  }
+  if (!torrent || typeof torrent.addPeer !== 'function') return 0
+  let n = 0
+  for (const raw of addrs) {
+    const addr = String(raw || '').trim()
+    if (!addr) continue
+    try {
+      console.info('[p2p] dial listenAddr', addr)
+      if (torrent.addPeer(addr)) n++
+      else {
+        // addPeer may return false if already connected; still count attempt
+        torrent.addPeer(addr)
+        n++
+      }
+    } catch (error) {
+      console.warn('[p2p] dial listenAddr failed', addr, error)
+    }
+  }
+  return n
 }
 
 export function listP2pProgress(): P2pTransferProgress[] {

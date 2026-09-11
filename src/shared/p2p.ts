@@ -54,6 +54,8 @@ export type PackageMetadata = {
   /** Server clock when the package was first registered (trustworthy upload time). */
   createdAt?: string
   updatedAt?: string
+  /** Reachable seeder endpoints (LAN/Tailscale) from metadata; dial these under hairpin NAT. */
+  listenAddrs?: string[]
 }
 
 export type PackageStats = {
