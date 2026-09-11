@@ -17,7 +17,7 @@
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
-    "postinstall": "node scripts/postinstall-native.mjs",
+    "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {

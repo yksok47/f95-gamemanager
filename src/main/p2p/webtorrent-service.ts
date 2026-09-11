@@ -48,7 +48,7 @@ type TorrentLike = {
   files: { path: string; name: string; length: number }[]
   done: boolean
   paused?: boolean
-  wires?: Array<{ destroy: () => void }>
+  wires?: Array<{ destroy: () => void; remoteAddress?: string | null; remotePort?: number | null }>
   discovery?: {
     tracker?: {
       update?: (opts?: object) => void
@@ -303,7 +303,7 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
       downloadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.downloadSpeed ?? 0),
       uploadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.uploadSpeed ?? 0),
       progress: torrent.progress ?? 0,
-      numPeers: torrent.numPeers ?? 0,
+      numPeers: countUniqueRemotePeerIps(torrent),
       error,
       gameName: meta?.gameName ?? prev?.gameName,
       f95ThreadId: meta?.f95ThreadId ?? prev?.f95ThreadId,
@@ -339,6 +339,27 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
   torrent.on('error', (err: unknown) => {
     update('error', err instanceof Error ? err.message : String(err))
   })
+}
+
+
+/** WebTorrent numPeers counts wires (IP:port / dual transport). UI wants unique remote IPs. */
+function countUniqueRemotePeerIps(torrent: TorrentLike): number {
+  const wires = torrent.wires
+  if (!Array.isArray(wires) || wires.length === 0) {
+    return Math.max(0, torrent.numPeers ?? 0)
+  }
+  const seen = new Set<string>()
+  for (const w of wires) {
+    const addr = typeof w.remoteAddress === 'string' ? w.remoteAddress.trim() : ''
+    if (!addr) continue
+    // Normalize IPv4-mapped IPv6 so the same host isn't double-counted.
+    const key = addr.startsWith('::ffff:') ? addr.slice(7) : addr
+    if (key === '127.0.0.1' || key === '::1') continue
+    seen.add(key)
+  }
+  // If wires lacked addresses, fall back to library count rather than lying with 0.
+  if (seen.size === 0 && (torrent.numPeers ?? 0) > 0) return torrent.numPeers ?? 0
+  return seen.size
 }
 
 function disconnectTorrentPeers(torrent: TorrentLike): void {

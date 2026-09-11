@@ -64,7 +64,8 @@ function livePeersForPackage(
 }
 
 function availabilityMeta(pkg: PackageMetadata, livePeers: number | null): string {
-  // Prefer live WebTorrent peers when we are in that swarm; else tracker probe from tab load.
+  // Live transfer numPeers is unique remote IPs (not wire endpoints). Prefer it when we are
+  // in the swarm for freshness; else tracker announce unique-IP probe from tab load.
   const raw =
     livePeers != null
       ? livePeers
