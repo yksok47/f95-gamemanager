@@ -57,6 +57,7 @@ import {
   openRenpySaves,
   renumberRenpyPage,
   runRenpyAction,
+  setAllRenpyToolsForFile,
   setRenpyToolForFile,
   showRenpySave
 } from './renpy/saves'
@@ -469,6 +470,14 @@ export function registerIpc(): void {
   ipcMain.handle('renpy:setTool', async (_event, id: string, tool: RenpyToolId, enabled: boolean) => {
     try {
       return await setRenpyToolForFile(String(id), tool, Boolean(enabled))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('renpy:setAllOptions', async (_event, id: string, enabled: boolean) => {
+    try {
+      return await setAllRenpyToolsForFile(String(id), Boolean(enabled))
     } catch (error) {
       throw toIpcError(error)
     }

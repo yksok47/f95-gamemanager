@@ -188,9 +188,9 @@ export type PlaySessionStatus = {
   elapsedMs: number
 }
 
-export type UnRenAction = 'extract' | 'decompile' | 'console' | 'quick' | 'skip' | 'rollback' | 'all-tools'
+export type UnRenAction = 'extract' | 'decompile'
 
-export type RenpyToolId = 'console' | 'quick' | 'skip' | 'rollback'
+export type RenpyToolId = 'console' | 'quick' | 'skip' | 'rollback' | 'transitions' | 'after-choices'
 
 export type RenpySaveKind = 'slot' | 'auto' | 'quick' | 'persistent' | 'other'
 

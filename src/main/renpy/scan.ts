@@ -3,6 +3,7 @@ import { join } from 'path'
 import type { RenpyArchiveFile, RenpyScriptStatus } from '@shared/types'
 import { childPath, listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
 import { findGamePython } from './runtime'
+import { isRenpyToolScript } from './tools'
 
 const SKIP_DIRS = new Set(['lib', 'renpy', 'cache', '__pycache__', 'tmp', 'temp', 'decompiler', '.f95-unren', '.f95-unren-old'])
 
@@ -63,10 +64,11 @@ export function scanScripts(gameRoot: string): RenpyScriptStatus {
       if (lower.endsWith('.rpa')) {
         rpaFiles.push({ name: entry.name, path: resolveLongPath(full), size: fileSize(full) })
       } else if (lower.endsWith('.rpyc')) {
-        if (lower === 'un.rpyc') continue
+        if (lower === 'un.rpyc' || isRenpyToolScript(lower.replace(/c$/, ''))) continue
         rpycCount += 1
         rpycNames.add(join(dir, lower.slice(0, -5)).toLowerCase())
       } else if (lower.endsWith('.rpy')) {
+        if (isRenpyToolScript(entry.name)) continue
         rpyCount += 1
         rpyNames.add(join(dir, lower.slice(0, -4)).toLowerCase())
       }
@@ -120,7 +122,7 @@ export function listRpycNeedingDecompile(gameRoot: string): string[] {
         continue
       }
       if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.rpyc')) continue
-      if (/^un\.rpyc$/i.test(entry.name)) continue
+      if (/^un\.rpyc$/i.test(entry.name) || isRenpyToolScript(entry.name.replace(/c$/i, ''))) continue
       const rpy = full.replace(/\.rpyc$/i, '.rpy')
       if (!pathExists(rpy)) pending.push(resolveLongPath(full))
     }

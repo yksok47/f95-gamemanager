@@ -140,6 +140,8 @@ const api = {
       ipcRenderer.invoke('renpy:run', fileId, action),
     setTool: (fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:setTool', fileId, tool, enabled),
+    setAllOptions: (fileId: string, enabled: boolean): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:setAllOptions', fileId, enabled),
     openSaves: (fileId: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:openSaves', fileId, title),
     showSave: (fileId: string, savePath: string, title = ''): Promise<void> =>

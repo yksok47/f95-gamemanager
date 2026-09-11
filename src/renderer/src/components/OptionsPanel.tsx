@@ -1,0 +1,106 @@
+import type { JSX } from 'react'
+import type { GameLibraryFile, RenpyToolId } from '@shared/types'
+import { useRenpySession } from '../lib/renpy'
+
+type OptionsPanelProps = {
+  files: GameLibraryFile[]
+}
+
+const OPTIONS: Array<{ id: RenpyToolId; label: string; hint: string }> = [
+  { id: 'console', label: 'Developer console', hint: 'Shift+O console, Shift+D developer menu' },
+  { id: 'quick', label: 'Quick save / load', hint: 'F5 save, F9 load' },
+  { id: 'skip', label: 'Skip unseen text', hint: 'Tab and Ctrl skip everything' },
+  { id: 'rollback', label: 'Rollback', hint: 'Scroll wheel and Page Up go back' },
+  { id: 'transitions', label: 'Skip transitions', hint: 'Skip scene transitions while advancing' },
+  { id: 'after-choices', label: 'Skip after choices', hint: 'Keep skipping after a menu choice' }
+]
+
+export default function OptionsPanel({ files }: OptionsPanelProps): JSX.Element {
+  const { installed, activeId, setFileId, info, error, busy, running, withInfo } = useRenpySession(files, {
+    installedOnly: true
+  })
+
+  function toggle(id: RenpyToolId, enabled: boolean): void {
+    if (!activeId) return
+    void withInfo(() => window.api.renpy.setTool(activeId, id, enabled))
+  }
+
+  function setAll(enabled: boolean): void {
+    if (!activeId) return
+    void withInfo(() => window.api.renpy.setAllOptions(activeId, enabled))
+  }
+
+  if (!installed.length) {
+    return (
+      <p className="muted">
+        Install a Ren&apos;Py build from the Files tab to read and change these options.
+      </p>
+    )
+  }
+
+  return (
+    <div className="renpy-panel">
+      {installed.length > 1 ? (
+        <label className="renpy-version">
+          <span className="muted">Version</span>
+          <select className="toolbar-select" value={activeId} onChange={(event) => setFileId(event.target.value)}>
+            {installed.map((file) => (
+              <option key={file.id} value={file.id}>
+                {file.version || 'Unknown'} · {file.filename}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      <section className="renpy-section">
+        <div className="renpy-section-head">
+          <h2>Runtime options</h2>
+          <div className="renpy-actions">
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={busy || running}
+              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false))}
+            >
+              Refresh
+            </button>
+            <button className="ghost-btn" type="button" disabled={busy || running} onClick={() => setAll(true)}>
+              Enable all
+            </button>
+            <button className="ghost-btn" type="button" disabled={busy || running} onClick={() => setAll(false)}>
+              Disable all
+            </button>
+          </div>
+        </div>
+        <p className="muted">
+          Skip options follow the game&apos;s saved preferences. Quit the game, then refresh if you changed them
+          in-game.
+        </p>
+        <div className="renpy-tools">
+          {OPTIONS.map((option) => {
+            const on = Boolean(info?.tools[option.id])
+            return (
+              <article key={option.id} className="renpy-tool">
+                <div>
+                  <strong>{option.label}</strong>
+                  <p className="muted library-file-meta">{option.hint}</p>
+                </div>
+                <button
+                  className={on ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
+                  type="button"
+                  aria-pressed={on}
+                  disabled={busy || running || !activeId}
+                  onClick={() => toggle(option.id, !on)}
+                >
+                  {on ? 'On' : 'Off'}
+                </button>
+              </article>
+            )
+          })}
+        </div>
+        {error ? <p className="error-text">{error}</p> : null}
+      </section>
+    </div>
+  )
+}

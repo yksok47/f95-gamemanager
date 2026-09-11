@@ -19,6 +19,7 @@ import DownloadRow from '../components/DownloadRow'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
+import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import { favoriteTierByName } from '../lib/favorites'
 import { formatBytes, isActiveDownload } from '../lib/downloads'
@@ -34,6 +35,7 @@ type DetailsTab =
   | 'files'
   | 'saves'
   | 'unren'
+  | 'options'
   | 'reviews'
 
 type GameDetailsPageProps = {
@@ -392,6 +394,7 @@ export default function GameDetailsPage({
       { id: 'files', label: 'Files', count: files.length },
       { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
       { id: 'unren', label: 'UnRen', hidden: !isRenpy },
+      { id: 'options', label: 'Options', hidden: !isRenpy },
       {
         id: 'reviews',
         label: 'Reviews',
@@ -699,12 +702,18 @@ export default function GameDetailsPage({
       }}
     >
       <div
-        className={rarity === 'regular' ? 'details-modal' : `details-modal details-modal-${rarity}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="details-title"
+        className={
+          rarity === 'regular' ? 'details-modal-frame' : `details-modal-frame details-modal-frame-${rarity}`
+        }
         onClick={(event) => event.stopPropagation()}
       >
+        <div
+          className="details-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="details-title"
+          onClick={(event) => event.stopPropagation()}
+        >
         <div className="details-page">
           <div className={coverBroken || !coverUrl ? 'details-hero details-hero-empty' : 'details-hero'}>
             <div className="details-hero-banner" aria-hidden="true">
@@ -1164,6 +1173,7 @@ export default function GameDetailsPage({
           )
         ) : null}
         {tab === 'unren' ? <UnRenPanel files={files} /> : null}
+        {tab === 'options' ? <OptionsPanel files={files} /> : null}
 
         {tab === 'reviews' ? (
           reviewItems.length || reviewsTotalPages > 1 || reviewsBusy || reviewsError ? (
@@ -1314,6 +1324,7 @@ export default function GameDetailsPage({
         </div>
       ) : null}
         </div>
+      </div>
       </div>
     </div>
   )

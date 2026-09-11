@@ -1,17 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import type { GameLibraryFile, RenpyLastRun, RenpyToolId, UnRenAction } from '@shared/types'
+import type { GameLibraryFile, RenpyLastRun, UnRenAction } from '@shared/types'
 import { formatBytes, useRenpySession } from '../lib/renpy'
 
 type UnRenPanelProps = {
   files: GameLibraryFile[]
 }
-
-const TOOLS: Array<{ id: RenpyToolId; label: string; hint: string }> = [
-  { id: 'console', label: 'Developer console', hint: 'Shift+O console, Shift+D developer menu' },
-  { id: 'quick', label: 'Quick save / load', hint: 'F5 save, F9 load' },
-  { id: 'skip', label: 'Skip unseen text', hint: 'Tab and Ctrl skip everything' },
-  { id: 'rollback', label: 'Rollback', hint: 'Scroll wheel and Page Up go back' }
-]
 
 function lastRunLine(run: RenpyLastRun): string {
   const extra = [
@@ -58,15 +51,10 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
     void withInfo(() => window.api.renpy.run(activeId, action))
   }
 
-  function toggleTool(tool: RenpyToolId, enabled: boolean): void {
-    if (!activeId) return
-    void withInfo(() => window.api.renpy.setTool(activeId, tool, enabled))
-  }
-
   if (!installed.length) {
     return (
       <p className="muted">
-        Install a Ren&apos;Py build from the Files tab to unpack archives, decompile scripts, and enable UnRen tools.
+        Install a Ren&apos;Py build from the Files tab to unpack archives and decompile scripts.
       </p>
     )
   }
@@ -210,37 +198,6 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
             </pre>
           </details>
         ) : null}
-      </section>
-
-      <section className="renpy-section">
-        <div className="renpy-section-head">
-          <h2>Runtime tools</h2>
-          <button className="ghost-btn" type="button" disabled={busy || running} onClick={() => runAction('all-tools')}>
-            Enable all
-          </button>
-        </div>
-        <div className="renpy-tools">
-          {TOOLS.map((tool) => {
-            const on = Boolean(info?.tools[tool.id])
-            return (
-              <article key={tool.id} className="renpy-tool">
-                <div>
-                  <strong>{tool.label}</strong>
-                  <p className="muted library-file-meta">{tool.hint}</p>
-                </div>
-                <button
-                  className={on ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
-                  type="button"
-                  aria-pressed={on}
-                  disabled={busy || running}
-                  onClick={() => toggleTool(tool.id, !on)}
-                >
-                  {on ? 'On' : 'Off'}
-                </button>
-              </article>
-            )
-          })}
-        </div>
       </section>
     </div>
   )
