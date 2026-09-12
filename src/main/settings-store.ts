@@ -61,6 +61,9 @@ function emptySettings(): AppSettings {
     trackerAnnounceUrl: envOrDefault('TRACKER_ANNOUNCE_URL'),
     metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
     trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
+    turnUrls: '',
+    turnUsername: '',
+    turnCredential: '',
     ...defaultFolders()
   }
 }
@@ -83,7 +86,10 @@ function normalizeSettings(value: unknown): AppSettings {
     p2pEnabled: Boolean(raw.p2pEnabled),
     trackerAnnounceUrl: normalizeUrl(raw.trackerAnnounceUrl, envOrDefault('TRACKER_ANNOUNCE_URL')),
     metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL')),
-    trackerWebRtcUrl: normalizeWebRtcUrl(raw.trackerWebRtcUrl, envOrDefault('TRACKER_WEBRTC_URL'))
+    trackerWebRtcUrl: normalizeWebRtcUrl(raw.trackerWebRtcUrl, envOrDefault('TRACKER_WEBRTC_URL')),
+    turnUrls: typeof raw.turnUrls === 'string' ? raw.turnUrls.trim() : '',
+    turnUsername: typeof raw.turnUsername === 'string' ? raw.turnUsername.trim() : '',
+    turnCredential: typeof raw.turnCredential === 'string' ? raw.turnCredential : ''
   }
 }
 
@@ -138,6 +144,14 @@ export function getMetadataBaseUrlSync(): string {
 
 export function getTrackerWebRtcUrlSync(): string {
   return loaded?.trackerWebRtcUrl ?? envOrDefault('TRACKER_WEBRTC_URL')
+}
+
+export function getTurnConfigSync(): { urls: string; username: string; credential: string } {
+  return {
+    urls: loaded?.turnUrls?.trim() || '',
+    username: loaded?.turnUsername?.trim() || '',
+    credential: loaded?.turnCredential || ''
+  }
 }
 
 export async function getSettings(): Promise<AppSettings> {

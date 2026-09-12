@@ -88,7 +88,10 @@ export default function App(): JSX.Element {
     p2pEnabled: false,
     trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL,
     metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL,
-    trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL
+    trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL,
+    turnUrls: '',
+    turnUsername: '',
+    turnCredential: ''
   })
   const [detailsStack, setDetailsStack] = useState<GameSummary[]>([])
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])

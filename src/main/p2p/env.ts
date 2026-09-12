@@ -2,7 +2,8 @@ import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import {
   getMetadataBaseUrlSync,
   getTrackerAnnounceUrlSync,
-  getTrackerWebRtcUrlSync
+  getTrackerWebRtcUrlSync,
+  getTurnConfigSync
 } from '../settings-store'
 
 function readEnv(key: keyof typeof P2P_ENV_DEFAULTS): string {
@@ -72,7 +73,7 @@ export type IceServer = {
   credential?: string
 }
 
-/** STUN (+ optional TURN) for WebRTC ICE hole-punching. Users do not port-forward. */
+/** STUN for WebRTC ICE hole-punching. Optional TURN from Settings (last resort; not used for LAN). */
 export function getIceServers(): IceServer[] {
   const fromEnv = process.env.P2P_STUN_URLS?.split(',').map((s) => s.trim()).filter(Boolean)
   const stunUrls = fromEnv?.length
@@ -83,9 +84,14 @@ export function getIceServers(): IceServer[] {
         'stun:stun.cloudflare.com:3478'
       ]
   const servers: IceServer[] = stunUrls.map((u) => ({ urls: u }))
-  const turnUrls = process.env.P2P_TURN_URLS?.split(',').map((s) => s.trim()).filter(Boolean) ?? []
-  const username = process.env.P2P_TURN_USERNAME?.trim() || ''
-  const credential = process.env.P2P_TURN_CREDENTIAL?.trim() || ''
+  // Prefer local Settings; fall back to process.env. Never ship credentials in git defaults.
+  const fromSettings = getTurnConfigSync()
+  const turnUrls = (fromSettings.urls || process.env.P2P_TURN_URLS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const username = (fromSettings.username || process.env.P2P_TURN_USERNAME || '').trim()
+  const credential = (fromSettings.credential || process.env.P2P_TURN_CREDENTIAL || '').trim()
   for (const urls of turnUrls) {
     servers.push(username ? { urls, username, credential } : { urls })
   }

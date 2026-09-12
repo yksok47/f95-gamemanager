@@ -113,6 +113,11 @@ export type AppSettings = {
    * HTTP opentracker cannot exchange SDP. Empty disables WebRTC announce.
    */
   trackerWebRtcUrl: string
+  /** Comma-separated TURN URLs (e.g. turn:host:3478?transport=udp). Empty = none. */
+  turnUrls: string
+  turnUsername: string
+  /** Stored in local settings only — never commit. */
+  turnCredential: string
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

@@ -18,7 +18,6 @@ import type {
 import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
-import { collectListenAddrs } from "./listen-addrs";
 import { getAnnounceList, getP2pEnv } from "./env";
 import { probeNativeWebRtc } from "./webtorrent-compat";
 import {
@@ -36,12 +35,10 @@ import {
   clearFinalizedContentHash,
   teardownP2pForContentHash,
   destroyWebTorrent,
-  getTorrentListenPort,
   listP2pProgress,
   onP2pProgress,
   p2pAddMagnet,
   p2pApproveQuarantine,
-  p2pDialListenAddrs,
   p2pPause,
   p2pRejectQuarantine,
   p2pRemove,
@@ -203,12 +200,7 @@ export async function p2pSeed(
   });
   // Map write can land after the last torrent progress tick (idle seeders emit nothing).
   touchP2pProgress();
-  const listenPort = getTorrentListenPort();
-  const listenAddrs =
-    listenPort != null ? await collectListenAddrs(listenPort) : [];
-  if (listenAddrs.length) {
-    console.info("[p2p] publishing listenAddrs", listenAddrs);
-  }
+  // Public-path: no LAN/Tailscale listenAddrs — peers meet via tracker WAN + WebRTC STUN.
   const claim = await signShareClaim(
     {
       contentHash,
@@ -221,7 +213,6 @@ export async function p2pSeed(
       f95ThreadId: meta?.f95ThreadId,
       f95ThreadUrl: meta?.f95ThreadUrl,
       sizeBytes: st.size,
-      listenAddrs,
     },
   );
   await registerPackage(claim);
@@ -598,21 +589,6 @@ export async function p2pDownloadByContentHash(
     normalizedName: pkg.normalizedName || undefined,
     f95ThreadUrl: pkg.f95ThreadUrl || undefined,
   });
-  if (pkg.listenAddrs?.length) {
-    p2pDialListenAddrs(
-      pkg.infoHash || progress.infoHash || hash,
-      pkg.listenAddrs,
-    );
-  }
-  // Same-WAN hairpin: also retry dial shortly after tracker peers land.
-  setTimeout(() => {
-    if (pkg.listenAddrs?.length) {
-      p2pDialListenAddrs(
-        pkg.infoHash || progress.infoHash || hash,
-        pkg.listenAddrs,
-      );
-    }
-  }, 2500);
   return progress;
 }
 

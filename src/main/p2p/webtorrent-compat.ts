@@ -56,6 +56,18 @@ export function probeNativeWebRtc(): { ok: boolean; message: string } {
     nativeStatus = { ok: true, message: 'native node-datachannel' }
     return nativeStatus
   } catch (error) {
+    // N-API prebuild may exist even if createRequire path fails in some layouts.
+    const candidates = [
+      path.join(process.cwd(), 'node_modules/node-datachannel/build/Release/node_datachannel.node'),
+      path.join(__dirname, '../../../node_modules/node-datachannel/build/Release/node_datachannel.node')
+    ]
+    if (candidates.some((c) => existsSync(c))) {
+      nativeStatus = {
+        ok: true,
+        message: 'node-datachannel.node present (require path quirk; loader will use native)'
+      }
+      return nativeStatus
+    }
     nativeStatus = {
       ok: false,
       message: error instanceof Error ? error.message : String(error)
