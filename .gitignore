@@ -9,6 +9,9 @@ out
 
 # Agent throwaway scripts/research (only scratch dir allowed)
 .agent-scratch/
+.user-scratch/
+.user-scratch-*/
 
-# Local Electron user-data for extra instances (e.g. npm run dev:peer)
+# Local Electron user-data for extra instances (e.g. bun run dev:peer)
+.userdata/
 .userdata-*/
