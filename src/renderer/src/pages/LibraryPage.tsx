@@ -1,7 +1,12 @@
 import { useMemo, useState, type JSX } from 'react'
 import type { CatalogGame, FavoriteTag, GameRarity, Subscription } from '@shared/types'
+import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import GameCard from '../components/GameCard'
+import FooterPortal from '../components/FooterPortal'
+import SelectMenu from '../components/SelectMenu'
+import { HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
+import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import {
   groupLibraryGames,
@@ -93,6 +98,8 @@ export default function LibraryPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('played')
   const [descending, setDescending] = useState(true)
+  const [hideCompleted, setHideCompleted] = useState(false)
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
@@ -105,8 +112,15 @@ export default function LibraryPage({
     () =>
       games
         .filter((game) => matchesQuery(game, needle))
+        .filter((game) => {
+          if (hideCompleted && isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog))) {
+            return false
+          }
+          if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
+          return true
+        })
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [games, needle, sort, descending]
+    [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, prefixCatalog]
   )
 
   function sessionForThread(threadId: number) {
@@ -136,21 +150,15 @@ export default function LibraryPage({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Filter library"
         />
-        <select
-          className="toolbar-select"
+        <SelectMenu
           value={sort}
-          onChange={(event) => {
-            const next = event.target.value as LibrarySort
+          options={SORTS}
+          ariaLabel="Sort library"
+          onChange={(next) => {
             setSort(next)
             setDescending(next !== 'title')
           }}
-        >
-          {SORTS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+        />
         <button
           className="ghost-btn pager-btn"
           type="button"
@@ -171,10 +179,49 @@ export default function LibraryPage({
         >
           {descending ? '↓' : '↑'}
         </button>
-        <span className="muted pager-label">
-          {needle ? `${visible.length}/${games.length}` : `${games.length} in library`}
-        </span>
+        <button
+          className={hideCompleted ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={hideCompleted}
+          title={
+            hideCompleted
+              ? 'Show completed, on hold, and abandoned titles'
+              : 'Hide completed, on hold, and abandoned titles'
+          }
+          aria-label={
+            hideCompleted
+              ? 'Show completed, on hold, and abandoned titles'
+              : 'Hide completed, on hold, and abandoned titles'
+          }
+          onClick={() => setHideCompleted((value) => !value)}
+        >
+          <HideCompletedIcon />
+        </button>
+        <button
+          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={favoritesOnly}
+          disabled={!favoriteTags.length}
+          title={
+            favoriteTags.length
+              ? favoritesOnly
+                ? 'Showing all tags'
+                : 'Show only favorite tags'
+              : 'Add favorite tags in Settings'
+          }
+          aria-label="Filter by favorite tags"
+          onClick={() => setFavoritesOnly((value) => !value)}
+        >
+          <StarIcon />
+        </button>
       </ToolbarPortal>
+      <FooterPortal>
+        <span className="muted pager-label">
+          {needle || hideCompleted || favoritesOnly
+            ? `${visible.length}/${games.length}`
+            : `${games.length} in library`}
+        </span>
+      </FooterPortal>
 
       {error ? <p className="catalog-status error-text">{error}</p> : null}
 
@@ -184,7 +231,11 @@ export default function LibraryPage({
           here, even if you are not following it.
         </div>
       ) : visible.length === 0 ? (
-        <div className="empty-state">No library games match that filter.</div>
+        <div className="empty-state">
+          {favoritesOnly && !needle
+            ? 'No library games match your favorite tags.'
+            : 'No library games match that filter.'}
+        </div>
       ) : (
         <div className="catalog-grid">
           {visible.map((game) => {

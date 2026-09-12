@@ -410,7 +410,15 @@ export async function p2pRevealQuarantine(id: string): Promise<string> {
   return filePath
 }
 
-export async function p2pApproveQuarantine(id: string): Promise<void> {
+export async function p2pApproveQuarantine(id: string): Promise<{
+  dest: string
+  contentHash: string
+  sizeBytes: number
+  gameName?: string
+  gameVersion?: string | null
+  f95ThreadId?: number | null
+  normalizedName?: string
+}> {
   await waitForDetach(id)
   const meta = quarantineMetaById.get(id)
   if (!meta?.filePath || !meta.contentHash) {
@@ -434,6 +442,16 @@ export async function p2pApproveQuarantine(id: string): Promise<void> {
     await unlink(src)
   }
   await promoteQuarantinedFile(dest, { ...meta, contentHash: meta.contentHash })
+  const st = await stat(dest)
+  return {
+    dest,
+    contentHash: meta.contentHash,
+    sizeBytes: st.size,
+    gameName: meta.gameName,
+    gameVersion: meta.gameVersion,
+    f95ThreadId: meta.f95ThreadId,
+    normalizedName: meta.normalizedName
+  }
 }
 
 export async function p2pRejectQuarantine(id: string): Promise<void> {

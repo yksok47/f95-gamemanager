@@ -132,6 +132,7 @@ export type DownloadRecord = {
   startedAt: number
   updatedAt: number
   gameThreadId?: number
+  gameTitle?: string
   gameVersion?: string
   hash?: string
   libraryStatus?: 'hashing' | 'indexed' | 'error'

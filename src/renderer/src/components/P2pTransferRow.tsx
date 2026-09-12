@@ -11,6 +11,7 @@ type P2pTransferRowProps = {
   onApproveQuarantine?: (id: string) => void
   onRejectQuarantine?: (id: string) => void
   onFlagQuarantine?: (id: string) => void
+  onOpenGame?: (threadId: number, title: string) => void
 }
 
 function shortHash(value: string | null | undefined): string {
@@ -45,7 +46,8 @@ export default function P2pTransferRow({
   onRevealQuarantine,
   onApproveQuarantine,
   onRejectQuarantine,
-  onFlagQuarantine
+  onFlagQuarantine,
+  onOpenGame
 }: P2pTransferRowProps): JSX.Element {
   const percent = Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))
   const isQuarantined = item.state === 'quarantined'
@@ -76,7 +78,18 @@ export default function P2pTransferRow({
     <article className="download-row">
       <div className="download-row-main">
         <div className="download-row-title">
-          <strong title={gameLabel}>{gameLabel}</strong>
+          {onOpenGame && item.f95ThreadId != null ? (
+            <button
+              className="download-game-link"
+              type="button"
+              title={`Open ${gameLabel}`}
+              onClick={() => onOpenGame(item.f95ThreadId!, gameLabel)}
+            >
+              {gameLabel}
+            </button>
+          ) : (
+            <strong title={gameLabel}>{gameLabel}</strong>
+          )}
           <span className={`download-status download-status-${statusClass(item.state)}`}>
             {statusLabel(item.state)}
           </span>

@@ -4,6 +4,7 @@ import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAG_TIERS } from '@shared/types'
 import { sortFavoriteTags } from '../lib/favorites'
 import Switch from '../components/Switch'
+import TagBrowser from '../components/TagBrowser'
 
 type SettingsTab = 'general' | 'p2p' | 'tags'
 
@@ -14,6 +15,85 @@ type SettingsPageProps = {
 
 function tierLabel(tier: TagTier): string {
   return tier[0].toUpperCase() + tier.slice(1)
+}
+
+type StatusTone = 'ok' | 'warn' | 'down' | 'idle'
+
+function statusTone(ok: boolean | undefined, busy: boolean): StatusTone {
+  if (busy || ok == null) return 'idle'
+  return ok ? 'ok' : 'down'
+}
+
+function webrtcTone(
+  webrtc: { ok?: boolean; holePunch?: boolean } | undefined,
+  busy: boolean
+): StatusTone {
+  if (busy || !webrtc) return 'idle'
+  if (webrtc.ok && webrtc.holePunch) return 'ok'
+  if (webrtc.ok) return 'warn'
+  return 'warn'
+}
+
+function webrtcDetail(webrtc: { ok?: boolean; message?: string; holePunch?: boolean } | undefined): string {
+  if (!webrtc) return ''
+  if (webrtc.ok && webrtc.holePunch) return webrtc.message || 'Hole-punch ready'
+  if (webrtc.ok) return webrtc.message || 'Native · set a ws:// tracker to punch holes'
+  return webrtc.message || 'Stub · TCP only'
+}
+
+function StatusIcon({ tone }: { tone: StatusTone }): JSX.Element {
+  if (tone === 'ok') {
+    return (
+      <svg className="status-icon status-icon-ok" viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M8 1.4A6.6 6.6 0 1 1 1.4 8 6.6 6.6 0 0 1 8 1.4m-.1 8.8L5.2 7.5l1.1-1.1 1.6 1.6 3-3 1.1 1.1z"
+        />
+      </svg>
+    )
+  }
+  if (tone === 'warn') {
+    return (
+      <svg className="status-icon status-icon-warn" viewBox="0 0 16 16" aria-hidden="true">
+        <path fill="currentColor" d="M8 1.6 14.6 13H1.4zm0 3.6-.8 4.2h1.6zm0 5.6a.9.9 0 1 0 .9.9.9.9 0 0 0-.9-.9z" />
+      </svg>
+    )
+  }
+  if (tone === 'down') {
+    return (
+      <svg className="status-icon status-icon-down" viewBox="0 0 16 16" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M8 1.4A6.6 6.6 0 1 1 1.4 8 6.6 6.6 0 0 1 8 1.4m2.4 3.4L8 7.2 5.6 4.8 4.8 5.6 7.2 8l-2.4 2.4.8.8L8 8.8l2.4 2.4.8-.8L8.8 8l2.4-2.4z"
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg className="status-icon status-icon-idle" viewBox="0 0 16 16" aria-hidden="true">
+      <circle cx="8" cy="8" r="5.2" fill="currentColor" />
+    </svg>
+  )
+}
+
+function ServiceStatusRow({
+  label,
+  tone,
+  detail
+}: {
+  label: string
+  tone: StatusTone
+  detail?: string
+}): JSX.Element {
+  return (
+    <li className={`service-status-row service-status-${tone}`}>
+      <StatusIcon tone={tone} />
+      <div>
+        <strong>{label}</strong>
+        {detail ? <p className="muted download-meta">{detail}</p> : null}
+      </div>
+    </li>
+  )
 }
 
 export default function SettingsPage({
@@ -28,6 +108,7 @@ export default function SettingsPage({
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [addAs, setAddAs] = useState<TagTier>('gold')
+  const [userDataPath, setUserDataPath] = useState('')
   const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
   const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
@@ -37,6 +118,10 @@ export default function SettingsPage({
     webrtc?: { ok: boolean; message?: string; holePunch?: boolean }
   } | null>(null)
   const [statusBusy, setStatusBusy] = useState(false)
+
+  useEffect(() => {
+    void window.api.settings.userDataPath().then(setUserDataPath).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     setAnnounceDraft(settings.trackerAnnounceUrl)
@@ -74,7 +159,6 @@ export default function SettingsPage({
     }
   }, [])
 
-  const assignedIds = useMemo(() => new Set(favoriteTags.map((tag) => tag.id)), [favoriteTags])
   const grouped = useMemo(() => {
     const byTier: Record<TagTier, FavoriteTag[]> = { gold: [], silver: [], bronze: [] }
     for (const tag of sortFavoriteTags(favoriteTags)) {
@@ -82,14 +166,6 @@ export default function SettingsPage({
     }
     return byTier
   }, [favoriteTags])
-
-  const visibleTags = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const list = q
-      ? tags.filter((tag) => tag.name.toLowerCase().includes(q))
-      : tags.filter((tag) => !assignedIds.has(tag.id))
-    return list.slice(0, 80)
-  }, [assignedIds, query, tags])
 
   async function persist(next: Partial<AppSettings>): Promise<void> {
     setSaving(true)
@@ -150,7 +226,7 @@ export default function SettingsPage({
       <section className="settings-card">
         <h1>Settings</h1>
 
-        <div className="details-tabs settings-tabs" role="tablist">
+        <div className="downloads-p2p-tabs" role="tablist">
           {tabs.map((item) => (
             <button
               key={item.id}
@@ -191,6 +267,23 @@ export default function SettingsPage({
                   onClick={() => void chooseFolder('libraryDir')}
                 >
                   Browse
+                </button>
+              </div>
+            </div>
+            <div className="folder-field">
+              <span className="filter-label">App data</span>
+              <p className="muted download-meta">
+                Follow list, settings, and P2P state for this install.
+              </p>
+              <div className="folder-path-row">
+                <input className="folder-path" value={userDataPath} readOnly />
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={!userDataPath}
+                  onClick={() => void window.api.settings.openUserData()}
+                >
+                  Open
                 </button>
               </div>
             </div>
@@ -303,19 +396,23 @@ export default function SettingsPage({
 
             <div className="folder-field">
               <span className="filter-label">Service status</span>
-              <p className="muted download-meta">
-                {[
-                  `Metadata: ${serviceStatus?.metadata?.ok ? 'ok' : 'down'}${serviceStatus?.metadata?.message ? ` (${serviceStatus.metadata.message})` : ''}`,
-                  `Tracker: ${serviceStatus?.tracker?.ok ? 'ok' : 'down'}${serviceStatus?.tracker?.message ? ` (${serviceStatus.tracker.message})` : ''}`,
-                  `WebRTC: ${serviceStatus?.webrtc?.ok ? 'native' : 'stub'}${
-                    serviceStatus?.webrtc?.holePunch
-                      ? ' · hole-punch ready'
-                      : serviceStatus?.webrtc?.ok
-                        ? ' · set a ws:// tracker to punch holes'
-                        : ' · TCP only (rebuild node-datachannel)'
-                  }`
-                ].join(' · ')}
-              </p>
+              <ul className="service-status-list">
+                <ServiceStatusRow
+                  label="Metadata"
+                  tone={statusTone(serviceStatus?.metadata?.ok, statusBusy)}
+                  detail={serviceStatus?.metadata?.message}
+                />
+                <ServiceStatusRow
+                  label="Tracker"
+                  tone={statusTone(serviceStatus?.tracker?.ok, statusBusy)}
+                  detail={serviceStatus?.tracker?.message}
+                />
+                <ServiceStatusRow
+                  label="WebRTC"
+                  tone={webrtcTone(serviceStatus?.webrtc, statusBusy)}
+                  detail={webrtcDetail(serviceStatus?.webrtc)}
+                />
+              </ul>
               <button
                 className="ghost-btn"
                 type="button"
@@ -330,9 +427,26 @@ export default function SettingsPage({
 
         {tab === 'tags' ? (
           <div className="settings-tab-body">
+            <p className="muted settings-tag-hint">
+              Click a group to select it, then click tags below to add them.
+              {saving ? ' Saving…' : ''}
+            </p>
             <div className="favorite-tiers">
               {TAG_TIERS.map((tier) => (
-                <div key={tier} className={`favorite-tier favorite-tier-${tier}`}>
+                <div
+                  key={tier}
+                  className={`favorite-tier favorite-tier-${tier}${addAs === tier ? ' is-selected' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={addAs === tier}
+                  onClick={() => setAddAs(tier)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setAddAs(tier)
+                    }
+                  }}
+                >
                   <h2>{tierLabel(tier)}</h2>
                   {grouped[tier].length ? (
                     <div className="filter-chips">
@@ -342,7 +456,10 @@ export default function SettingsPage({
                           type="button"
                           className={`chip chip-${tag.tier}`}
                           title="Remove from favorites"
-                          onClick={() => removeTag(tag.id)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            removeTag(tag.id)
+                          }}
                         >
                           {tag.name} ×
                         </button>
@@ -355,45 +472,31 @@ export default function SettingsPage({
               ))}
             </div>
 
-            <div className="filter-row settings-add-row">
-              <span className="filter-label">Add as</span>
-              <select
-                className={`toolbar-select rarity-select rarity-select-${addAs}`}
-                value={addAs}
-                onChange={(event) => setAddAs(event.target.value as TagTier)}
-              >
-                {TAG_TIERS.map((tier) => (
-                  <option key={tier} value={tier}>
-                    {tierLabel(tier)}
-                  </option>
-                ))}
-              </select>
-              <input
-                className="tag-search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Find a tag"
-              />
-              {saving ? <span className="muted">Saving…</span> : null}
-            </div>
-
             {busy ? <p className="muted">Loading tags…</p> : null}
 
-            <div className="filter-chips tag-results">
-              {visibleTags.map((tag) => {
+            <TagBrowser
+              tags={tags}
+              query={query}
+              onQueryChange={setQuery}
+              renderTag={(tag) => {
                 const current = favoriteTags.find((item) => item.id === tag.id)
                 return (
                   <button
                     key={tag.id}
                     type="button"
                     className={current ? `chip chip-${current.tier}` : 'chip'}
+                    title={
+                      current
+                        ? `Move to ${tierLabel(addAs)}`
+                        : `Add to ${tierLabel(addAs)}`
+                    }
                     onClick={() => assignTag(tag, addAs)}
                   >
                     {tag.name}
                   </button>
                 )
-              })}
-            </div>
+              }}
+            />
           </div>
         ) : null}
 

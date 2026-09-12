@@ -18,6 +18,7 @@ type DownloadRowProps = {
   onRemove: (id: string) => void
   onShowInFolder: (id: string) => void
   onOpenFile: (id: string) => void
+  onOpenGame?: (threadId: number, title: string) => void
 }
 
 export default function DownloadRow({
@@ -28,7 +29,8 @@ export default function DownloadRow({
   onResume,
   onRemove,
   onShowInFolder,
-  onOpenFile
+  onOpenFile,
+  onOpenGame
 }: DownloadRowProps): JSX.Element {
   const percent = downloadPercent(item)
   const speed = item.status === 'progressing' ? formatSpeed(item.bytesPerSecond) : ''
@@ -39,28 +41,49 @@ export default function DownloadRow({
       : formatBytes(item.receivedBytes)
   const active = item.status === 'progressing' || item.status === 'paused'
   const canResume = item.canResume && (item.status === 'paused' || item.status === 'interrupted')
+  const gameTitle = item.gameTitle?.trim() || (item.gameThreadId != null ? `Thread ${item.gameThreadId}` : '')
+  const canOpenGame = Boolean(onOpenGame && item.gameThreadId)
 
   return (
     <article className={compact ? 'download-row download-row-compact' : 'download-row'}>
       <div className="download-row-main">
         <div className="download-row-title">
-          <strong title={item.savePath || item.filename}>{item.filename}</strong>
+          {canOpenGame ? (
+            <button
+              className="download-game-link"
+              type="button"
+              title={`Open ${gameTitle}`}
+              onClick={() => onOpenGame?.(item.gameThreadId!, gameTitle)}
+            >
+              {gameTitle}
+            </button>
+          ) : (
+            <strong title={item.savePath || item.filename}>{item.filename}</strong>
+          )}
           <span className={`download-status download-status-${item.status}`}>
             {downloadLibraryLabel(item) || downloadStatusLabel(item.status)}
           </span>
         </div>
-        {compact ? null : <p className="muted download-url" title={item.url}>{item.url}</p>}
-        <div
-          className={percent == null && active ? 'download-progress download-progress-unknown' : 'download-progress'}
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={percent ?? undefined}
-        >
-          <span style={percent == null ? undefined : { width: `${percent}%` }} />
-        </div>
+        {compact ? null : (
+          <p className="muted download-url" title={canOpenGame ? item.filename : item.url}>
+            {canOpenGame ? item.filename : item.url}
+          </p>
+        )}
+        {active ? (
+          <div
+            className={percent == null ? 'download-progress download-progress-unknown' : 'download-progress'}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent ?? undefined}
+          >
+            <span style={percent == null ? undefined : { width: `${percent}%` }} />
+          </div>
+        ) : null}
         <p className="muted download-meta">
-          {[size, percent != null ? `${percent}%` : '', speed, eta].filter(Boolean).join(' · ')}
+          {active
+            ? [size, percent != null ? `${percent}%` : '', speed, eta].filter(Boolean).join(' · ')
+            : formatBytes(item.totalBytes || item.receivedBytes)}
         </p>
       </div>
       <div className="download-row-actions">

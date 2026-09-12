@@ -48,6 +48,7 @@ export function classifyPrefix(
 export const FALLBACK_PREFIXES: CatalogPrefix[] = [
   { id: 13, name: 'Ongoing', group: 'status' },
   { id: 18, name: 'Completed', group: 'status' },
+  { id: 14, name: 'On Hold', group: 'status' },
   { id: 3, name: 'Abandoned', group: 'status' },
   { id: 7, name: "Ren'Py", group: 'engine' },
   { id: 4, name: 'HTML', group: 'engine' },
@@ -126,14 +127,64 @@ export function prefixesFromUnknown(value: unknown): CatalogPrefix[] {
   return []
 }
 
+const COMPLETED_RE = /\b(completed?|complete)\b/i
+const ABANDONED_RE = /\babandoned\b/i
+const ON_HOLD_RE = /\bon[\s-]?hold\b/i
+
+export type GameStatusFlags = {
+  completed: boolean
+  abandoned: boolean
+  onHold: boolean
+}
+
+export function isInactiveStatus(flags: GameStatusFlags): boolean {
+  return flags.completed || flags.abandoned || flags.onHold
+}
+
+function prefixCatalogById(catalog: CatalogPrefix[]): Map<number, CatalogPrefix> {
+  const byId = new Map<number, CatalogPrefix>()
+  for (const prefix of FALLBACK_PREFIXES) byId.set(prefix.id, prefix)
+  for (const prefix of catalog) byId.set(prefix.id, prefix)
+  return byId
+}
+
+export function prefixIdsNamed(
+  catalog: CatalogPrefix[],
+  kind: 'completed' | 'abandoned' | 'onHold'
+): number[] {
+  const re = kind === 'completed' ? COMPLETED_RE : kind === 'abandoned' ? ABANDONED_RE : ON_HOLD_RE
+  const ids = new Set<number>()
+  if (kind === 'completed') ids.add(18)
+  else if (kind === 'abandoned') ids.add(3)
+  else ids.add(14)
+  for (const prefix of [...FALLBACK_PREFIXES, ...catalog]) {
+    if (re.test(prefix.name)) ids.add(prefix.id)
+  }
+  return [...ids]
+}
+
+export function gameStatusFlags(
+  ids: number[] | undefined,
+  catalog: CatalogPrefix[] = FALLBACK_PREFIXES
+): GameStatusFlags {
+  const flags: GameStatusFlags = { completed: false, abandoned: false, onHold: false }
+  if (!ids?.length) return flags
+  const byId = prefixCatalogById(catalog)
+  for (const id of ids) {
+    const name = byId.get(id)?.name ?? ''
+    if (id === 18 || COMPLETED_RE.test(name)) flags.completed = true
+    if (id === 3 || ABANDONED_RE.test(name)) flags.abandoned = true
+    if (id === 14 || ON_HOLD_RE.test(name)) flags.onHold = true
+  }
+  return flags
+}
+
 export function engineFromPrefixIds(
   ids: number[] | undefined,
   catalog: CatalogPrefix[] = FALLBACK_PREFIXES
 ): string {
   if (!ids?.length) return ''
-  const byId = new Map<number, CatalogPrefix>()
-  for (const prefix of FALLBACK_PREFIXES) byId.set(prefix.id, prefix)
-  for (const prefix of catalog) byId.set(prefix.id, prefix)
+  const byId = prefixCatalogById(catalog)
 
   const preferred: string[] = []
   const fallback: string[] = []

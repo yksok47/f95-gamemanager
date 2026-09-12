@@ -9,10 +9,12 @@ import {
 } from "@shared/p2p";
 import { formatBytes, formatSpeed } from "../lib/downloads";
 import { confirm } from "./ConfirmDialog";
+import SelectMenu from "./SelectMenu";
 
 type GameP2pSectionProps = {
   threadId: number;
   gameName: string;
+  onOpenFiles?: () => void;
 };
 
 function flagCountsOf(pkg: PackageMetadata): {
@@ -25,13 +27,45 @@ function flagCountsOf(pkg: PackageMetadata): {
   return { broken, harmful, total: broken + harmful };
 }
 
-function flagSummary(pkg: PackageMetadata): string | null {
-  const { broken, harmful } = flagCountsOf(pkg);
-  const parts: string[] = [];
-  if (harmful > 0) parts.push(`harmful ×${harmful}`);
-  if (broken > 0) parts.push(`broken ×${broken}`);
-  if (!parts.length) return null;
-  return `Flagged by ${parts.join(", ")} — check the trust signal before downloading.`;
+function trustNote(
+  pkg: PackageMetadata,
+  trust: ReturnType<typeof trustSignal>,
+): { text: string; tone: "bad" | "caution" | "none" | "good" } | null {
+  const { harmful, broken } = flagCountsOf(pkg);
+  const flagBits = [
+    harmful > 0 ? `harmful ×${harmful}` : null,
+    broken > 0 ? `broken ×${broken}` : null,
+  ].filter(Boolean);
+  if (trust.level === "bad") {
+    return {
+      tone: "bad",
+      text: flagBits.length
+        ? `More flags (${flagBits.join(", ")}) than installs — treat this as untrusted and inspect the file carefully before opening.`
+        : "More flags than installs — treat this as untrusted and inspect the file carefully before opening.",
+    };
+  }
+  if (trust.level === "caution") {
+    return {
+      tone: "caution",
+      text: `Flags are high relative to installs${flagBits.length ? ` (${flagBits.join(", ")})` : ""}. Review the file before you open or install it.`,
+    };
+  }
+  if (trust.level === "uncertain") {
+    return {
+      tone: "caution",
+      text: `This package has flags${flagBits.length ? ` (${flagBits.join(", ")})` : ""}. Check the file before opening.`,
+    };
+  }
+  if (trust.level === "none") {
+    return {
+      tone: "none",
+      text: "No installs or flags yet — be careful and scan the file before opening.",
+    };
+  }
+  return {
+    tone: "good",
+    text: "Install reports look healthy, so this is likely a good file. Install counts can still be inflated — scan before opening.",
+  };
 }
 
 /** installs:flags trust band. */
@@ -116,6 +150,7 @@ function activeDownloadLabel(state: P2pTransferProgress["state"]): string {
 export default function GameP2pSection({
   threadId,
   gameName,
+  onOpenFiles,
 }: GameP2pSectionProps): JSX.Element {
   const [p2pEnabled, setP2pEnabled] = useState(false);
   const [q, setQ] = useState("");
@@ -276,17 +311,18 @@ export default function GameP2pSection({
       setActionError("Already downloading this package.");
       return;
     }
-    const { harmful, broken, total } = flagCountsOf(pkg);
-    if (total > 0) {
+    const { harmful, broken } = flagCountsOf(pkg);
+    const trust = trustSignal(pkg);
+    if (harmful > 0 && trust.level !== "good") {
       const bits = [
-        harmful > 0 ? `harmful ×${harmful}` : null,
+        `harmful ×${harmful}`,
         broken > 0 ? `broken ×${broken}` : null,
         `${pkg.installCount ?? 0} reported installs`,
       ].filter(Boolean);
       if (
         !(await confirm({
           title: "Flagged package",
-          message: `This package has flags (${bits.join(" · ")}). Download anyway?`,
+          message: `This package has harm reports (${bits.join(" · ")}). Download anyway?`,
           confirmLabel: "Download",
           danger: true,
         }))
@@ -521,18 +557,18 @@ export default function GameP2pSection({
           placeholder="Name or hash"
           aria-label="Search P2P packages for this game"
         />
-        <select
-          className="toolbar-select"
+        <SelectMenu
           value={sort}
-          aria-label="Sort packages"
-          onChange={(e) => {
+          ariaLabel="Sort packages"
+          options={[
+            { value: "popularity", label: "Popularity" },
+            { value: "updated", label: "Updated" },
+          ]}
+          onChange={(next) => {
             setOffset(0);
-            setSort(e.target.value as PackageListSort);
+            setSort(next);
           }}
-        >
-          <option value="popularity">Popularity</option>
-          <option value="updated">Updated</option>
-        </select>
+        />
         <button
           className="ghost-btn"
           type="button"
@@ -552,8 +588,8 @@ export default function GameP2pSection({
 
       <ul className="p2p-discovery-list">
         {items.map((pkg) => {
-          const warn = flagSummary(pkg);
           const trust = trustSignal(pkg);
+          const warn = trustNote(pkg, trust);
           const active = pendingHash === pkg.contentHash;
           const owned = ownedContentHashes.has(pkg.contentHash.toLowerCase());
           const matchedTransfer = transfers.find(
@@ -582,12 +618,14 @@ export default function GameP2pSection({
                       : size
                         ? `Download · ${size}`
                         : "Download";
+          const canDownload =
+            p2pEnabled && !active && Boolean(pkg.infoHash) && !owned && !inFlight;
           const title = !p2pEnabled
             ? "Enable P2P in Settings"
             : !pkg.infoHash
               ? "Missing infoHash"
               : owned
-                ? "Already in your library"
+                ? "Open the Files tab"
                 : inFlight
                   ? "Download already in progress"
                   : noSharers
@@ -619,19 +657,33 @@ export default function GameP2pSection({
                       .join(" · ")}
                   </p>
                 </div>
-                <button
-                  className="download-link"
-                  type="button"
-                  disabled={
-                    !p2pEnabled || active || !pkg.infoHash || owned || inFlight
-                  }
-                  title={title}
-                  onClick={() => void download(pkg)}
-                >
-                  {label}
-                </button>
+                {owned ? (
+                  <button
+                    className="download-link"
+                    type="button"
+                    title={title}
+                    onClick={() => onOpenFiles?.()}
+                  >
+                    {label}
+                  </button>
+                ) : canDownload ? (
+                  <button
+                    className="download-link"
+                    type="button"
+                    title={title}
+                    onClick={() => void download(pkg)}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <span className="download-link download-link-static" title={title}>
+                    {label}
+                  </span>
+                )}
               </div>
-              {warn ? <p className="p2p-flag-warning">{warn}</p> : null}
+              {warn ? (
+                <p className={`p2p-flag-warning p2p-trust-note-${warn.tone}`}>{warn.text}</p>
+              ) : null}
             </li>
           );
         })}

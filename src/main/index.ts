@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import { registerDownloadHandler } from "./downloads";
+import { flushDownloadHistory, registerDownloadHandler } from "./downloads";
 import { adoptRunningLibrarySessions } from "./game-files-store";
 import { registerIpc } from "./ipc";
 import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url";
@@ -92,6 +92,8 @@ app.on("before-quit", (event) => {
   persistingOnQuit = true;
   void persistSessionNow()
     .catch((error) => console.warn("Could not persist session on quit", error))
+    .then(() => flushDownloadHistory())
+    .catch((error) => console.warn("Could not persist downloads on quit", error))
     .then(() => flushPlaySessions())
     .catch((error) => console.warn("Could not save playtime on quit", error))
     .then(() => destroyWebTorrent())

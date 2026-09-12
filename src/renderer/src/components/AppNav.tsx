@@ -1,4 +1,5 @@
-import type { JSX } from 'react'
+import { useRef, useState, type JSX } from 'react'
+import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
 
 export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'settings'
@@ -14,6 +15,21 @@ type AppNavProps = {
   onLogout: () => void
 }
 
+function displayName(username: string | null, userId: string | null): string {
+  if (username) return username
+  if (userId) return `User ${userId}`
+  return 'Signed in'
+}
+
+function avatarInitials(username: string | null, userId: string | null): string {
+  const source = (username || userId || '?').trim()
+  const parts = source.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) {
+    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase()
+  }
+  return (parts[0] ?? '?').slice(0, 2).toUpperCase()
+}
+
 export default function AppNav({
   view,
   username,
@@ -24,6 +40,10 @@ export default function AppNav({
   onViewChange,
   onLogout
 }: AppNavProps): JSX.Element {
+  const [accountOpen, setAccountOpen] = useState(false)
+  const avatarRef = useRef<HTMLButtonElement>(null)
+  const name = displayName(username, userId)
+
   return (
     <header className="top-bar">
       <div className="app-nav-links">
@@ -58,20 +78,46 @@ export default function AppNav({
       </div>
       <ToolbarSlot />
       <div className="app-nav-user">
-        <span className="muted">
-          {username ? username : userId ? `User ${userId}` : 'Signed in'}
-        </span>
         <button
-          className={view === 'settings' ? 'nav-btn nav-btn-active' : 'ghost-btn'}
+          className={view === 'settings' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
           title="Settings"
+          aria-label="Settings"
           onClick={() => onViewChange('settings')}
         >
-          Settings
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M6.5 1.4h3l.28 1.55c.42.14.81.34 1.16.6l1.48-.58 1.5 2.6-1.2.95c.06.3.1.61.1.93s-.04.63-.1.93l1.2.95-1.5 2.6-1.48-.58c-.35.26-.74.46-1.16.6L9.5 14.6h-3l-.28-1.55a5 5 0 0 1-1.16-.6l-1.48.58-1.5-2.6 1.2-.95A4.6 4.6 0 0 1 3.18 8c0-.32.04-.63.1-.93l-1.2-.95 1.5-2.6 1.48.58c.35-.26.74-.46 1.16-.6zm1.5 4.2A2.4 2.4 0 1 0 10.4 8 2.4 2.4 0 0 0 8 5.6"
+            />
+          </svg>
         </button>
-        <button className="ghost-btn" type="button" onClick={onLogout}>
-          Log out
+        <button
+          ref={avatarRef}
+          className={accountOpen ? 'user-avatar is-open' : 'user-avatar'}
+          type="button"
+          title={name}
+          aria-label="Account"
+          aria-haspopup="menu"
+          aria-expanded={accountOpen}
+          onClick={() => setAccountOpen((open) => !open)}
+        >
+          {avatarInitials(username, userId)}
         </button>
+        {accountOpen && avatarRef.current ? (
+          <MenuPopover
+            anchor={avatarRef.current}
+            header={name}
+            items={[
+              {
+                id: 'logout',
+                label: 'Log out',
+                onClick: onLogout
+              }
+            ]}
+            onClose={() => setAccountOpen(false)}
+          />
+        ) : null}
       </div>
     </header>
   )

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
   CatalogGame,
@@ -61,6 +61,7 @@ import {
   setRenpyToolForFile,
   showRenpySave
 } from './renpy/saves'
+import { getAppPaths } from './paths'
 import { getSettings, saveSettings } from './settings-store'
 import {
   applyCatalogScreens,
@@ -280,6 +281,24 @@ export function registerIpc(): void {
         )
       }
       return settings
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('settings:userDataPath', async () => {
+    try {
+      return getAppPaths().userData
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('settings:openUserData', async () => {
+    try {
+      const dir = getAppPaths().userData
+      const error = await shell.openPath(dir)
+      if (error) throw new Error(error)
     } catch (error) {
       throw toIpcError(error)
     }

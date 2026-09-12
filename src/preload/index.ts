@@ -84,7 +84,9 @@ const api = {
     save: (settings: Partial<AppSettings>): Promise<AppSettings> =>
       ipcRenderer.invoke('settings:save', settings),
     pickFolder: (currentPath?: string): Promise<string | null> =>
-      ipcRenderer.invoke('settings:pickFolder', currentPath)
+      ipcRenderer.invoke('settings:pickFolder', currentPath),
+    userDataPath: (): Promise<string> => ipcRenderer.invoke('settings:userDataPath'),
+    openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData')
   },
   downloads: {
     list: (): Promise<DownloadRecord[]> => ipcRenderer.invoke('downloads:list'),

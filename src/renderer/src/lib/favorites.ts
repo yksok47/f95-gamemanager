@@ -6,6 +6,13 @@ export function sortFavoriteTags(tags: FavoriteTag[]): FavoriteTag[] {
   )
 }
 
+export function gameHasFavoriteTag(
+  tagIds: number[] | undefined,
+  favorites: FavoriteTag[]
+): boolean {
+  return favoriteTagsOnGame(tagIds, favorites).length > 0
+}
+
 export function favoriteTagsOnGame(
   tagIds: number[] | undefined,
   favorites: FavoriteTag[]

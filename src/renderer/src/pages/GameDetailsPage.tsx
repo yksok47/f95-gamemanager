@@ -1087,6 +1087,7 @@ export default function GameDetailsPage({
                 key={`p2p-${summary.threadId}-${p2pReloadKey}`}
                 threadId={summary.threadId}
                 gameName={title}
+                onOpenFiles={() => setTab('files')}
               />
             ) : null}
           </div>

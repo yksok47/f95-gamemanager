@@ -12,6 +12,7 @@ import type {
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
 import DownloadsDock from './components/DownloadsDock'
+import { FooterSlot } from './components/FooterPortal'
 import CatalogPage from './pages/CatalogPage'
 import DownloadsPage from './pages/DownloadsPage'
 import { P2P_ENV_DEFAULTS, type P2pTransferProgress, type TorrentMapEntry } from '@shared/p2p'
@@ -219,6 +220,7 @@ export default function App(): JSX.Element {
 
   const handleApproveQuarantine = useCallback(async (id: string): Promise<void> => {
     await window.api.p2p.approveQuarantine(id)
+    setDownloads(await window.api.downloads.list())
   }, [])
 
   const handleRejectQuarantine = useCallback(async (id: string): Promise<void> => {
@@ -356,6 +358,9 @@ export default function App(): JSX.Element {
         }}
         onLogout={() => void handleLogout()}
       />
+      <footer className="app-footer">
+        <FooterSlot />
+      </footer>
       {view === 'catalog' ? (
         <CatalogPage
           followedIds={followedIds}
@@ -386,6 +391,9 @@ export default function App(): JSX.Element {
           onApproveQuarantine={(id) => void handleApproveQuarantine(id)}
           onRejectQuarantine={(id) => void handleRejectQuarantine(id)}
           onFlagQuarantine={(id) => void handleFlagQuarantine(id)}
+          onOpenGame={(threadId, title) => {
+            setDetailsStack([summaryFromThread(threadId, title, subscriptions)])
+          }}
         />
       ) : view === 'followed' ? (
         <FollowedPage

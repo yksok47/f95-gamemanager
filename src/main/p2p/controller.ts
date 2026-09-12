@@ -16,6 +16,7 @@ import type {
   P2pTransferProgress,
   P2pTransferState,
 } from "@shared/p2p";
+import { addCompletedDownload } from "../downloads";
 import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
@@ -62,7 +63,7 @@ import {
 } from "./torrent-map-store";
 import { syncLocalPackagesIntoTorrentMap } from "./local-packages";
 import { stat, unlink } from "fs/promises";
-import { join } from "path";
+import { basename, join } from "path";
 
 function isLiveDownloadState(state: P2pTransferState): boolean {
   return (
@@ -687,7 +688,20 @@ export async function approveQuarantinedDownload(id: string): Promise<void> {
   await requireEnabled();
   const before = listP2pProgress().find((t) => t.id === id);
   const contentHash = before?.contentHash?.trim().toLowerCase();
-  await p2pApproveQuarantine(id);
+  const approved = await p2pApproveQuarantine(id);
+  try {
+    addCompletedDownload({
+      filename: approved.normalizedName || basename(approved.dest),
+      savePath: approved.dest,
+      sizeBytes: approved.sizeBytes,
+      hash: approved.contentHash,
+      gameThreadId: approved.f95ThreadId,
+      gameTitle: approved.gameName || before?.gameName,
+      gameVersion: approved.gameVersion,
+    });
+  } catch (error) {
+    console.warn("[p2p] could not add approved file to Downloads list", error);
+  }
   if (contentHash) {
     try {
       const ts = Math.floor(Date.now() / 1000);
