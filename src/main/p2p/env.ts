@@ -1,9 +1,5 @@
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
-import {
-  getMetadataBaseUrlSync,
-  getTrackerAnnounceUrlSync,
-  getTrackerWebRtcUrlSync
-} from '../settings-store'
+import { getMetadataBaseUrlSync, getTrackerWebRtcUrlSync } from '../settings-store'
 
 function readEnv(key: keyof typeof P2P_ENV_DEFAULTS): string {
   const raw = process.env[key]
@@ -31,39 +27,39 @@ function isWsTracker(url: string): boolean {
 
 /**
  * Tracker compose URLs.
- * Prefer Settings (user-editable) when loaded; else process.env; else localhost stubs.
+ * Prefer Settings (user-editable) when loaded; else process.env; else production stubs.
  */
 export function getP2pEnv(): {
-  trackerAnnounceUrl: string
   metadataBaseUrl: string
-  trackerAnnounceUdpUrl: string
   trackerWebRtcUrl: string
 } {
   const webrtc = preferLoopback(getTrackerWebRtcUrlSync() || readEnv('TRACKER_WEBRTC_URL'))
   return {
-    trackerAnnounceUrl: preferLoopback(getTrackerAnnounceUrlSync() || readEnv('TRACKER_ANNOUNCE_URL')),
     metadataBaseUrl: preferLoopback(getMetadataBaseUrlSync() || readEnv('METADATA_BASE_URL')),
-    trackerAnnounceUdpUrl: preferLoopback(readEnv('TRACKER_ANNOUNCE_UDP_URL')),
     trackerWebRtcUrl: isWsTracker(webrtc) ? webrtc : ''
   }
 }
 
-/** Announce list for WebTorrent (HTTP + optional UDP + WebSocket signaling). */
+/** Announce list for WebTorrent (WebSocket only). */
 export function getAnnounceList(): string[] {
-  const { trackerAnnounceUrl, trackerAnnounceUdpUrl, trackerWebRtcUrl } = getP2pEnv()
-  const list = [trackerAnnounceUrl]
-  // Skip UDP on loopback only — local Docker opentracker is often TCP-only; production UDP is fine.
-  if (trackerAnnounceUdpUrl) {
-    try {
-      const host = new URL(trackerAnnounceUrl).hostname
-      const loopback = host === '127.0.0.1' || host === 'localhost' || host === '::1'
-      if (!loopback) list.push(trackerAnnounceUdpUrl)
-    } catch {
-      list.push(trackerAnnounceUdpUrl)
-    }
+  const { trackerWebRtcUrl } = getP2pEnv()
+  return trackerWebRtcUrl ? [trackerWebRtcUrl] : []
+}
+
+/** HTTP /stats on the same host as the WebSocket tracker (upgrade + health). */
+export function getTrackerStatsUrl(): string {
+  const ws = getP2pEnv().trackerWebRtcUrl
+  if (!ws) return ''
+  try {
+    const u = new URL(ws)
+    u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:'
+    u.pathname = '/stats'
+    u.search = ''
+    u.hash = ''
+    return u.toString()
+  } catch {
+    return ''
   }
-  if (trackerWebRtcUrl) list.push(trackerWebRtcUrl)
-  return list
 }
 
 export type IceServer = {
@@ -82,4 +78,3 @@ export function getStunServers(): IceServer[] {
       ]
   return stunUrls.map((urls) => ({ urls }))
 }
-

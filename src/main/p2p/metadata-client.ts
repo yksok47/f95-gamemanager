@@ -1,6 +1,6 @@
 /**
  * Thin REST client for METADATA_BASE_URL (Tracker metadata-api).
- * Swarm announce is NOT here — WebTorrent → TRACKER_ANNOUNCE_URL (opentracker).
+ * Swarm announce is NOT here — WebTorrent → TRACKER_WEBRTC_URL (WebSocket tracker).
  *
  * Routes (locked with Tracker API.md):
  *   GET  /health

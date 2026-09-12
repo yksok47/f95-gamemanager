@@ -39,12 +39,43 @@ function normalizeUrl(value: unknown, fallback: string): string {
   return trimmed || fallback
 }
 
+function migrateLegacyWebRtcPort(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if ((parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.port === '8000') {
+      parsed.port = '6969'
+      return parsed.toString().replace(/\/$/, '')
+    }
+  } catch {
+    /* keep */
+  }
+  return url
+}
+
+function httpAnnounceToWs(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return ''
+  try {
+    const parsed = new URL(value.trim())
+    if (parsed.protocol === 'http:') parsed.protocol = 'ws:'
+    else if (parsed.protocol === 'https:') parsed.protocol = 'wss:'
+    else return ''
+    parsed.pathname = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return migrateLegacyWebRtcPort(parsed.toString().replace(/\/$/, ''))
+  } catch {
+    return ''
+  }
+}
+
 function normalizeWebRtcUrl(value: unknown, fallback: string): string {
   const raw = typeof value === 'string' ? value.trim() : undefined
   const next = raw === undefined ? fallback.trim() : raw
-  if (!next) return ''
-  if (next.startsWith('ws://') || next.startsWith('wss://')) return next.replace(/\/$/, '')
-  return ''
+  if (!next) return fallback.trim()
+  if (next.startsWith('ws://') || next.startsWith('wss://')) {
+    return migrateLegacyWebRtcPort(next.replace(/\/$/, ''))
+  }
+  return fallback.trim()
 }
 
 function normalizeDir(value: unknown, fallback: string): string {
@@ -54,13 +85,21 @@ function normalizeDir(value: unknown, fallback: string): string {
   return trimmed
 }
 
+const MAX_UPLOAD_LIMIT_KBPS = 1024 * 1024
+
+function normalizeUploadLimitKBps(value: unknown): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return Math.min(MAX_UPLOAD_LIMIT_KBPS, Math.floor(n))
+}
+
 function emptySettings(): AppSettings {
   return {
     favoriteTags: [],
     p2pEnabled: false,
-    trackerAnnounceUrl: envOrDefault('TRACKER_ANNOUNCE_URL'),
     metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
     trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
+    p2pUploadLimitKBps: 0,
     ...defaultFolders()
   }
 }
@@ -81,9 +120,13 @@ function normalizeSettings(value: unknown): AppSettings {
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
     p2pEnabled: Boolean(raw.p2pEnabled),
-    trackerAnnounceUrl: normalizeUrl(raw.trackerAnnounceUrl, envOrDefault('TRACKER_ANNOUNCE_URL')),
     metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL')),
-    trackerWebRtcUrl: normalizeWebRtcUrl(raw.trackerWebRtcUrl, envOrDefault('TRACKER_WEBRTC_URL'))
+    trackerWebRtcUrl: normalizeWebRtcUrl(
+      raw.trackerWebRtcUrl ||
+        httpAnnounceToWs((raw as { trackerAnnounceUrl?: unknown }).trackerAnnounceUrl),
+      envOrDefault('TRACKER_WEBRTC_URL')
+    ),
+    p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps)
   }
 }
 
@@ -129,16 +172,16 @@ export function getLibraryDirSync(): string {
   return loaded?.libraryDir ?? getAppPaths().libraryDir
 }
 
-export function getTrackerAnnounceUrlSync(): string {
-  return loaded?.trackerAnnounceUrl ?? envOrDefault('TRACKER_ANNOUNCE_URL')
-}
-
 export function getMetadataBaseUrlSync(): string {
   return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
 }
 
 export function getTrackerWebRtcUrlSync(): string {
   return loaded?.trackerWebRtcUrl ?? envOrDefault('TRACKER_WEBRTC_URL')
+}
+
+export function getP2pUploadLimitKBpsSync(): number {
+  return loaded?.p2pUploadLimitKBps ?? 0
 }
 
 export async function getSettings(): Promise<AppSettings> {

@@ -20,7 +20,7 @@ import { addCompletedDownload } from "../downloads";
 import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
-import { getAnnounceList, getP2pEnv } from "./env";
+import { getAnnounceList, getP2pEnv, getTrackerStatsUrl } from "./env";
 import { installNativeWebRtc } from "./webrtc";
 import {
   flagPackage,
@@ -104,14 +104,13 @@ async function trackerAnnounceHealth(): Promise<{
   ok: boolean;
   message?: string;
 }> {
-  const url = getP2pEnv().trackerAnnounceUrl;
-  if (!url) return { ok: false, message: "no announce URL" };
+  const url = getTrackerStatsUrl();
+  if (!url) return { ok: false, message: "no tracker URL" };
   try {
     const res = await fetch(url, {
       method: "GET",
       signal: AbortSignal.timeout(5_000),
     });
-    // opentracker answers something even for a bare GET; 5xx = down
     if (res.status >= 500) return { ok: false, message: `HTTP ${res.status}` };
     return { ok: true, message: `HTTP ${res.status}` };
   } catch (error) {
@@ -554,7 +553,7 @@ export async function listPackagesForDiscovery(
       gameVersion: pkg.gameVersion || mapped.gameVersion || null,
     };
   });
-  // Live peer counts from opentracker announce on tab enter — not metadata scrape.
+  // Live peer counts from WebSocket tracker scrape on tab enter — not metadata scrape.
   const items = await enrichPackagesWithLiveSwarm(withLocal);
   return { ...page, items };
 }
@@ -562,17 +561,12 @@ export async function listPackagesForDiscovery(
 function buildMagnet(infoHash: string, displayName?: string): string {
   const normalized = normalizeInfoHash(infoHash);
   if (!normalized) throw new Error("Invalid infoHash (need 40-char hex)");
-  const { trackerAnnounceUrl, trackerAnnounceUdpUrl, trackerWebRtcUrl } =
-    getP2pEnv();
+  const { trackerWebRtcUrl } = getP2pEnv();
   // Do not use URLSearchParams for xt — it encodes ":" to %3A and WebTorrent
   // then throws "Invalid torrent identifier".
   const parts = [`xt=urn:btih:${normalized}`];
   if (displayName) parts.push(`dn=${encodeURIComponent(displayName)}`);
-  parts.push(`tr=${encodeURIComponent(trackerAnnounceUrl)}`);
-  if (trackerAnnounceUdpUrl)
-    parts.push(`tr=${encodeURIComponent(trackerAnnounceUdpUrl)}`);
-  if (trackerWebRtcUrl)
-    parts.push(`tr=${encodeURIComponent(trackerWebRtcUrl)}`);
+  if (trackerWebRtcUrl) parts.push(`tr=${encodeURIComponent(trackerWebRtcUrl)}`);
   return `magnet:?${parts.join("&")}`;
 }
 

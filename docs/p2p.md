@@ -2,20 +2,19 @@
 
 ## Stack
 - **WebTorrent >=2.3** in Electron **main** only (Node). Not renderer. Not webtorrent-hybrid.
-- Magnet + `seed(path)`. Announce list = `TRACKER_ANNOUNCE_URL` (+ optional UDP).
+- Magnet + `seed(path)`. Announce list = WebSocket tracker only (`TRACKER_WEBRTC_URL`).
 - **Fallback (not built):** aria2 RPC for multi-GB hashing if WebTorrent hashing is too slow.
 
 ## Env (Tracker compose — sibling repo `C:\Repos\p2p-tracker`)
 ```
-TRACKER_ANNOUNCE_URL=http://localhost:6969/announce
+TRACKER_WEBRTC_URL=ws://localhost:6969
 METADATA_BASE_URL=http://localhost:8080
-TRACKER_ANNOUNCE_UDP_URL=udp://localhost:6969/announce   # optional
 ```
 
 ## Dual hash
 - `contentHash` = SHA-256 file bytes (metadata index / matching)
 - `infoHash` = BT/WebTorrent SHA-1 info dict (swarm key)
-- No metadata `POST /announce` — swarm announce is WebTorrent → opentracker only.
+- No metadata `POST /announce` — swarm announce is WebTorrent → tracker only.
 
 ## Metadata REST (`METADATA_BASE_URL`)
 - `GET /health`
@@ -57,17 +56,18 @@ ts=<unixSeconds>
 
 ## Settings / local seed path
 - `p2pEnabled` default **false**. When on → sync game-files `archivePath` (+ downloadsDir archives) into torrent map, then seed-all (best-effort).
+- `p2pUploadLimitKBps` default **0** (unlimited). Caps WebTorrent upload; change applies immediately while P2P is on.
 - Unhashed downloads are skipped until hashed/seeded individually.
 - Discovery/download UI is separate from F95 link rows; toggle only gates swarm + share-claim work.
 
 ## Direct internet connections
 
-The app installs the native `node-datachannel` WebRTC implementation before WebTorrent loads. The WebSocket tracker only exchanges encrypted WebRTC offers and ICE candidates; archive data flows directly between clients.
+The app installs the native `node-datachannel` WebRTC implementation before WebTorrent loads. The tracker WebSocket only exchanges encrypted WebRTC offers and ICE candidates; archive data flows directly between clients and never through the server.
 
 The direct path needs all of the following:
 
 1. A working native `node-datachannel` package (an N-API prebuild is installed with the app).
-2. A WebSocket tracker at `TRACKER_WEBRTC_URL` for signaling.
+2. A WebSocket tracker at `TRACKER_WEBRTC_URL` for announce and signaling.
 3. STUN, which discovers each peer's public candidate addresses. Set `P2P_STUN_URLS` to a comma-separated list to override the built-in Google and Cloudflare endpoints.
 
 The app fails P2P startup explicitly if native WebRTC cannot load; it does not silently downgrade to a connection mode that cannot traverse two home NATs. The tiny `webtorrent-compat-loader.mjs` remains only to work around WebTorrent's current hex-info-hash regression without patching `node_modules`.

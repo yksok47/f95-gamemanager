@@ -104,15 +104,12 @@ export type AppSettings = {
   libraryDir: string
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */
   p2pEnabled: boolean
-  /** WebTorrent announce (opentracker). Default http://localhost:6969/announce */
-  trackerAnnounceUrl: string
   /** Metadata REST base (no trailing slash needed). Default http://localhost:8080 */
   metadataBaseUrl: string
-  /**
-   * WebSocket tracker (ws:// or wss://) used for WebRTC ICE signaling / hole-punching.
-   * HTTP opentracker cannot exchange SDP. Empty disables WebRTC announce.
-   */
+  /** WebSocket tracker (ws:// or wss://). Peer list + ICE signaling. */
   trackerWebRtcUrl: string
+  /** P2P upload cap in KB/s. 0 = unlimited. */
+  p2pUploadLimitKBps: number
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

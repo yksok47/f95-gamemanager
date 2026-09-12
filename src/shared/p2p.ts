@@ -4,7 +4,7 @@
  * contentHash = SHA-256 of file bytes (content-address / matching)
  * infoHash    = WebTorrent/BT SHA-1 of torrent info (swarm key)
  *
- * Swarm announce → opentracker via TRACKER_ANNOUNCE_URL (WebTorrent announce list).
+ * Swarm announce → WebSocket tracker via TRACKER_WEBRTC_URL (WebTorrent announce list).
  * Metadata REST → METADATA_BASE_URL/api/v1 (infoHash↔game/thread, flags, unique seeder pubkeys).
  * Popularity = unique verified Ed25519 seeder pubkeys. Never send F95 credentials.
  */
@@ -39,10 +39,10 @@ export type PackageMetadata = {
   f95ThreadId: number | null
   f95ThreadUrl: string | null
   uniqueSeederPubkeyCount: number
-  /** Live swarm seeders from tracker scrape when the API provides it. */
+  /** Live swarm seeders from the WebSocket tracker scrape. */
   seeders?: number | null
   leechers?: number | null
-  /** Unique currently-active seeders (e.g. unique peer IPs); preferred over raw scrape. */
+  /** Currently-active seeders from the tracker scrape. */
   activeSeeders?: number | null
   /** Unique clients that reported an install/approve. */
   installCount?: number
@@ -187,22 +187,15 @@ export type PackageListResponse = {
 
 /**
  * Env keys (production Oracle defaults; override in Settings → P2P or process.env):
- *   TRACKER_ANNOUNCE_URL=http://130.61.67.157:6969/announce
+ *   TRACKER_WEBRTC_URL=ws://130.61.67.157:6969
  *   METADATA_BASE_URL=http://130.61.67.157:6767
- *   optional TRACKER_ANNOUNCE_UDP_URL=udp://130.61.67.157:6969/announce
- *   TRACKER_WEBRTC_URL=ws://130.61.67.157:8000
  */
 export const P2P_ENV_KEYS = {
-  TRACKER_ANNOUNCE_URL: 'TRACKER_ANNOUNCE_URL',
   METADATA_BASE_URL: 'METADATA_BASE_URL',
-  TRACKER_ANNOUNCE_UDP_URL: 'TRACKER_ANNOUNCE_UDP_URL',
   TRACKER_WEBRTC_URL: 'TRACKER_WEBRTC_URL'
 } as const
 
 export const P2P_ENV_DEFAULTS = {
-  TRACKER_ANNOUNCE_URL: 'http://130.61.67.157:6969/announce',
   METADATA_BASE_URL: 'http://130.61.67.157:6767',
-  TRACKER_ANNOUNCE_UDP_URL: 'udp://130.61.67.157:6969/announce',
-  /** WebSocket tracker for WebRTC ICE signaling (not opentracker HTTP). */
-  TRACKER_WEBRTC_URL: 'ws://130.61.67.157:8000'
+  TRACKER_WEBRTC_URL: 'ws://130.61.67.157:6969'
 } as const

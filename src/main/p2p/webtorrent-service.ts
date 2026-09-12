@@ -2,12 +2,11 @@ import { basename, dirname, join } from 'path'
 /**
  * WebTorrent engine — Electron MAIN process only (Node APIs).
  * Client: webtorrent ≥2.3 (NOT webtorrent-hybrid). Magnet + seed(path).
- * Announce list uses TRACKER_ANNOUNCE_URL (opentracker HTTP+UDP).
+ * Announce list uses TRACKER_WEBRTC_URL (WebSocket tracker only).
  *
  * Loaded ONLY when P2P is enabled (dynamic import). Stub-safe if dependency missing.
  *
- * NAT: direct WebRTC ICE via the WebSocket tracker and native node-datachannel.
- * HTTP/UDP trackers are retained for normal BitTorrent peers and swarm visibility.
+ * NAT: direct WebRTC ICE via the tracker WebSocket and native node-datachannel.
  * infoHash exposed to metadata/UI is normalized 40-char hex; Buffer stays inside WT.
  *
  * Fallback note (not built): aria2 RPC may later help multi-GB hashing performance.
@@ -16,7 +15,11 @@ import { basename, dirname, join } from 'path'
 import { isInFlightP2pState, type P2pTransferProgress } from '@shared/p2p'
 import { mkdir, rename, stat, unlink } from 'fs/promises'
 import { addGameFileFromDownload } from '../game-files-store'
-import { getDownloadsDirSync, getUntrustedDownloadsDirSync } from '../settings-store'
+import {
+  getDownloadsDirSync,
+  getP2pUploadLimitKBpsSync,
+  getUntrustedDownloadsDirSync
+} from '../settings-store'
 import {
   persistP2pDownloadSession,
   type PersistedP2pDownload
@@ -36,6 +39,12 @@ type WebTorrentLike = {
   destroy: (cb?: (err?: Error | null) => void) => void
   torrents: TorrentLike[]
   on: (event: string, cb: (...args: unknown[]) => void) => void
+  throttleGroups?: {
+    up?: {
+      setEnabled: (enabled: boolean) => void
+      setRate: (rate: number) => void
+    }
+  }
 }
 
 type TorrentLike = {
@@ -117,6 +126,25 @@ let progressTicker: ReturnType<typeof setInterval> | null = null
 let lastPersistFingerprint = ''
 const SPEED_NOISE_BPS = 32
 const SPEED_STALE_MS = 2000
+
+function uploadLimitBytesPerSec(): number {
+  const kBps = getP2pUploadLimitKBpsSync()
+  if (!Number.isFinite(kBps) || kBps <= 0) return -1
+  return Math.floor(kBps * 1024)
+}
+
+/** Apply the saved upload cap to a live WebTorrent client. 0 KB/s = unlimited. */
+export function applyP2pUploadLimit(): void {
+  const group = client?.throttleGroups?.up
+  if (!group) return
+  const bytes = uploadLimitBytesPerSec()
+  if (bytes < 0) {
+    group.setEnabled(false)
+    return
+  }
+  group.setRate(bytes)
+  group.setEnabled(true)
+}
 
 function emit(): void {
   const items = [...progressById.values()]
@@ -500,7 +528,7 @@ function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress
     return 'checking'
   }
   if (torrentLooksComplete(torrent)) return 'seeding'
-  const peers = countUniqueRemotePeerIps(torrent)
+  const peers = torrent.numPeers ?? 0
   const speed = torrent.downloadSpeed ?? 0
   if (peers === 0 && speed <= 0) return 'connecting'
   return 'downloading'
@@ -615,14 +643,6 @@ export function touchP2pProgress(): void {
 }
 
 
-function wireRemoteIp(wire: { remoteAddress?: string | null }): string | null {
-  const addr = typeof wire.remoteAddress === 'string' ? wire.remoteAddress.trim() : ''
-  if (!addr) return null
-  const key = addr.startsWith('::ffff:') ? addr.slice(7) : addr
-  if (key === '127.0.0.1' || key === '::1') return null
-  return key
-}
-
 function wireByteSpeed(value: (() => number) | number | undefined): number {
   if (typeof value === 'function') {
     try {
@@ -632,11 +652,6 @@ function wireByteSpeed(value: (() => number) | number | undefined): number {
     }
   }
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-/** WebTorrent numPeers counts wires (IP:port / dual transport). UI wants unique remote IPs. */
-function countUniqueRemotePeerIps(torrent: TorrentLike): number {
-  return countPeerActivity(torrent).connected
 }
 
 function torrentTransferSpeeds(torrent: TorrentLike): { up: number; down: number } {
@@ -659,25 +674,18 @@ function torrentTransferSpeeds(torrent: TorrentLike): { up: number; down: number
 }
 
 function countPeerActivity(torrent: TorrentLike): { connected: number; active: number } {
+  const connected = Math.max(0, torrent.numPeers ?? 0)
   const wires = torrent.wires
   if (!Array.isArray(wires) || wires.length === 0) {
-    const fallback = Math.max(0, torrent.numPeers ?? 0)
-    return { connected: fallback, active: 0 }
+    return { connected, active: 0 }
   }
-  const connected = new Set<string>()
-  const active = new Set<string>()
+  let active = 0
   for (const w of wires) {
-    const ip = wireRemoteIp(w)
-    if (!ip) continue
-    connected.add(ip)
     const up = wireByteSpeed(w.uploadSpeed)
     const down = wireByteSpeed(w.downloadSpeed)
-    if (up >= SPEED_NOISE_BPS || down >= SPEED_NOISE_BPS) active.add(ip)
+    if (up >= SPEED_NOISE_BPS || down >= SPEED_NOISE_BPS) active += 1
   }
-  if (connected.size === 0 && (torrent.numPeers ?? 0) > 0) {
-    return { connected: torrent.numPeers ?? 0, active: 0 }
-  }
-  return { connected: connected.size, active: active.size }
+  return { connected, active }
 }
 
 function disconnectTorrentPeers(torrent: TorrentLike): void {
@@ -724,8 +732,9 @@ async function ensureClient(): Promise<WebTorrentLike> {
     client = new (WebTorrent as unknown as new (opts?: object) => WebTorrentLike)({
       dht: false,
       lsd: false,
-      // TCP via tracker peer list; WebRTC (native) for NAT hole punch. uTP flaky on Windows.
+      // WebRTC (native) via the WebSocket tracker. uTP flaky on Windows.
       utp: false,
+      uploadLimit: uploadLimitBytesPerSec(),
       tracker: {
         rtcConfig: {
           iceServers
@@ -1138,7 +1147,7 @@ export async function waitForTorrentInfoHash(
         downloadSpeed: 0,
         uploadSpeed: 0,
         progress: live?.progress ?? 0,
-        numPeers: live ? countUniqueRemotePeerIps(live) : 0,
+        numPeers: live?.numPeers ?? 0,
         numActivePeers: live ? countPeerActivity(live).active : 0
       }
     }
@@ -1270,7 +1279,7 @@ export async function teardownP2pForContentHash(contentHash?: string | null): Pr
 
 
 
-/** Tell trackers we left the swarm (event=stopped) so opentracker drops us now, not in ~45m. */
+/** Tell trackers we left the swarm (event=stopped) so the tracker drops us now, not in ~45m. */
 async function announceStopped(torrent: TorrentLike | undefined | null): Promise<void> {
   if (!torrent) return
   try {

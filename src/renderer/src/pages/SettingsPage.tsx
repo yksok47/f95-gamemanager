@@ -37,8 +37,8 @@ function webrtcTone(
 function webrtcDetail(webrtc: { ok?: boolean; message?: string; holePunch?: boolean } | undefined): string {
   if (!webrtc) return ''
   if (webrtc.ok && webrtc.holePunch) return webrtc.message || 'Hole-punch ready'
-  if (webrtc.ok) return webrtc.message || 'Native · set a ws:// tracker to punch holes'
-  return webrtc.message || 'Stub · TCP only'
+  if (webrtc.ok) return webrtc.message || 'Native · set a ws:// tracker'
+  return webrtc.message || 'Native WebRTC unavailable'
 }
 
 function StatusIcon({ tone }: { tone: StatusTone }): JSX.Element {
@@ -109,9 +109,9 @@ export default function SettingsPage({
   const [query, setQuery] = useState('')
   const [addAs, setAddAs] = useState<TagTier>('gold')
   const [userDataPath, setUserDataPath] = useState('')
-  const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
   const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
+  const [uploadLimitDraft, setUploadLimitDraft] = useState(String(settings.p2pUploadLimitKBps || ''))
   const [serviceStatus, setServiceStatus] = useState<{
     metadata?: { ok: boolean; message?: string }
     tracker?: { ok: boolean; message?: string }
@@ -124,15 +124,15 @@ export default function SettingsPage({
   }, [])
 
   useEffect(() => {
-    setAnnounceDraft(settings.trackerAnnounceUrl)
     setMetadataDraft(settings.metadataBaseUrl)
     setWebrtcDraft(settings.trackerWebRtcUrl)
-  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
+    setUploadLimitDraft(settings.p2pUploadLimitKBps > 0 ? String(settings.p2pUploadLimitKBps) : '')
+  }, [settings.metadataBaseUrl, settings.trackerWebRtcUrl, settings.p2pUploadLimitKBps])
 
   useEffect(() => {
     if (tab !== 'p2p') return
     void refreshP2pStatus()
-  }, [tab, settings.p2pEnabled, settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
+  }, [tab, settings.p2pEnabled, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
 
 
   useEffect(() => {
@@ -306,18 +306,64 @@ export default function SettingsPage({
             />
 
             <div className="folder-field">
-              <span className="filter-label">Tracker announce URL</span>
+              <span className="filter-label">Upload speed limit</span>
+              <p className="muted download-meta">
+                Caps seeding so P2P does not fill your uplink. Leave empty for unlimited.
+              </p>
               <div className="folder-path-row">
                 <input
                   className="folder-path"
-                  value={announceDraft}
+                  type="number"
+                  min={0}
+                  step={64}
+                  inputMode="numeric"
+                  value={uploadLimitDraft}
                   disabled={saving}
-                  placeholder={P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL}
-                  onChange={(event) => setAnnounceDraft(event.target.value)}
+                  placeholder="Unlimited"
+                  onChange={(event) => setUploadLimitDraft(event.target.value)}
                   onBlur={() => {
-                    const next = announceDraft.trim() || P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL
-                    setAnnounceDraft(next)
-                    if (next !== settings.trackerAnnounceUrl) void persist({ trackerAnnounceUrl: next })
+                    const parsed = Number(uploadLimitDraft)
+                    const next = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0
+                    setUploadLimitDraft(next > 0 ? String(next) : '')
+                    if (next !== settings.p2pUploadLimitKBps) void persist({ p2pUploadLimitKBps: next })
+                  }}
+                />
+                <span className="muted download-meta">KB/s</span>
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={saving || settings.p2pUploadLimitKBps === 0}
+                  onClick={() => {
+                    setUploadLimitDraft('')
+                    void persist({ p2pUploadLimitKBps: 0 })
+                  }}
+                >
+                  Unlimited
+                </button>
+              </div>
+            </div>
+
+            <div className="folder-field">
+              <span className="filter-label">Tracker URL</span>
+              <p className="muted download-meta">
+                WebSocket tracker for peer discovery and hole-punch. Archive bytes stay
+                peer-to-peer.
+              </p>
+              <div className="folder-path-row">
+                <input
+                  className="folder-path"
+                  value={webrtcDraft}
+                  disabled={saving}
+                  placeholder={P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL}
+                  onChange={(event) => setWebrtcDraft(event.target.value)}
+                  onBlur={() => {
+                    const raw = webrtcDraft.trim()
+                    const next =
+                      raw.startsWith('ws://') || raw.startsWith('wss://')
+                        ? raw
+                        : P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL
+                    setWebrtcDraft(next)
+                    if (next !== settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: next })
                   }}
                 />
                 <button
@@ -325,8 +371,8 @@ export default function SettingsPage({
                   type="button"
                   disabled={saving}
                   onClick={() => {
-                    setAnnounceDraft(P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL)
-                    void persist({ trackerAnnounceUrl: P2P_ENV_DEFAULTS.TRACKER_ANNOUNCE_URL })
+                    setWebrtcDraft(P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL)
+                    void persist({ trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL })
                   }}
                 >
                   Reset
@@ -361,39 +407,6 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
-            <div className="folder-field">
-              <span className="filter-label">WebRTC tracker URL (ws/wss — hole punching)</span>
-              <p className="muted download-meta">
-                HTTP opentracker cannot punch holes. Point this at a WebSocket tracker you run
-                (SDP signaling). Leave empty for TCP-only.
-              </p>
-              <div className="folder-path-row">
-                <input
-                  className="folder-path"
-                  value={webrtcDraft}
-                  disabled={saving}
-                  placeholder="ws://your-host:8000"
-                  onChange={(event) => setWebrtcDraft(event.target.value)}
-                  onBlur={() => {
-                    const next = webrtcDraft.trim()
-                    setWebrtcDraft(next)
-                    if (next !== settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: next })
-                  }}
-                />
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => {
-                    setWebrtcDraft('')
-                    if (settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: '' })
-                  }}
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-
             <div className="folder-field">
               <span className="filter-label">Service status</span>
               <ul className="service-status-list">

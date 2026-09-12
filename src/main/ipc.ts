@@ -94,6 +94,7 @@ import {
   p2pStatus,
   seedAllLocalPackages,
   subscribeP2pProgress,
+  applyP2pUploadLimit,
   onP2pEnabledChanged,
   onTorrentMapChanged
 } from './p2p'
@@ -279,6 +280,8 @@ export function registerIpc(): void {
         void onP2pEnabledChanged(settings.p2pEnabled).catch((error) =>
           console.warn('[p2p] onP2pEnabledChanged failed', error)
         )
+      } else if (before.p2pUploadLimitKBps !== settings.p2pUploadLimitKBps) {
+        applyP2pUploadLimit()
       }
       return settings
     } catch (error) {

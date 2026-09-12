@@ -109,9 +109,7 @@ function formatUploadedAt(iso?: string | null): string | null {
 }
 
 function availabilityMeta(pkg: PackageMetadata): string {
-  // Swarm availability for the catalog tile — tracker probe, not our connected wires.
-  const raw = pkg.activeSeeders != null ? pkg.activeSeeders : pkg.seeders;
-  if (raw == null) return "peers ?";
+  const raw = pkg.activeSeeders ?? pkg.seeders ?? 0;
   const n = Math.max(0, Number(raw) || 0);
   return `${n} peer${n === 1 ? "" : "s"} seeding`;
 }

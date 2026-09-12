@@ -5,6 +5,7 @@ export * from './share-claim'
 export * from './metadata-client'
 export * from './torrent-map-store'
 export {
+  applyP2pUploadLimit,
   destroyWebTorrent,
   getWebTorrentLoadError,
   listP2pProgress,
