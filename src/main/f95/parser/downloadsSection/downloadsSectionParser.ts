@@ -96,7 +96,18 @@ function isDownloadsMarker(raw: string): boolean {
 
 function opensDownloadArea(raw: string): boolean {
   const text = labelText(raw)
-  return isDownloadsMarker(text) || /^downloads?\b|^download links?\b/i.test(text)
+  if (isDownloadsMarker(text) || /^download links?\b/i.test(text)) return true
+  if (!/^downloads?\b/i.test(text)) return false
+  const rest = text.replace(/^downloads?\s*/i, '').trim()
+  if (!rest) return true
+  // "DOWNLOAD Win" / "Downloads HQ"
+  if (isDownloadGroupTitle(rest)) return true
+  // Unclosed <b>DOWNLOAD… wrapping following heading lines (Season / Win/Linux).
+  // Reject short prose tips like "Download Google Keyboard".
+  return (
+    rest.length > 20 ||
+    /^(?:season|chapter|ch\.?|episode|ep\.?|part|win|mac|linux|android|hq|lq)\b/i.test(rest)
+  )
 }
 
 function classifySection(raw: string): 'description' | 'changelog' | 'downloads' | 'gallery' | null {
@@ -197,7 +208,8 @@ function findDownloadsMarker($: CheerioAPI, root: Cheerio<AnyNode>): AnyNode | n
     for (const node of list) {
       if (found) return
       if (node.type === 'text') {
-        if (opensDownloadArea(normalize(node.data || ''))) found = node
+        // Bare text only when it is exactly a downloads header — not "Download Google Keyboard".
+        if (isDownloadsMarker(normalize(node.data || ''))) found = node
         continue
       }
       if (node.type !== 'tag') continue

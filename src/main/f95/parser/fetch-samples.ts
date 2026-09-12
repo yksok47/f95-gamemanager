@@ -1,12 +1,20 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { parserMetaFile, resolveSamplesRoot, sampleFile } from './sample-io'
 
-const SAMPLES_DIR = join(dirname(fileURLToPath(import.meta.url)), 'firstPost', 'samples')
-const LINKS_FILE = join(SAMPLES_DIR, 'links.txt')
-const COOKIES_FILE = join(SAMPLES_DIR, 'cookies.txt')
-const USER_AGENT_FILE = join(SAMPLES_DIR, 'user-agent.txt')
+const samplesRoot = resolveSamplesRoot()
+if (!samplesRoot) {
+  console.error(
+    'Parser samples root not found. Expected sibling repo f95-gamemanager-parser-samples\n' +
+      'or a junction/symlink at src/main/f95/parser/samples.'
+  )
+  process.exit(1)
+}
+
+const LINKS_FILE = parserMetaFile('firstPost', 'links.txt')
+const COOKIES_FILE = parserMetaFile('firstPost', 'cookies.txt')
+const USER_AGENT_FILE = parserMetaFile('firstPost', 'user-agent.txt')
 const DELAY_MS = 1500
 
 function readLinks(path: string): string[] {
@@ -79,6 +87,11 @@ function download(
   }
 }
 
+if (!existsSync(LINKS_FILE)) {
+  console.error(`No links file at ${LINKS_FILE}`)
+  process.exit(1)
+}
+
 const links = readLinks(LINKS_FILE)
 if (!links.length) {
   console.error(`No links found in ${LINKS_FILE}`)
@@ -87,6 +100,7 @@ if (!links.length) {
 
 const userAgent = readUserAgent(USER_AGENT_FILE)
 
+console.log(`Samples root: ${samplesRoot}`)
 console.log(`Downloading ${links.length} page(s) with ${curlBin()}`)
 console.log(`Using user-agent from ${USER_AGENT_FILE}`)
 if (existsSync(COOKIES_FILE)) console.log(`Using cookies from ${COOKIES_FILE}`)
@@ -94,7 +108,7 @@ if (existsSync(COOKIES_FILE)) console.log(`Using cookies from ${COOKIES_FILE}`)
 let failed = 0
 for (const [index, url] of links.entries()) {
   const id = String(index + 1)
-  const dest = join(SAMPLES_DIR, id, 'input.html')
+  const dest = sampleFile('firstPost', id, 'input.html')
   process.stdout.write(`${id}/${links.length} ${url} ... `)
   const result = download(url, dest, userAgent)
   if (result.ok) {

@@ -1,20 +1,49 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PARSERS, PARSER_ORDER, type ParserName, type ParserSpec } from './pipeline'
 
 export const PARSER_ROOT = dirname(fileURLToPath(import.meta.url))
 
+/**
+ * External samples live in a sibling repo named `f95-gamemanager-parser-samples`,
+ * or a `parser/samples` junction/symlink pointing at that repo.
+ */
+export function resolveSamplesRoot(): string | null {
+  const junction = join(PARSER_ROOT, 'samples')
+  if (existsSync(junction)) return junction
+
+  const sibling = resolve(PARSER_ROOT, '../../../../f95-gamemanager-parser-samples')
+  if (existsSync(sibling)) return sibling
+
+  return null
+}
+
+export function samplesAvailable(): boolean {
+  return resolveSamplesRoot() !== null
+}
+
 export function sampleDir(parser: ParserName, id: string): string {
-  return join(PARSER_ROOT, parser, 'samples', id)
+  const root = resolveSamplesRoot()
+  if (!root) throw new Error('Parser samples root is not available')
+  return join(root, parser, id)
 }
 
 export function sampleFile(parser: ParserName, id: string, filename: string): string {
   return join(sampleDir(parser, id), filename)
 }
 
+/** Top-level files under a parser folder (links.txt, cookies.txt, user-agent.txt). */
+export function parserMetaFile(parser: ParserName, filename: string): string {
+  const root = resolveSamplesRoot()
+  if (!root) throw new Error('Parser samples root is not available')
+  return join(root, parser, filename)
+}
+
 export function listSampleIds(parser: ParserName): string[] {
-  const dir = join(PARSER_ROOT, parser, 'samples')
+  const root = resolveSamplesRoot()
+  if (!root) return []
+  const dir = join(root, parser)
   if (!existsSync(dir)) return []
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -59,7 +88,11 @@ export function formatParserOutput(spec: ParserSpec, actual: unknown): string {
 }
 
 /** Copy each parser's output into every downstream parser's matching sample input. */
-export function propagateSamples(): { copied: string[]; skipped: string[] } {
+export function propagateSamples(): { copied: string[]; skipped: string[]; unavailable: boolean } {
+  if (!samplesAvailable()) {
+    return { copied: [], skipped: [], unavailable: true }
+  }
+
   const copied: string[] = []
   const skipped: string[] = []
 
@@ -80,5 +113,5 @@ export function propagateSamples(): { copied: string[]; skipped: string[] } {
     }
   }
 
-  return { copied, skipped }
+  return { copied, skipped, unavailable: false }
 }
