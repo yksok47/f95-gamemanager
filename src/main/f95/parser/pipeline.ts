@@ -3,7 +3,8 @@
  * Each parser's output is copied to every dependent parser's matching input.
  *
  *   firstPost
- *     ├─ banner, description, gallery, changelog, overview, developerNotes
+ *     ├─ banner, description, gallery, overview, developerNotes
+ *     ├─ changelogSection → changelog
  *     └─ downloadsSection → downloads
  */
 export type ParserName =
@@ -11,6 +12,7 @@ export type ParserName =
   | 'banner'
   | 'description'
   | 'gallery'
+  | 'changelogSection'
   | 'changelog'
   | 'downloadsSection'
   | 'downloads'
@@ -47,14 +49,20 @@ export const PARSERS: Record<ParserName, ParserSpec> = {
   gallery: {
     name: 'gallery',
     inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: 'firstPost'
+  },
+  changelogSection: {
+    name: 'changelogSection',
+    inputFile: 'input.html',
     outputFile: 'output.html',
     source: 'firstPost'
   },
   changelog: {
     name: 'changelog',
     inputFile: 'input.html',
-    outputFile: 'output.html',
-    source: 'firstPost'
+    outputFile: 'output.json',
+    source: 'changelogSection'
   },
   downloadsSection: {
     name: 'downloadsSection',
@@ -88,6 +96,7 @@ export const PARSER_ORDER: ParserName[] = [
   'banner',
   'description',
   'gallery',
+  'changelogSection',
   'changelog',
   'downloadsSection',
   'downloads',
