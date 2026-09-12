@@ -7,7 +7,12 @@
     "src/shared/**/*"
   ],
   "exclude": [
-    "src/**/*.test.ts"
+    "src/**/*.test.ts",
+    "src/main/f95/parser/test-harness.ts",
+    "src/main/f95/parser/propagate-samples.ts",
+    "src/main/f95/parser/update-samples.ts",
+    "src/main/f95/parser/fetch-samples.ts",
+    "src/main/f95/parser/vitest-setup.ts"
   ],
   "compilerOptions": {
     "composite": true,

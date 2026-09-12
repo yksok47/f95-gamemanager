@@ -15,3 +15,5 @@ out
 # Local Electron user-data for extra instances (e.g. bun run dev:peer)
 .userdata/
 .userdata-*/
+samples/
+

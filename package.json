@@ -15,6 +15,10 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "bun run typecheck:node && bun run typecheck:web",
     "test:p2p": "bun test src/shared/content-address.test.ts src/shared/p2p.test.ts src/main/p2p/share-claim.test.ts",
+    "parser:fetch": "bun src/main/f95/parser/fetch-samples.ts",
+    "parser:update": "bun src/main/f95/parser/update-samples.ts",
+    "parser:propagate": "bun src/main/f95/parser/propagate-samples.ts",
+    "test:parser": "vitest run",
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
@@ -45,7 +49,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0"
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
   },
   "trustedDependencies": [
     "electron",
