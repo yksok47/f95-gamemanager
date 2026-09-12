@@ -18,8 +18,9 @@
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
-    "postinstall": "bun run ensure-electron && electron-builder install-app-deps",
-    "rebuild:native": "electron-builder install-app-deps"
+    "postinstall": "bun run ensure-electron && electron-builder install-app-deps && npm explore node-datachannel -- prebuild-install -r napi",
+    "rebuild:native": "electron-builder install-app-deps && npm explore node-datachannel -- prebuild-install -r napi",
+    "rebuild:webrtc": "npm explore node-datachannel -- prebuild-install -r napi"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
