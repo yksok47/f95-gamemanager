@@ -19,6 +19,7 @@ function shortHash(value: string | null | undefined): string {
 }
 
 function statusLabel(state: P2pTransferProgress['state']): string {
+  if (state === 'connecting') return 'Connecting'
   if (state === 'downloading') return 'Downloading'
   if (state === 'seeding') return 'Sharing'
   if (state === 'checking') return 'Checking'
@@ -48,11 +49,13 @@ export default function P2pTransferRow({
 }: P2pTransferRowProps): JSX.Element {
   const percent = Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))
   const isQuarantined = item.state === 'quarantined'
-  const canPause = item.state === 'downloading' || item.state === 'checking'
+  const canPause =
+    item.state === 'connecting' || item.state === 'downloading' || item.state === 'checking'
   const canResume = item.state === 'paused' || item.state === 'error'
   const canStop =
     !isQuarantined &&
-    (item.state === 'downloading' ||
+    (item.state === 'connecting' ||
+      item.state === 'downloading' ||
       item.state === 'seeding' ||
       item.state === 'checking' ||
       item.state === 'paused' ||
@@ -101,7 +104,15 @@ export default function P2pTransferRow({
             ? [formatBytes(item.length || item.downloaded), shortHash(item.contentHash)]
                 .filter(Boolean)
                 .join(' · ')
-            : [size, down, up, `peers ${item.numPeers}`, `${percent}%`].join(' · ')}
+            : [
+                size,
+                down,
+                up,
+                item.state === 'connecting'
+                  ? 'finding peers'
+                  : `${item.numActivePeers ?? 0} active / ${item.numPeers} connected`,
+                `${percent}%`
+              ].join(' · ')}
         </p>
       </div>
       <div className="download-row-actions">

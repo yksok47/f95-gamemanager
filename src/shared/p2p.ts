@@ -98,7 +98,27 @@ export type TorrentMapStore = {
   entries: Record<string, TorrentMapEntry>
 }
 
-export type P2pTransferState = 'idle' | 'checking' | 'downloading' | 'seeding' | 'paused' | 'quarantined' | 'error'
+export type P2pTransferState =
+  | 'idle'
+  | 'connecting'
+  | 'checking'
+  | 'downloading'
+  | 'seeding'
+  | 'paused'
+  | 'quarantined'
+  | 'error'
+
+/** In-progress user downloads (not background seeds). */
+export function isInFlightP2pState(state: P2pTransferState): boolean {
+  return (
+    state === 'connecting' ||
+    state === 'downloading' ||
+    state === 'checking' ||
+    state === 'paused' ||
+    state === 'quarantined' ||
+    state === 'error'
+  )
+}
 
 export type P2pTransferProgress = {
   id: string
@@ -112,11 +132,16 @@ export type P2pTransferProgress = {
   downloadSpeed: number
   uploadSpeed: number
   progress: number
+  /** Unique remote IPs with an established wire. */
   numPeers: number
+  /** Connected peers that are currently transferring data. */
+  numActivePeers?: number
   error?: string
   /** Display name for global Downloads / per-game filter */
   gameName?: string
+  gameVersion?: string | null
   f95ThreadId?: number | null
+  f95ThreadUrl?: string | null
   normalizedName?: string
 }
 

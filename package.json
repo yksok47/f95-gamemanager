@@ -14,7 +14,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "bun run typecheck:node && bun run typecheck:web",
-    "test:p2p": "bun test src/shared/content-address.test.ts src/main/p2p/share-claim.test.ts",
+    "test:p2p": "bun test src/shared/content-address.test.ts src/shared/p2p.test.ts src/main/p2p/share-claim.test.ts",
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",

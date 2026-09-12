@@ -100,6 +100,7 @@ export default function App(): JSX.Element {
   const activeP2pCount = settings.p2pEnabled
     ? p2pTransfers.filter(
         (t) =>
+          t.state === 'connecting' ||
           t.state === 'downloading' ||
           t.state === 'checking' ||
           t.state === 'paused' ||

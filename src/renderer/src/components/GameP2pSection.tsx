@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
 import { isContentHash, normalizeInfoHash } from "@shared/content-address";
-import type {
-  PackageListQuery,
-  PackageListSort,
-  PackageMetadata,
-  P2pTransferProgress,
+import {
+  isInFlightP2pState,
+  type PackageListQuery,
+  type PackageListSort,
+  type PackageMetadata,
+  type P2pTransferProgress,
 } from "@shared/p2p";
 import { formatBytes, formatSpeed } from "../lib/downloads";
 import { confirm } from "./ConfirmDialog";
@@ -73,28 +74,9 @@ function formatUploadedAt(iso?: string | null): string | null {
   return `Uploaded ${d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
 }
 
-function livePeersForPackage(
-  pkg: PackageMetadata,
-  transfers: P2pTransferProgress[],
-): number | null {
-  const matched = transfers.filter((t) => transferMatchesPackage(t, pkg));
-  if (!matched.length) return null;
-  // Same signal as the Downloads shared row — drops as soon as wires die.
-  return Math.max(0, ...matched.map((t) => t.numPeers || 0));
-}
-
-function availabilityMeta(
-  pkg: PackageMetadata,
-  livePeers: number | null,
-): string {
-  // Live transfer numPeers is unique remote IPs (not wire endpoints). Prefer it when we are
-  // in the swarm for freshness; else tracker announce unique-IP probe from tab load.
-  const raw =
-    livePeers != null
-      ? livePeers
-      : pkg.activeSeeders != null
-        ? pkg.activeSeeders
-        : pkg.seeders;
+function availabilityMeta(pkg: PackageMetadata): string {
+  // Swarm availability for the catalog tile — tracker probe, not our connected wires.
+  const raw = pkg.activeSeeders != null ? pkg.activeSeeders : pkg.seeders;
   if (raw == null) return "peers ?";
   const n = Math.max(0, Number(raw) || 0);
   return `${n} peer${n === 1 ? "" : "s"} seeding`;
@@ -117,13 +99,18 @@ function transferMatchesPackage(
 }
 
 function isInFlightDownload(t: P2pTransferProgress): boolean {
-  return (
-    t.state === "downloading" ||
-    t.state === "checking" ||
-    t.state === "paused" ||
-    t.state === "quarantined" ||
-    (t.state === "error" && t.id.startsWith("add:"))
-  );
+  if (t.state === "error") return t.id.startsWith("add:");
+  return isInFlightP2pState(t.state);
+}
+
+function activeDownloadLabel(state: P2pTransferProgress["state"]): string {
+  if (state === "error") return "Error";
+  if (state === "paused") return "Paused";
+  if (state === "quarantined") return "Needs review";
+  if (state === "seeding") return "Downloaded";
+  if (state === "connecting") return "Connecting";
+  if (state === "checking") return "Checking";
+  return "Downloading";
 }
 
 export default function GameP2pSection({
@@ -431,15 +418,7 @@ export default function GameP2pSection({
                       {t.normalizedName || shortHash(t.contentHash) || t.id}
                     </strong>
                     <span className="download-status download-status-progressing">
-                      {t.state === "error"
-                        ? "Error"
-                        : t.state === "paused"
-                          ? "Paused"
-                          : t.state === "quarantined"
-                            ? "Needs review"
-                            : t.state === "seeding"
-                              ? "Downloaded"
-                              : "Downloading"}
+                      {activeDownloadLabel(t.state)}
                     </span>
                   </div>
                   <div
@@ -460,7 +439,9 @@ export default function GameP2pSection({
                             ? `${formatBytes(t.downloaded)} / ${formatBytes(t.length)}`
                             : formatBytes(t.downloaded),
                           down,
-                          `peers ${t.numPeers}`,
+                          t.state === "connecting"
+                            ? "finding peers"
+                            : `${t.numActivePeers ?? 0} active / ${t.numPeers} connected`,
                           t.error,
                         ]
                           .filter(Boolean)
@@ -575,9 +556,10 @@ export default function GameP2pSection({
           const trust = trustSignal(pkg);
           const active = pendingHash === pkg.contentHash;
           const owned = ownedContentHashes.has(pkg.contentHash.toLowerCase());
-          const inFlight = transfers.some(
+          const matchedTransfer = transfers.find(
             (t) => transferMatchesPackage(t, pkg) && isInFlightDownload(t),
           );
+          const inFlight = Boolean(matchedTransfer);
           const size =
             pkg.sizeBytes && pkg.sizeBytes > 0
               ? formatBytes(pkg.sizeBytes)
@@ -587,13 +569,19 @@ export default function GameP2pSection({
             (pkg.seeders == null || pkg.seeders <= 0);
           const label = owned
             ? "In library"
-            : inFlight
-              ? "Downloading…"
-              : active
-                ? "Starting…"
-                : size
-                  ? `Download · ${size}`
-                  : "Download";
+            : matchedTransfer?.state === "quarantined"
+              ? "Needs review"
+              : matchedTransfer?.state === "paused"
+                ? "Paused"
+                : matchedTransfer?.state === "connecting"
+                  ? "Connecting…"
+                  : inFlight
+                    ? "Downloading…"
+                    : active
+                      ? "Starting…"
+                      : size
+                        ? `Download · ${size}`
+                        : "Download";
           const title = !p2pEnabled
             ? "Enable P2P in Settings"
             : !pkg.infoHash
@@ -623,10 +611,7 @@ export default function GameP2pSection({
                   </div>
                   <p className="muted download-meta">
                     {[
-                      availabilityMeta(
-                        pkg,
-                        livePeersForPackage(pkg, transfers),
-                      ),
+                      availabilityMeta(pkg),
                       size,
                       formatUploadedAt(pkg.createdAt),
                     ]

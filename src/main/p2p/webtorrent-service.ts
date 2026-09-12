@@ -13,10 +13,14 @@ import { basename, dirname, join } from 'path'
  * Fallback note (not built): aria2 RPC may later help multi-GB hashing performance.
  */
 
-import type { P2pTransferProgress } from '@shared/p2p'
+import { isInFlightP2pState, type P2pTransferProgress } from '@shared/p2p'
 import { mkdir, rename, stat, unlink } from 'fs/promises'
 import { addGameFileFromDownload } from '../game-files-store'
 import { getDownloadsDirSync, getUntrustedDownloadsDirSync } from '../settings-store'
+import {
+  persistP2pDownloadSession,
+  type PersistedP2pDownload
+} from './download-session-store'
 import { getAnnounceList, getStunServers } from './env'
 import { loadCachedTorrentFile, saveCachedTorrentFile } from './torrent-file-cache'
 import { upsertTorrentMapEntry } from './torrent-map-store'
@@ -49,7 +53,13 @@ type TorrentLike = {
   done: boolean
   ready?: boolean
   paused?: boolean
-  wires?: Array<{ destroy: () => void; remoteAddress?: string | null; remotePort?: number | null }>
+  wires?: Array<{
+    destroy: () => void
+    remoteAddress?: string | null
+    remotePort?: number | null
+    uploadSpeed?: (() => number) | number
+    downloadSpeed?: (() => number) | number
+  }>
   discovery?: {
     tracker?: {
       update?: (opts?: object) => void
@@ -85,13 +95,6 @@ const quarantineMetaById = new Map<
     filePath: string
   }
 >()
-const listeners = new Set<(items: P2pTransferProgress[]) => void>()
-
-function emit(): void {
-  const items = [...progressById.values()]
-  for (const listener of listeners) listener(items)
-}
-
 type TrackMeta = {
   contentHash?: string
   infoHash?: string | null
@@ -100,6 +103,129 @@ type TrackMeta = {
   f95ThreadId?: number | null
   f95ThreadUrl?: string | null
   normalizedName?: string
+  savePath?: string
+}
+
+const listeners = new Set<(items: P2pTransferProgress[]) => void>()
+const metaById = new Map<string, TrackMeta>()
+const detachWaiters = new Map<string, Promise<void>>()
+const refreshById = new Map<string, () => void>()
+const lastTransferAt = new Map<string, number>()
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+let persistSuspended = false
+let progressTicker: ReturnType<typeof setInterval> | null = null
+let lastPersistFingerprint = ''
+const SPEED_NOISE_BPS = 32
+const SPEED_STALE_MS = 2000
+
+function emit(): void {
+  const items = [...progressById.values()]
+  for (const listener of listeners) listener(items)
+  schedulePersistDownloads()
+}
+
+function rememberMeta(id: string, meta?: TrackMeta): TrackMeta | undefined {
+  if (!meta) return metaById.get(id)
+  const prev = metaById.get(id)
+  const next = { ...prev, ...meta }
+  metaById.set(id, next)
+  return next
+}
+
+function isPersistableTransferState(
+  state: P2pTransferProgress['state']
+): state is PersistedP2pDownload['state'] {
+  return state !== 'idle' && state !== 'seeding' && isInFlightP2pState(state)
+}
+
+function persistableSnapshot(): PersistedP2pDownload[] {
+  const items: PersistedP2pDownload[] = []
+  for (const t of progressById.values()) {
+    if (t.id.startsWith('seed:') || !isPersistableTransferState(t.state)) continue
+    const meta = metaById.get(t.id)
+    const q = quarantineMetaById.get(t.id)
+    items.push({
+      id: t.id,
+      contentHash: t.contentHash,
+      infoHash: t.infoHash ?? null,
+      path: t.path,
+      savePath: meta?.savePath || getUntrustedDownloadsDirSync(),
+      filePath: q?.filePath || t.path,
+      state: t.state,
+      downloaded: t.downloaded,
+      uploaded: t.uploaded,
+      length: t.length,
+      progress: t.progress,
+      gameName: t.gameName ?? meta?.gameName,
+      gameVersion: t.gameVersion ?? meta?.gameVersion ?? q?.gameVersion,
+      f95ThreadId: t.f95ThreadId ?? meta?.f95ThreadId ?? q?.f95ThreadId,
+      f95ThreadUrl: t.f95ThreadUrl ?? meta?.f95ThreadUrl ?? q?.f95ThreadUrl,
+      normalizedName: t.normalizedName ?? meta?.normalizedName,
+      error: t.error,
+      updatedAt: Date.now()
+    })
+  }
+  return items
+}
+
+function persistFingerprint(items: PersistedP2pDownload[]): string {
+  return JSON.stringify(items.map(({ updatedAt: _updatedAt, ...rest }) => rest))
+}
+
+function schedulePersistDownloads(): void {
+  if (persistSuspended) return
+  if (persistTimer) clearTimeout(persistTimer)
+  persistTimer = setTimeout(() => {
+    persistTimer = null
+    const snap = persistableSnapshot()
+    const fingerprint = persistFingerprint(snap)
+    if (fingerprint === lastPersistFingerprint) return
+    lastPersistFingerprint = fingerprint
+    void persistP2pDownloadSession(snap).catch((err) => {
+      console.warn('[p2p] persist downloads failed', err)
+    })
+  }, 400)
+}
+
+export async function flushP2pDownloadSession(): Promise<void> {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  const snap = persistableSnapshot()
+  lastPersistFingerprint = persistFingerprint(snap)
+  await persistP2pDownloadSession(snap)
+}
+
+function forgetTransfer(id: string): void {
+  progressById.delete(id)
+  torrentById.delete(id)
+  trackedListenerIds.delete(id)
+  pausedIds.delete(id)
+  quarantineIds.delete(id)
+  quarantineMetaById.delete(id)
+  metaById.delete(id)
+  refreshById.delete(id)
+  lastTransferAt.delete(id)
+  if (refreshById.size === 0) stopProgressTicker()
+}
+
+function startProgressTicker(): void {
+  if (progressTicker) return
+  progressTicker = setInterval(() => {
+    if (refreshById.size === 0) {
+      stopProgressTicker()
+      return
+    }
+    for (const refresh of refreshById.values()) refresh()
+    emit()
+  }, 1000)
+}
+
+function stopProgressTicker(): void {
+  if (!progressTicker) return
+  clearInterval(progressTicker)
+  progressTicker = null
 }
 
 
@@ -124,6 +250,7 @@ async function enterQuarantine(
   }
   if (quarantineIds.has(id) || finalizedContentHashes.has(contentHash)) return
 
+  const stored = rememberMeta(id, meta)
   const buf = torrent.torrentFile
   if (buf) {
     void saveCachedTorrentFile(contentHash, buf).catch((err) => {
@@ -135,27 +262,20 @@ async function enterQuarantine(
   pausedIds.add(id)
   quarantineMetaById.set(id, {
     contentHash,
-    infoHash: normalizeInfoHash(torrent.infoHash) || meta?.infoHash || null,
-    gameName: meta?.gameName,
-    gameVersion: meta?.gameVersion,
-    f95ThreadId: meta?.f95ThreadId,
-    f95ThreadUrl: meta?.f95ThreadUrl,
-    normalizedName: meta?.normalizedName,
+    infoHash: normalizeInfoHash(torrent.infoHash) || stored?.infoHash || null,
+    gameName: stored?.gameName,
+    gameVersion: stored?.gameVersion,
+    f95ThreadId: stored?.f95ThreadId,
+    f95ThreadUrl: stored?.f95ThreadUrl,
+    normalizedName: stored?.normalizedName,
     filePath
   })
-
-  try {
-    torrent.pause?.()
-    disconnectTorrentPeers(torrent)
-  } catch (error) {
-    console.warn('[p2p] quarantine pause failed', error)
-  }
 
   const cur = progressById.get(id)
   progressById.set(id, {
     id,
     contentHash,
-    infoHash: normalizeInfoHash(torrent.infoHash) || meta?.infoHash || null,
+    infoHash: normalizeInfoHash(torrent.infoHash) || stored?.infoHash || null,
     path: filePath,
     state: 'quarantined',
     downloaded: torrent.downloaded ?? cur?.downloaded ?? 0,
@@ -165,12 +285,61 @@ async function enterQuarantine(
     uploadSpeed: 0,
     progress: 1,
     numPeers: 0,
-    gameName: meta?.gameName ?? cur?.gameName,
-    f95ThreadId: meta?.f95ThreadId ?? cur?.f95ThreadId,
-    normalizedName: meta?.normalizedName ?? torrent.name ?? cur?.normalizedName
+    numActivePeers: 0,
+    gameName: stored?.gameName ?? cur?.gameName,
+    gameVersion: stored?.gameVersion ?? cur?.gameVersion,
+    f95ThreadId: stored?.f95ThreadId ?? cur?.f95ThreadId,
+    f95ThreadUrl: stored?.f95ThreadUrl ?? cur?.f95ThreadUrl,
+    normalizedName: stored?.normalizedName ?? torrent.name ?? cur?.normalizedName
   })
   emit()
+
+  const detach = detachLiveTorrent(id)
+    .catch((error) => {
+      console.warn('[p2p] quarantine detach failed', error)
+    })
+    .finally(() => {
+      detachWaiters.delete(id)
+    })
+  detachWaiters.set(id, detach)
+  await detach
+  void flushP2pDownloadSession().catch((err) => {
+    console.warn('[p2p] persist after quarantine failed', err)
+  })
   console.info('[p2p] download quarantined pending review', filePath)
+}
+
+async function waitForDetach(id: string): Promise<void> {
+  const pending = detachWaiters.get(id)
+  if (pending) await pending
+}
+
+/** Drop the live torrent so Windows releases the file for review/move. Keeps progress. */
+async function detachLiveTorrent(id: string): Promise<void> {
+  const wt = client
+  const live = torrentById.get(id)
+  if (!wt || !live) {
+    torrentById.delete(id)
+    trackedListenerIds.delete(id)
+    return
+  }
+  try {
+    live.pause?.()
+    disconnectTorrentPeers(live)
+  } catch (error) {
+    console.warn('[p2p] quarantine pause failed', error)
+  }
+  await announceStopped(live)
+  const torrentId = normalizeInfoHash(live.infoHash) || progressById.get(id)?.infoHash || id
+  await new Promise<void>((resolve) => {
+    try {
+      wt.remove(torrentId, { destroyStore: false }, () => resolve())
+    } catch {
+      resolve()
+    }
+  })
+  torrentById.delete(id)
+  trackedListenerIds.delete(id)
 }
 
 /** Promote a reviewed quarantine file into library + trusted downloads + seeding. */
@@ -231,6 +400,7 @@ async function promoteQuarantinedFile(
 }
 
 export async function p2pRevealQuarantine(id: string): Promise<string> {
+  await waitForDetach(id)
   const meta = quarantineMetaById.get(id)
   const cur = progressById.get(id)
   const filePath = meta?.filePath || cur?.path
@@ -241,6 +411,7 @@ export async function p2pRevealQuarantine(id: string): Promise<string> {
 }
 
 export async function p2pApproveQuarantine(id: string): Promise<void> {
+  await waitForDetach(id)
   const meta = quarantineMetaById.get(id)
   if (!meta?.filePath || !meta.contentHash) {
     throw new Error('No quarantined download with that id.')
@@ -249,11 +420,11 @@ export async function p2pApproveQuarantine(id: string): Promise<void> {
   const trustedDir = getDownloadsDirSync()
   await mkdir(trustedDir, { recursive: true })
   const dest = join(trustedDir, basename(src))
-  // Drop live torrent first so Windows releases the lock for rename.
-  quarantineIds.delete(id)
-  pausedIds.delete(id)
-  quarantineMetaById.delete(id)
-  await p2pRemove(id, { deleteFiles: false })
+  if (torrentById.has(id)) {
+    await detachLiveTorrent(id)
+  }
+  forgetTransfer(id)
+  emit()
   try {
     await rename(src, dest)
   } catch {
@@ -263,16 +434,24 @@ export async function p2pApproveQuarantine(id: string): Promise<void> {
     await unlink(src)
   }
   await promoteQuarantinedFile(dest, { ...meta, contentHash: meta.contentHash })
-  // clear any leftover progress
-  progressById.delete(id)
-  emit()
 }
 
 export async function p2pRejectQuarantine(id: string): Promise<void> {
-  quarantineIds.delete(id)
-  pausedIds.delete(id)
-  quarantineMetaById.delete(id)
-  await p2pRemove(id, { deleteFiles: true })
+  await waitForDetach(id)
+  const filePath = quarantineMetaById.get(id)?.filePath || progressById.get(id)?.path
+  if (torrentById.has(id)) {
+    await p2pRemove(id, { deleteFiles: true })
+    return
+  }
+  forgetTransfer(id)
+  emit()
+  if (filePath) {
+    try {
+      await unlink(filePath)
+    } catch {
+      /* already gone */
+    }
+  }
 }
 
 
@@ -302,15 +481,20 @@ function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress
     }
     return 'checking'
   }
-  return torrentLooksComplete(torrent) ? 'seeding' : 'downloading'
+  if (torrentLooksComplete(torrent)) return 'seeding'
+  const peers = countUniqueRemotePeerIps(torrent)
+  const speed = torrent.downloadSpeed ?? 0
+  if (peers === 0 && speed <= 0) return 'connecting'
+  return 'downloading'
 }
 
 function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void {
   torrentById.set(id, torrent)
+  const stored = rememberMeta(id, meta)
   const resolveInfoHash = (): string | null =>
-    normalizeInfoHash(torrent.infoHash) || normalizeInfoHash(meta?.infoHash) || progressById.get(id)?.infoHash || null
+    normalizeInfoHash(torrent.infoHash) || normalizeInfoHash(stored?.infoHash) || progressById.get(id)?.infoHash || null
 
-  const update = (state: P2pTransferProgress['state'], error?: string): void => {
+  const update = (state: P2pTransferProgress['state'], error?: string, silent = false): void => {
     const prev = progressById.get(id)
     const forcedPause = pausedIds.has(id)
     const forcedQuarantine = quarantineIds.has(id)
@@ -319,29 +503,55 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
     else if (forcedPause && state !== 'error' && state !== 'paused') nextState = 'paused'
 
     const complete = torrentLooksComplete(torrent) || nextState === 'seeding'
+    const liveLength = torrent.length ?? 0
+    const liveDownloaded = torrent.downloaded ?? 0
+    const liveProgress = torrent.progress ?? 0
+    const length = liveLength > 0 ? liveLength : (prev?.length ?? 0)
+    const downloaded = Math.max(liveDownloaded, prev?.downloaded ?? 0)
+    const progress = complete
+      ? Math.max(liveProgress, prev?.progress ?? 0, 1)
+      : Math.max(
+          liveProgress,
+          prev?.progress ?? 0,
+          length > 0 ? downloaded / length : 0
+        )
+    const idle = nextState === 'paused' || nextState === 'quarantined'
+    const seeding = nextState === 'seeding' || complete
+    const stale = Date.now() - (lastTransferAt.get(id) ?? 0) > SPEED_STALE_MS
+    const peers = idle
+      ? { connected: 0, active: 0 }
+      : stale
+        ? { ...countPeerActivity(torrent), active: 0 }
+        : countPeerActivity(torrent)
+    const liveSpeeds = torrentTransferSpeeds(torrent)
+    const rawDown = idle || seeding || stale ? 0 : liveSpeeds.down
+    const rawUp = idle || stale ? 0 : liveSpeeds.up
     progressById.set(id, {
       id,
-      contentHash: meta?.contentHash ?? prev?.contentHash,
+      contentHash: stored?.contentHash ?? prev?.contentHash,
       infoHash: resolveInfoHash(),
       path: resolveTorrentDiskPath(torrent) ?? prev?.path,
       state: nextState,
-      downloaded: torrent.downloaded ?? 0,
-      uploaded: torrent.uploaded ?? 0,
-      length: torrent.length ?? prev?.length ?? 0,
-      downloadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.downloadSpeed ?? 0),
-      uploadSpeed: nextState === 'paused' || nextState === 'quarantined' ? 0 : (torrent.uploadSpeed ?? 0),
-      progress: complete ? Math.max(torrent.progress ?? 0, 1) : (torrent.progress ?? 0),
-      numPeers: countUniqueRemotePeerIps(torrent),
+      downloaded,
+      uploaded: Math.max(torrent.uploaded ?? 0, prev?.uploaded ?? 0),
+      length,
+      downloadSpeed: rawDown < SPEED_NOISE_BPS ? 0 : rawDown,
+      uploadSpeed: rawUp < SPEED_NOISE_BPS ? 0 : rawUp,
+      progress,
+      numPeers: peers.connected,
+      numActivePeers: peers.active,
       error,
-      gameName: meta?.gameName ?? prev?.gameName,
-      f95ThreadId: meta?.f95ThreadId ?? prev?.f95ThreadId,
-      normalizedName: meta?.normalizedName ?? torrent.name ?? prev?.normalizedName
+      gameName: stored?.gameName ?? prev?.gameName,
+      gameVersion: stored?.gameVersion ?? prev?.gameVersion,
+      f95ThreadId: stored?.f95ThreadId ?? prev?.f95ThreadId,
+      f95ThreadUrl: stored?.f95ThreadUrl ?? prev?.f95ThreadUrl,
+      normalizedName: stored?.normalizedName ?? torrent.name ?? prev?.normalizedName
     })
-    emit()
+    if (!silent) emit()
   }
 
-  const refresh = (): void => {
-    update(liveTorrentState(id, torrent))
+  const refresh = (silent = false): void => {
+    update(liveTorrentState(id, torrent), undefined, silent)
   }
 
   refresh()
@@ -349,14 +559,22 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
     void enterQuarantine(id, torrent, meta)
   }
   torrentById.set(id, torrent)
+  refreshById.set(id, () => refresh(true))
+  startProgressTicker()
   if (trackedListenerIds.has(id)) return
   trackedListenerIds.add(id)
-  torrent.on('download', refresh)
-  torrent.on('upload', refresh)
-  torrent.on('metadata', refresh)
-  torrent.on('ready', refresh)
-  torrent.on('seed', refresh)
-  torrent.on('wire', refresh)
+  torrent.on('download', () => {
+    lastTransferAt.set(id, Date.now())
+    refresh()
+  })
+  torrent.on('upload', () => {
+    lastTransferAt.set(id, Date.now())
+    refresh()
+  })
+  torrent.on('metadata', () => refresh())
+  torrent.on('ready', () => refresh())
+  torrent.on('seed', () => refresh())
+  torrent.on('wire', () => refresh())
   torrent.on('done', () => {
     if (pausedIds.has(id)) {
       update('paused')
@@ -379,24 +597,69 @@ export function touchP2pProgress(): void {
 }
 
 
+function wireRemoteIp(wire: { remoteAddress?: string | null }): string | null {
+  const addr = typeof wire.remoteAddress === 'string' ? wire.remoteAddress.trim() : ''
+  if (!addr) return null
+  const key = addr.startsWith('::ffff:') ? addr.slice(7) : addr
+  if (key === '127.0.0.1' || key === '::1') return null
+  return key
+}
+
+function wireByteSpeed(value: (() => number) | number | undefined): number {
+  if (typeof value === 'function') {
+    try {
+      return value() || 0
+    } catch {
+      return 0
+    }
+  }
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
 /** WebTorrent numPeers counts wires (IP:port / dual transport). UI wants unique remote IPs. */
 function countUniqueRemotePeerIps(torrent: TorrentLike): number {
+  return countPeerActivity(torrent).connected
+}
+
+function torrentTransferSpeeds(torrent: TorrentLike): { up: number; down: number } {
   const wires = torrent.wires
   if (!Array.isArray(wires) || wires.length === 0) {
-    return Math.max(0, torrent.numPeers ?? 0)
+    return { up: 0, down: 0 }
   }
-  const seen = new Set<string>()
+  let up = 0
+  let down = 0
+  let sawWireSpeed = false
   for (const w of wires) {
-    const addr = typeof w.remoteAddress === 'string' ? w.remoteAddress.trim() : ''
-    if (!addr) continue
-    // Normalize IPv4-mapped IPv6 so the same host isn't double-counted.
-    const key = addr.startsWith('::ffff:') ? addr.slice(7) : addr
-    if (key === '127.0.0.1' || key === '::1') continue
-    seen.add(key)
+    if (typeof w.uploadSpeed === 'function' || typeof w.downloadSpeed === 'function') {
+      sawWireSpeed = true
+    }
+    up += wireByteSpeed(w.uploadSpeed)
+    down += wireByteSpeed(w.downloadSpeed)
   }
-  // If wires lacked addresses, fall back to library count rather than lying with 0.
-  if (seen.size === 0 && (torrent.numPeers ?? 0) > 0) return torrent.numPeers ?? 0
-  return seen.size
+  if (sawWireSpeed) return { up, down }
+  return { up: torrent.uploadSpeed ?? 0, down: torrent.downloadSpeed ?? 0 }
+}
+
+function countPeerActivity(torrent: TorrentLike): { connected: number; active: number } {
+  const wires = torrent.wires
+  if (!Array.isArray(wires) || wires.length === 0) {
+    const fallback = Math.max(0, torrent.numPeers ?? 0)
+    return { connected: fallback, active: 0 }
+  }
+  const connected = new Set<string>()
+  const active = new Set<string>()
+  for (const w of wires) {
+    const ip = wireRemoteIp(w)
+    if (!ip) continue
+    connected.add(ip)
+    const up = wireByteSpeed(w.uploadSpeed)
+    const down = wireByteSpeed(w.downloadSpeed)
+    if (up >= SPEED_NOISE_BPS || down >= SPEED_NOISE_BPS) active.add(ip)
+  }
+  if (connected.size === 0 && (torrent.numPeers ?? 0) > 0) {
+    return { connected: torrent.numPeers ?? 0, active: 0 }
+  }
+  return { connected: connected.size, active: active.size }
 }
 
 function disconnectTorrentPeers(torrent: TorrentLike): void {
@@ -414,6 +677,7 @@ function disconnectTorrentPeers(torrent: TorrentLike): void {
 
 
 async function ensureClient(): Promise<WebTorrentLike> {
+  persistSuspended = false
   if (client) return client
   if (loadError) throw new Error(loadError)
   try {
@@ -491,6 +755,95 @@ export function listP2pProgress(): P2pTransferProgress[] {
   return [...progressById.values()]
 }
 
+export function adoptQuarantinedTransfer(entry: PersistedP2pDownload): P2pTransferProgress {
+  persistSuspended = false
+  const filePath = entry.filePath || entry.path
+  const contentHash = entry.contentHash?.trim().toLowerCase()
+  if (!filePath || !contentHash) {
+    throw new Error('Invalid quarantined download snapshot')
+  }
+  const id = entry.id
+  const meta: TrackMeta = {
+    contentHash,
+    infoHash: normalizeInfoHash(entry.infoHash) || null,
+    gameName: entry.gameName,
+    gameVersion: entry.gameVersion,
+    f95ThreadId: entry.f95ThreadId,
+    f95ThreadUrl: entry.f95ThreadUrl,
+    normalizedName: entry.normalizedName,
+    savePath: entry.savePath
+  }
+  rememberMeta(id, meta)
+  quarantineIds.add(id)
+  pausedIds.add(id)
+  quarantineMetaById.set(id, { ...meta, filePath })
+  const row: P2pTransferProgress = {
+    id,
+    contentHash,
+    infoHash: meta.infoHash,
+    path: filePath,
+    state: 'quarantined',
+    downloaded: entry.length || entry.downloaded,
+    uploaded: 0,
+    length: entry.length || entry.downloaded,
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    progress: 1,
+    numPeers: 0,
+    numActivePeers: 0,
+    gameName: entry.gameName,
+    gameVersion: entry.gameVersion,
+    f95ThreadId: entry.f95ThreadId,
+    f95ThreadUrl: entry.f95ThreadUrl,
+    normalizedName: entry.normalizedName
+  }
+  progressById.set(id, row)
+  emit()
+  return row
+}
+
+export function adoptFailedTransfer(entry: PersistedP2pDownload, error: string): P2pTransferProgress {
+  persistSuspended = false
+  rememberMeta(entry.id, {
+    contentHash: entry.contentHash,
+    infoHash: entry.infoHash,
+    gameName: entry.gameName,
+    gameVersion: entry.gameVersion,
+    f95ThreadId: entry.f95ThreadId,
+    f95ThreadUrl: entry.f95ThreadUrl,
+    normalizedName: entry.normalizedName,
+    savePath: entry.savePath
+  })
+  const row: P2pTransferProgress = {
+    id: entry.id,
+    contentHash: entry.contentHash,
+    infoHash: entry.infoHash ?? null,
+    path: entry.path || entry.filePath,
+    state: 'error',
+    downloaded: entry.downloaded,
+    uploaded: entry.uploaded,
+    length: entry.length,
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    progress: entry.progress,
+    numPeers: 0,
+    numActivePeers: 0,
+    error,
+    gameName: entry.gameName,
+    gameVersion: entry.gameVersion,
+    f95ThreadId: entry.f95ThreadId,
+    f95ThreadUrl: entry.f95ThreadUrl,
+    normalizedName: entry.normalizedName
+  }
+  progressById.set(entry.id, row)
+  emit()
+  return row
+}
+
+export function hasLiveTorrent(id: string): boolean {
+  return torrentById.has(id)
+}
+
 export async function p2pAddMagnet(
   magnetUri: string,
   opts?: {
@@ -501,6 +854,14 @@ export async function p2pAddMagnet(
     f95ThreadUrl?: string | null
     gameVersion?: string | null
     normalizedName?: string
+    startPaused?: boolean
+    snapshot?: {
+      downloaded?: number
+      uploaded?: number
+      length?: number
+      progress?: number
+      path?: string
+    }
   }
 ): Promise<P2pTransferProgress> {
   const wtClient = await ensureClient()
@@ -516,6 +877,7 @@ export async function p2pAddMagnet(
   if (already) {
     // Stale seed/error rows after library delete must not block a fresh add.
     if (
+      already.state === 'connecting' ||
       already.state === 'downloading' ||
       already.state === 'checking' ||
       already.state === 'paused' ||
@@ -551,7 +913,8 @@ export async function p2pAddMagnet(
       gameVersion: opts?.gameVersion,
       f95ThreadId: opts?.f95ThreadId,
       f95ThreadUrl: opts?.f95ThreadUrl,
-      normalizedName: opts?.normalizedName
+      normalizedName: opts?.normalizedName,
+      savePath: downloadPath
     })
     if (existingTorrent.done) {
       void enterQuarantine(id, existingTorrent, {
@@ -575,13 +938,49 @@ export async function p2pAddMagnet(
     gameVersion: opts?.gameVersion,
     f95ThreadId: opts?.f95ThreadId,
     f95ThreadUrl: opts?.f95ThreadUrl,
-    normalizedName: opts?.normalizedName
+    normalizedName: opts?.normalizedName,
+    savePath: downloadPath
+  }
+  if (opts?.startPaused) pausedIds.add(id)
+  if (opts?.snapshot && ((opts.snapshot.length ?? 0) > 0 || (opts.snapshot.downloaded ?? 0) > 0)) {
+    progressById.set(id, {
+      id,
+      contentHash: opts.contentHash,
+      infoHash: magnetInfoHash,
+      path: opts.snapshot.path,
+      state: opts.startPaused ? 'paused' : 'connecting',
+      downloaded: opts.snapshot.downloaded ?? 0,
+      uploaded: opts.snapshot.uploaded ?? 0,
+      length: opts.snapshot.length ?? 0,
+      downloadSpeed: 0,
+      uploadSpeed: 0,
+      progress:
+        opts.snapshot.progress ||
+        ((opts.snapshot.length ?? 0) > 0
+          ? (opts.snapshot.downloaded ?? 0) / (opts.snapshot.length ?? 1)
+          : 0),
+      numPeers: 0,
+      numActivePeers: 0,
+      gameName: opts.gameName,
+      gameVersion: opts.gameVersion,
+      f95ThreadId: opts.f95ThreadId,
+      f95ThreadUrl: opts.f95ThreadUrl,
+      normalizedName: opts.normalizedName
+    })
   }
 
   try {
     const torrent = wtClient.add(magnetUri, { announce: announceList(), path: downloadPath })
-    // Track immediately so UI shows the transfer before metadata arrives (0-peer wait).
+    // Track immediately so UI shows Connecting before metadata/peers arrive.
     trackTorrent(id, torrent, meta)
+    if (opts?.startPaused) {
+      try {
+        torrent.pause?.()
+        disconnectTorrentPeers(torrent)
+      } catch (error) {
+        console.warn('[p2p] startPaused failed', error)
+      }
+    }
     torrent.on('ready', () => {
       // Refresh progress now that infoHash/length are known
       trackTorrent(id, torrent, meta)
@@ -721,7 +1120,8 @@ export async function waitForTorrentInfoHash(
         downloadSpeed: 0,
         uploadSpeed: 0,
         progress: live?.progress ?? 0,
-        numPeers: live ? countUniqueRemotePeerIps(live) : 0
+        numPeers: live ? countUniqueRemotePeerIps(live) : 0,
+        numActivePeers: live ? countPeerActivity(live).active : 0
       }
     }
     if (cur?.state === 'error') {
@@ -745,9 +1145,19 @@ export async function p2pPause(id: string): Promise<P2pTransferProgress | null> 
   } catch (error) {
     console.warn('[p2p] pause failed', error)
   }
-  const next = { ...cur, state: 'paused' as const, downloadSpeed: 0, uploadSpeed: 0, numPeers: 0 }
+  const next = {
+    ...cur,
+    state: 'paused' as const,
+    downloadSpeed: 0,
+    uploadSpeed: 0,
+    numPeers: 0,
+    numActivePeers: 0
+  }
   progressById.set(id, next)
   emit()
+  void flushP2pDownloadSession().catch((err) => {
+    console.warn('[p2p] persist after pause failed', err)
+  })
   return next
 }
 
@@ -776,8 +1186,14 @@ export async function p2pResume(id: string): Promise<P2pTransferProgress | null>
     ? liveTorrentState(id, torrent)
     : isSeedTransfer(id)
       ? 'seeding'
-      : 'downloading'
-  const next = { ...cur, state }
+      : 'connecting'
+  const peers = torrent ? countPeerActivity(torrent) : { connected: 0, active: 0 }
+  const next = {
+    ...cur,
+    state,
+    numPeers: peers.connected,
+    numActivePeers: peers.active
+  }
   progressById.set(id, next)
   emit()
   return next
@@ -858,15 +1274,12 @@ export async function p2pRemove(
   const deleteFiles = Boolean(opts?.deleteFiles)
   const wt = client
   const entry = progressById.get(idOrInfoHash)
-  const filePath = entry?.path
+  const filePath = entry?.path || quarantineMetaById.get(idOrInfoHash)?.filePath
   const contentHash = entry?.contentHash
   if (contentHash) finalizedContentHashes.delete(contentHash.toLowerCase())
 
   if (!wt) {
-    progressById.delete(idOrInfoHash)
-    torrentById.delete(idOrInfoHash)
-    trackedListenerIds.delete(idOrInfoHash)
-    pausedIds.delete(idOrInfoHash)
+    forgetTransfer(idOrInfoHash)
     emit()
     if (deleteFiles && filePath) {
       try {
@@ -881,24 +1294,20 @@ export async function p2pRemove(
   const live =
     torrentById.get(idOrInfoHash) ||
     [...torrentById.entries()].find(([, t]) => normalizeInfoHash(t.infoHash) === normalizeInfoHash(torrentId))?.[1]
-  await announceStopped(live)
-  await new Promise<void>((resolve) => {
-    wt.remove(torrentId, { destroyStore: deleteFiles }, () => resolve())
-  })
-  progressById.delete(idOrInfoHash)
-  torrentById.delete(idOrInfoHash)
-  trackedListenerIds.delete(idOrInfoHash)
-  pausedIds.delete(idOrInfoHash)
-  quarantineIds.delete(idOrInfoHash)
-  quarantineMetaById.delete(idOrInfoHash)
+  if (live) {
+    await announceStopped(live)
+    await new Promise<void>((resolve) => {
+      try {
+        wt.remove(torrentId, { destroyStore: deleteFiles }, () => resolve())
+      } catch {
+        resolve()
+      }
+    })
+  }
+  forgetTransfer(idOrInfoHash)
   for (const [key, value] of [...progressById.entries()]) {
     if (value.infoHash === torrentId || (contentHash && value.contentHash?.toLowerCase() === contentHash.toLowerCase())) {
-      progressById.delete(key)
-      torrentById.delete(key)
-      trackedListenerIds.delete(key)
-      pausedIds.delete(key)
-      quarantineIds.delete(key)
-      quarantineMetaById.delete(key)
+      forgetTransfer(key)
     }
   }
   emit()
@@ -912,12 +1321,25 @@ export async function p2pRemove(
 }
 
 export async function destroyWebTorrent(): Promise<void> {
-  if (!client) return
+  try {
+    await flushP2pDownloadSession()
+  } catch (error) {
+    console.warn('[p2p] persist downloads before destroy failed', error)
+  }
+  persistSuspended = true
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  stopProgressTicker()
+  refreshById.clear()
+  lastTransferAt.clear()
   const wt = client
-  // Announce stopped for every live torrent before tearing the client down.
-  const torrents = [...torrentById.values()]
-  for (const t of torrents) {
-    await announceStopped(t)
+  if (wt) {
+    const torrents = [...torrentById.values()]
+    for (const t of torrents) {
+      await announceStopped(t)
+    }
   }
   client = null
   progressById.clear()
@@ -927,10 +1349,14 @@ export async function destroyWebTorrent(): Promise<void> {
   pausedIds.clear()
   quarantineIds.clear()
   quarantineMetaById.clear()
+  metaById.clear()
+  detachWaiters.clear()
   emit()
-  await new Promise<void>((resolve) => {
-    wt.destroy(() => resolve())
-  })
+  if (wt) {
+    await new Promise<void>((resolve) => {
+      wt.destroy(() => resolve())
+    })
+  }
 }
 
 export function getWebTorrentLoadError(): string | null {

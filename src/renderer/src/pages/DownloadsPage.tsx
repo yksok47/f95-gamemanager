@@ -43,10 +43,10 @@ function SharedRow({
     entry.gameName?.trim() ||
     (entry.f95ThreadId != null ? `Thread ${entry.f95ThreadId}` : 'Unknown game')
   const packageLabel = entry.normalizedName || shortHash(entry.contentHash) || entry.path
-  const up =
-    live && live.uploadSpeed > 0 ? `↑ ${formatSpeed(live.uploadSpeed)}` : live ? '↑ 0 B/s' : ''
-  const down = live && live.downloadSpeed > 0 ? `↓ ${formatSpeed(live.downloadSpeed)}` : ''
-  const peers = live ? `peers ${live.numPeers}` : ''
+  const up = live ? `↑ ${formatSpeed(live.uploadSpeed || 0)}` : ''
+  const connected = live?.numPeers ?? 0
+  const active = live?.numActivePeers ?? 0
+  const peers = live ? `${active} active / ${connected} connected` : ''
 
   return (
     <article className="download-row">
@@ -59,7 +59,7 @@ function SharedRow({
           {packageLabel}
         </p>
         <p className="muted download-meta">
-          {[formatBytes(entry.sizeBytes), up, down, peers]
+          {[formatBytes(entry.sizeBytes), up, peers]
             .filter(Boolean)
             .join(' · ')}
         </p>
@@ -100,6 +100,7 @@ export default function DownloadsPage({
   // In-flight only — completed downloads move to Files / shared list (no duplicate row).
   const downloading = p2pTransfers.filter((t) => {
     const inflight =
+      t.state === 'connecting' ||
       t.state === 'downloading' ||
       t.state === 'checking' ||
       t.state === 'paused' ||

@@ -14,6 +14,7 @@ import type {
   PackageMetadata,
   P2pIdentityPublic,
   P2pTransferProgress,
+  P2pTransferState,
 } from "@shared/p2p";
 import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
@@ -31,10 +32,14 @@ import {
   registerPackage,
 } from "./metadata-client";
 import { enrichPackagesWithLiveSwarm } from "./tracker-swarm";
+import { loadP2pDownloadSession } from "./download-session-store";
 import {
+  adoptFailedTransfer,
+  adoptQuarantinedTransfer,
   clearFinalizedContentHash,
   teardownP2pForContentHash,
   destroyWebTorrent,
+  hasLiveTorrent,
   listP2pProgress,
   onP2pProgress,
   p2pAddMagnet,
@@ -58,6 +63,32 @@ import {
 import { syncLocalPackagesIntoTorrentMap } from "./local-packages";
 import { stat, unlink } from "fs/promises";
 import { join } from "path";
+
+function isLiveDownloadState(state: P2pTransferState): boolean {
+  return (
+    state === "connecting" ||
+    state === "downloading" ||
+    state === "checking" ||
+    state === "paused" ||
+    state === "quarantined"
+  );
+}
+
+async function keepOrResumeLiveTransfer(
+  existing: P2pTransferProgress,
+): Promise<P2pTransferProgress | null> {
+  if (!isLiveDownloadState(existing.state)) return null;
+  if (existing.state === "quarantined") return existing;
+  if (hasLiveTorrent(existing.id)) {
+    if (existing.state === "paused") {
+      return (await p2pResume(existing.id)) ?? existing;
+    }
+    return existing;
+  }
+  // Persisted row without a live torrent — drop the stub so we can re-add.
+  await p2pRemove(existing.id, { deleteFiles: false });
+  return null;
+}
 
 async function requireEnabled(): Promise<void> {
   const settings = await getSettings();
@@ -239,6 +270,15 @@ export async function p2pResumeTransfer(
   id: string,
 ): Promise<P2pTransferProgress | null> {
   await requireEnabled();
+  const cur = listP2pProgress().find((t) => t.id === id);
+  if (
+    cur &&
+    !hasLiveTorrent(id) &&
+    cur.contentHash &&
+    cur.state !== "quarantined"
+  ) {
+    return p2pDownloadByContentHash(cur.contentHash);
+  }
   return p2pResume(id);
 }
 
@@ -353,14 +393,82 @@ export async function seedAllLocalPackages(): Promise<{
   };
 }
 
+async function restorePersistedP2pDownloads(): Promise<void> {
+  const entries = await loadP2pDownloadSession();
+  for (const entry of entries) {
+    try {
+      if (entry.state === "quarantined") {
+        const filePath = entry.filePath || entry.path;
+        if (!filePath) {
+          adoptFailedTransfer(entry, "Quarantined file path missing after restart.");
+          continue;
+        }
+        try {
+          await stat(filePath);
+        } catch {
+          adoptFailedTransfer(entry, "Quarantined file is missing from disk.");
+          continue;
+        }
+        adoptQuarantinedTransfer(entry);
+        continue;
+      }
+
+      let infoHash = normalizeInfoHash(entry.infoHash);
+      if (!infoHash && entry.contentHash) {
+        const pkg = await getPackage(entry.contentHash);
+        infoHash = normalizeInfoHash(pkg?.infoHash);
+      }
+      if (!infoHash) {
+        adoptFailedTransfer(
+          entry,
+          "Cannot resume download — missing infoHash after restart.",
+        );
+        continue;
+      }
+      const magnet = buildMagnet(
+        infoHash,
+        entry.gameName || entry.normalizedName || entry.contentHash,
+      );
+      await p2pAddMagnet(magnet, {
+        contentHash: entry.contentHash,
+        path: entry.savePath || getUntrustedDownloadsDirSync(),
+        gameName: entry.gameName,
+        gameVersion: entry.gameVersion,
+        f95ThreadId: entry.f95ThreadId,
+        f95ThreadUrl: entry.f95ThreadUrl,
+        normalizedName: entry.normalizedName,
+        startPaused: entry.state === "paused",
+        snapshot: {
+          downloaded: entry.downloaded,
+          uploaded: entry.uploaded,
+          length: entry.length,
+          progress: entry.progress,
+          path: entry.path || entry.filePath,
+        },
+      });
+    } catch (error) {
+      console.warn("[p2p] restore download failed", entry.normalizedName || entry.id, error);
+      adoptFailedTransfer(
+        entry,
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+}
+
 export async function onP2pEnabledChanged(enabled: boolean): Promise<void> {
   if (!enabled) {
     await destroyWebTorrent();
     return;
   }
   await getP2pIdentity();
-  // Keep known shares announcing immediately, then finish incomplete registrations.
+  // Resume mid-download / quarantine first, then keep known shares announcing.
   void (async () => {
+    try {
+      await restorePersistedP2pDownloads();
+    } catch (error) {
+      console.warn("[p2p] restore downloads failed", error);
+    }
     try {
       const entries = await listTorrentMapEntries();
       const known = entries.filter((e) => normalizeInfoHash(e.infoHash));
@@ -483,19 +591,8 @@ export async function p2pDownloadByContentHash(
     (t) => t.contentHash?.toLowerCase() === hash,
   );
   if (existing) {
-    // In-flight or paused: resume/return.
-    if (
-      existing.state === "downloading" ||
-      existing.state === "checking" ||
-      existing.state === "paused" ||
-      existing.state === "quarantined"
-    ) {
-      if (existing.state === "paused") {
-        const resumed = await p2pResume(existing.id);
-        if (resumed) return resumed;
-      }
-      return existing;
-    }
+    const kept = await keepOrResumeLiveTransfer(existing);
+    if (kept) return kept;
     // Seeding only counts if the file is still on disk. After library remove the
     // seed handle can linger and block re-download until app restart.
     if (existing.state === "seeding") {
@@ -511,7 +608,9 @@ export async function p2pDownloadByContentHash(
       }
       if (stillThere) return existing;
     }
-    await p2pRemove(existing.id, { deleteFiles: false });
+    if (listP2pProgress().some((t) => t.id === existing.id)) {
+      await p2pRemove(existing.id, { deleteFiles: false });
+    }
   }
 
   const pkg = await getPackage(hash);
@@ -526,18 +625,8 @@ export async function p2pDownloadByContentHash(
   const info = normalizeInfoHash(pkg.infoHash);
   const byInfo = listP2pProgress().find((t) => t.infoHash === info);
   if (byInfo) {
-    if (
-      byInfo.state === "downloading" ||
-      byInfo.state === "checking" ||
-      byInfo.state === "paused" ||
-      byInfo.state === "quarantined"
-    ) {
-      if (byInfo.state === "paused") {
-        const resumed = await p2pResume(byInfo.id);
-        if (resumed) return resumed;
-      }
-      return byInfo;
-    }
+    const kept = await keepOrResumeLiveTransfer(byInfo);
+    if (kept) return kept;
     if (byInfo.state === "seeding") {
       const seedPath = byInfo.path;
       let stillThere = false;
@@ -551,7 +640,9 @@ export async function p2pDownloadByContentHash(
       }
       if (stillThere) return byInfo;
     }
-    await p2pRemove(byInfo.id, { deleteFiles: false });
+    if (listP2pProgress().some((t) => t.id === byInfo.id)) {
+      await p2pRemove(byInfo.id, { deleteFiles: false });
+    }
   }
 
   const magnet = buildMagnet(
