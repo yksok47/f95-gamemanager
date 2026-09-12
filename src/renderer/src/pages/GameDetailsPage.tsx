@@ -463,8 +463,9 @@ export default function GameDetailsPage({
   }, [lightbox])
 
   useEffect(() => {
-    const strip = lightboxThumbsRef.current
-    if (!strip || lightbox == null) return
+    const thumbs = lightboxThumbsRef.current
+    if (!thumbs || lightbox == null) return
+    const strip: HTMLDivElement = thumbs
     const drag = lightboxDrag.current
 
     function onWheel(event: WheelEvent): void {
@@ -499,7 +500,7 @@ export default function GameDetailsPage({
       if (strip.hasPointerCapture(event.pointerId)) strip.releasePointerCapture(event.pointerId)
     }
 
-    function onClickCapture(event: MouseEvent): void {
+    function onClickCapture(event: globalThis.MouseEvent): void {
       if (!drag.moved) return
       event.preventDefault()
       event.stopPropagation()

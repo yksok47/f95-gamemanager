@@ -195,6 +195,13 @@ button {
   font-weight: 700;
 }
 
+.app-nav-icon {
+  display: block;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+
 .app-nav-links {
   display: flex;
   gap: 8px;
@@ -605,6 +612,13 @@ button {
   width: min(420px, 100%);
   padding: 32px;
   border-radius: 16px;
+}
+
+.login-app-icon {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 0 16px;
 }
 
 .login-card h1,

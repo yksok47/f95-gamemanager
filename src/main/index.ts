@@ -10,6 +10,7 @@ import { registerSaveThumbProtocol, registerSaveThumbScheme } from "./renpy/save
 import { getSettings } from "./settings-store";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
 import { loadSession, persistSessionNow } from "./session-store";
+import { appIcon } from "./app-icon";
 
 registerSaveThumbScheme();
 
@@ -22,6 +23,7 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: "F95 Game Manager",
+    icon: appIcon,
     backgroundColor: "#12141a",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),

@@ -1,4 +1,5 @@
 import { FormEvent, useState, type JSX } from 'react'
+import appIcon from '../assets/icon.png'
 
 type LoginPageProps = {
   busy: boolean
@@ -18,6 +19,7 @@ export default function LoginPage({ busy, error, onSubmit }: LoginPageProps): JS
   return (
     <div className="center-screen">
       <section className="login-card">
+        <img className="login-app-icon" src={appIcon} alt="" width={72} height={72} />
         <h1>F95 Game Manager</h1>
         <p className="muted">Sign in with your F95zone account. The session is stored locally and reused on the next launch.</p>
         <form className="login-form" onSubmit={handleSubmit}>

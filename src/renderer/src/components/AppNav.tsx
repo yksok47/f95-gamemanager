@@ -1,4 +1,5 @@
 import { useRef, useState, type JSX } from 'react'
+import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
 
@@ -47,6 +48,7 @@ export default function AppNav({
   return (
     <header className="top-bar">
       <div className="app-nav-links">
+        <img className="app-nav-icon" src={appIcon} alt="" width={28} height={28} />
         <button
           className={view === 'catalog' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"

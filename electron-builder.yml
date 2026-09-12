@@ -7,6 +7,7 @@ directories:
 # local junk (.userdata, .user-scratch, .agent-scratch, docs, …) into app.asar.
 files:
   - 'out/**/*'
+  - 'resources/icon.png'
 extraResources:
   - from: resources/unren
     to: unren
@@ -25,6 +26,7 @@ asarUnpack:
   - '**/node_modules/node-unrar-js/**'
   - '**/node_modules/node-datachannel/**'
 win:
+  icon: build/icon.ico
   executableName: F95GameManager
   target:
     - target: nsis
@@ -37,6 +39,9 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
   createDesktopShortcut: always
   createStartMenuShortcut: true
 npmRebuild: false

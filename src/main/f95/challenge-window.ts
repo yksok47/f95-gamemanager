@@ -1,5 +1,6 @@
 ﻿import { BrowserWindow, session } from 'electron'
 import { pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
+import { appIcon } from '../app-icon'
 import { isUsableWindow } from '../windows'
 
 const CLOUDFLARE_MARKERS = [
@@ -53,6 +54,7 @@ function ensureF95Window(show: boolean): BrowserWindow {
     minHeight: 520,
     show,
     title: 'F95zone security check',
+    icon: appIcon,
     autoHideMenuBar: true,
     backgroundColor: '#12141a',
     webPreferences: {

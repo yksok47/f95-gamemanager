@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import type { GameFileContext } from '@shared/types'
 import { clearDownloadContext, getDownloadContext, setDownloadContext } from './download-context'
+import { appIcon } from './app-icon'
 import { isUsableWindow } from './windows'
 
 type GuestInfo = {
@@ -61,6 +62,7 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
     minHeight: 600,
     show,
     title: 'Browser',
+    icon: appIcon,
     autoHideMenuBar: true,
     backgroundColor: '#12141a',
     webPreferences: {
