@@ -2,8 +2,7 @@ import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import {
   getMetadataBaseUrlSync,
   getTrackerAnnounceUrlSync,
-  getTrackerWebRtcUrlSync,
-  getTurnConfigSync
+  getTrackerWebRtcUrlSync
 } from '../settings-store'
 
 function readEnv(key: keyof typeof P2P_ENV_DEFAULTS): string {
@@ -49,7 +48,7 @@ export function getP2pEnv(): {
   }
 }
 
-/** Announce list for WebTorrent (HTTP + optional UDP + optional WebSocket for ICE). */
+/** Announce list for WebTorrent (HTTP + optional UDP + WebSocket signaling). */
 export function getAnnounceList(): string[] {
   const { trackerAnnounceUrl, trackerAnnounceUdpUrl, trackerWebRtcUrl } = getP2pEnv()
   const list = [trackerAnnounceUrl]
@@ -69,12 +68,10 @@ export function getAnnounceList(): string[] {
 
 export type IceServer = {
   urls: string | string[]
-  username?: string
-  credential?: string
 }
 
-/** STUN for WebRTC ICE hole-punching. Optional TURN from Settings (last resort; not used for LAN). */
-export function getIceServers(): IceServer[] {
+/** STUN discovers public candidate addresses; payloads stay on the direct WebRTC channel. */
+export function getStunServers(): IceServer[] {
   const fromEnv = process.env.P2P_STUN_URLS?.split(',').map((s) => s.trim()).filter(Boolean)
   const stunUrls = fromEnv?.length
     ? fromEnv
@@ -83,18 +80,6 @@ export function getIceServers(): IceServer[] {
         'stun:stun1.l.google.com:19302',
         'stun:stun.cloudflare.com:3478'
       ]
-  const servers: IceServer[] = stunUrls.map((u) => ({ urls: u }))
-  // Prefer local Settings; fall back to process.env. Never ship credentials in git defaults.
-  const fromSettings = getTurnConfigSync()
-  const turnUrls = (fromSettings.urls || process.env.P2P_TURN_URLS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  const username = (fromSettings.username || process.env.P2P_TURN_USERNAME || '').trim()
-  const credential = (fromSettings.credential || process.env.P2P_TURN_CREDENTIAL || '').trim()
-  for (const urls of turnUrls) {
-    servers.push(username ? { urls, username, credential } : { urls })
-  }
-  return servers
+  return stunUrls.map((urls) => ({ urls }))
 }
 

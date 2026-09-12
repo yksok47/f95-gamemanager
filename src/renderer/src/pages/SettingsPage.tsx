@@ -31,9 +31,6 @@ export default function SettingsPage({
   const [announceDraft, setAnnounceDraft] = useState(settings.trackerAnnounceUrl)
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
   const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
-  const [turnUrlsDraft, setTurnUrlsDraft] = useState(settings.turnUrls)
-  const [turnUserDraft, setTurnUserDraft] = useState(settings.turnUsername)
-  const [turnCredDraft, setTurnCredDraft] = useState(settings.turnCredential)
   const [serviceStatus, setServiceStatus] = useState<{
     metadata?: { ok: boolean; message?: string }
     tracker?: { ok: boolean; message?: string }
@@ -45,10 +42,7 @@ export default function SettingsPage({
     setAnnounceDraft(settings.trackerAnnounceUrl)
     setMetadataDraft(settings.metadataBaseUrl)
     setWebrtcDraft(settings.trackerWebRtcUrl)
-    setTurnUrlsDraft(settings.turnUrls)
-    setTurnUserDraft(settings.turnUsername)
-    setTurnCredDraft(settings.turnCredential)
-  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl, settings.turnUrls, settings.turnUsername, settings.turnCredential])
+  }, [settings.trackerAnnounceUrl, settings.metadataBaseUrl, settings.trackerWebRtcUrl])
 
   useEffect(() => {
     if (tab !== 'p2p') return
@@ -304,50 +298,6 @@ export default function SettingsPage({
                 >
                   Clear
                 </button>
-              </div>
-            </div>
-
-            <div className="folder-field">
-              <span className="filter-label">TURN (optional relay — usually leave empty)</span>
-              <p className="muted download-meta">
-                Optional last-resort relay only. Leave empty for real P2P (STUN hole punch / hairpin). Stored locally.
-              </p>
-              <input
-                className="folder-path"
-                value={turnUrlsDraft}
-                disabled={saving}
-                placeholder="turn:host:3478?transport=udp,turn:host:3478?transport=tcp"
-                onChange={(event) => setTurnUrlsDraft(event.target.value)}
-                onBlur={() => {
-                  const next = turnUrlsDraft.trim()
-                  setTurnUrlsDraft(next)
-                  if (next !== settings.turnUrls) void persist({ turnUrls: next })
-                }}
-              />
-              <div className="folder-path-row" style={{ marginTop: 8 }}>
-                <input
-                  className="folder-path"
-                  value={turnUserDraft}
-                  disabled={saving}
-                  placeholder="username"
-                  onChange={(event) => setTurnUserDraft(event.target.value)}
-                  onBlur={() => {
-                    const next = turnUserDraft.trim()
-                    setTurnUserDraft(next)
-                    if (next !== settings.turnUsername) void persist({ turnUsername: next })
-                  }}
-                />
-                <input
-                  className="folder-path"
-                  type="password"
-                  value={turnCredDraft}
-                  disabled={saving}
-                  placeholder="credential"
-                  onChange={(event) => setTurnCredDraft(event.target.value)}
-                  onBlur={() => {
-                    if (turnCredDraft !== settings.turnCredential) void persist({ turnCredential: turnCredDraft })
-                  }}
-                />
               </div>
             </div>
 

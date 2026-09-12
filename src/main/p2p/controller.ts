@@ -19,7 +19,7 @@ import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
 import { getAnnounceList, getP2pEnv } from "./env";
-import { probeNativeWebRtc } from "./webtorrent-compat";
+import { installNativeWebRtc } from "./webrtc";
 import {
   flagPackage,
   reportPackageInstall,
@@ -102,7 +102,7 @@ export async function p2pStatus(): Promise<{
 }> {
   const settings = await getSettings();
   const enabled = Boolean(settings.p2pEnabled);
-  const webrtc = probeNativeWebRtc();
+  const webrtc = await installNativeWebRtc();
   const [metadata, tracker] = await Promise.all([
     enabled
       ? metadataHealth()

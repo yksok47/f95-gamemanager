@@ -18,9 +18,8 @@
     "build": "bun run typecheck && electron-vite build",
     "build:unpack": "bun run build && electron-builder --dir",
     "build:win": "bun run build && electron-builder --win --publish never",
-    "postinstall": "bun run ensure-electron && electron-builder install-app-deps && npm explore node-datachannel -- prebuild-install -r napi",
-    "rebuild:native": "electron-builder install-app-deps && npm explore node-datachannel -- prebuild-install -r napi",
-    "rebuild:webrtc": "npm explore node-datachannel -- prebuild-install -r napi"
+    "postinstall": "bun run ensure-electron && electron-builder install-app-deps",
+    "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -28,7 +27,9 @@
     "7zip-bin": "^5.2.0",
     "cheerio": "^1.2.0",
     "node-7z": "^3.0.0",
+    "node-datachannel": "0.32.3",
     "node-unrar-js": "^2.0.2",
+    "webrtc-polyfill": "1.2.2",
     "webtorrent": "^2.8.4"
   },
   "devDependencies": {

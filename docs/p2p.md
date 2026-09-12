@@ -60,41 +60,17 @@ ts=<unixSeconds>
 - Unhashed downloads are skipped until hashed/seeded individually.
 - Discovery/download UI is separate from F95 link rows; toggle only gates swarm + share-claim work.
 
-## Windows notes (2026-09-11)
-- webtorrent@2.8.x installs via bun, but postinstall / electron-builder `install-app-deps` needs Visual Studio Build Tools (node-gyp) for `node-datachannel`.
-- Runtime import fails without native `node_datachannel.node` (and optional `bufferutil` rebuild).
-- **Blocker:** install VS Build Tools with "Desktop development with C++", then re-run `bun run postinstall` / `@electron/rebuild` for Electron 44; then resume JS/native seed spike.
-- Opentracker Docker may peg CPU / hang `/stats` on Docker Desktop Windows host publish — Tracker fixing (TCP-only or bittorrent-tracker swap). Announce URL stays `http://localhost:6969/announce`.
-- Fallback (not built): aria2 RPC for multi-GB hashing if WebTorrent hashing is too slow.
+## Direct internet connections
 
-## WebTorrent JS-fallback (interim, 2026-09-11)
+The app installs the native `node-datachannel` WebRTC implementation before WebTorrent loads. The WebSocket tracker only exchanges encrypted WebRTC offers and ICE candidates; archive data flows directly between clients.
 
-Announce spike proved TCP+HTTP seed works without native WebRTC:
+The direct path needs all of the following:
 
-1. **node-datachannel stub** — `src/main/p2p/shims/node-datachannel-stub.mjs` registered via `webtorrent-compat-loader.mjs` before `import('webtorrent')`. App-owned; no permanent `node_modules` edit. Remove once `@electron/rebuild` produces `node_datachannel.node`.
-2. **infoHash / arr2hex** — parse-torrent@11 may supply hex strings; WT still calls `arr2hex`. Loader hardens `uint8-util` + torrent.js. Service exposes **40-char hex** via `normalizeInfoHash` for metadata/share POSTs; Buffer stays inside the WT client.
-3. Env defaults remain `TRACKER_ANNOUNCE_URL=http://localhost:6969/announce`, `METADATA_BASE_URL=http://localhost:8080`.
+1. A working native `node-datachannel` package (an N-API prebuild is installed with the app).
+2. A WebSocket tracker at `TRACKER_WEBRTC_URL` for signaling.
+3. STUN, which discovers each peer's public candidate addresses. Set `P2P_STUN_URLS` to a comma-separated list to override the built-in Google and Cloudflare endpoints.
 
-Verify: enable P2P in settings (or call main seed IPC) with tracker up; `registerWebtorrentCompat` log then seed/add without native rebuild. `bun run typecheck` + `bun run test:p2p`.
+The app fails P2P startup explicitly if native WebRTC cannot load; it does not silently downgrade to a connection mode that cannot traverse two home NATs. The tiny `webtorrent-compat-loader.mjs` remains only to work around WebTorrent's current hex-info-hash regression without patching `node_modules`.
 
-Note: metadata `listPackages` will require `f95ThreadId` soon (catalog filter); discovery UI owns that wire-up.
-
-## NAT / hole-punching (no user port forwards)
-
-TCP to an HTTP/UDP tracker (**opentracker**) cannot punch holes. It only returns `IP:port` and tries a direct TCP connect. That works on LAN / UPnP / forwarded ports — not across two home NATs.
-
-Hole punching is **WebRTC ICE**. The app does it when all three are in place:
-
-1. **Native `node-datachannel`** — rebuild for this Electron ABI (`bun run rebuild:native` after VS Build Tools with “Desktop development with C++”). Until that loads, Settings → P2P shows `WebRTC: stub` and stays TCP-only.
-2. **WebSocket tracker** — HTTP opentracker cannot exchange ICE offers. Run `bittorrent-tracker` (or equivalent) with WebSocket and set **Settings → WebRTC tracker URL** to `ws://your-host:8000` / `wss://…`. Example: `npx bittorrent-tracker --http false --udp false --ws --port 8000`.
-3. **STUN** (built-in: Google/Cloudflare) discovers public candidates. Override with `P2P_STUN_URLS`.
-4. **TURN (you host)** — required for symmetric NAT / CGNAT when STUN punch fails. Users still do nothing. Set on the app process:
-   ```
-   P2P_TURN_URLS=turn:your-host:3478
-   P2P_TURN_USERNAME=…
-   P2P_TURN_CREDENTIAL=…
-   ```
-   `coturn` on the same Oracle box as the tracker is the usual deploy.
-
-Same-LAN peers still use LSD + TCP even without WebRTC. Cross-internet without native WebRTC + ws tracker will not connect unless a port is reachable (UPnP may map one automatically; many routers/CGNAT refuse).
+Verify a build with `bun run typecheck`, `bun run test:p2p`, then test one client on a different network. The P2P service status must report native WebRTC and the WebSocket tracker URL must be present.
 

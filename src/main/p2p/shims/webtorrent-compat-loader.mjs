@@ -1,25 +1,11 @@
 /**
- * ESM loader hook (node:module register) for WebTorrent:
- * 1) node-datachannel — native addon when P2P_NDC_STUB=0 (ICE hole-punch);
- *    otherwise app-owned stub so TCP+HTTP announce still loads.
- * 2) uint8-util arr2hex accepts already-hex infoHash strings
- * 3) Harden webtorrent/lib/torrent.js debug-id if older builds call
+ * ESM loader hook for WebTorrent compatibility:
+ * 1) uint8-util arr2hex accepts already-hex infoHash strings
+ * 2) Harden webtorrent/lib/torrent.js debug-id if older builds call
  *    arr2hex(parsedTorrent.infoHash) without infoHashBuffer.
  *
  * Prefer this over permanently patching node_modules.
  */
-const STUB = new URL('./node-datachannel-stub.mjs', import.meta.url).href
-
-export async function resolve(specifier, context, nextResolve) {
-  if (specifier === 'node-datachannel' || specifier.startsWith('node-datachannel/')) {
-    if (process.env.P2P_NDC_STUB === '0') {
-      return nextResolve(specifier, context)
-    }
-    return { shortCircuit: true, url: STUB }
-  }
-  return nextResolve(specifier, context)
-}
-
 const ARR2HEX_NODE =
   /export const arr2hex = \(data\) => Buffer\.from\(data\.buffer, data\.byteOffset, data\.byteLength\)\.toString\('hex'\);/
 

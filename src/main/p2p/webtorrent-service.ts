@@ -6,9 +6,8 @@ import { basename, dirname, join } from 'path'
  *
  * Loaded ONLY when P2P is enabled (dynamic import). Stub-safe if dependency missing.
  *
- * NAT: WebRTC ICE via ws tracker + node-datachannel (STUN; TURN when configured).
- * TCP fallback: HTTP opentracker peers at WAN:port (hairpin / dual-NAT). No LAN LSD/listenAddrs dials.
- * Compat loader: native NDC when present, else stub (TCP-only) + arr2hex hardening.
+ * NAT: direct WebRTC ICE via the WebSocket tracker and native node-datachannel.
+ * HTTP/UDP trackers are retained for normal BitTorrent peers and swarm visibility.
  * infoHash exposed to metadata/UI is normalized 40-char hex; Buffer stays inside WT.
  *
  * Fallback note (not built): aria2 RPC may later help multi-GB hashing performance.
@@ -18,11 +17,12 @@ import type { P2pTransferProgress } from '@shared/p2p'
 import { mkdir, rename, stat, unlink } from 'fs/promises'
 import { addGameFileFromDownload } from '../game-files-store'
 import { getDownloadsDirSync, getUntrustedDownloadsDirSync } from '../settings-store'
-import { getAnnounceList, getIceServers } from './env'
+import { getAnnounceList, getStunServers } from './env'
 import { loadCachedTorrentFile, saveCachedTorrentFile } from './torrent-file-cache'
 import { upsertTorrentMapEntry } from './torrent-map-store'
 import { normalizeInfoHash, normalizePackageFilename } from '@shared/content-address'
-import { registerWebtorrentCompat, probeNativeWebRtc } from './webtorrent-compat'
+import { installNativeWebRtc } from './webrtc'
+import { registerWebtorrentCompat } from './webtorrent-compat'
 
 
 type WebTorrentLike = {
@@ -31,7 +31,6 @@ type WebTorrentLike = {
   remove: (torrentId: string, opts?: object, cb?: (err?: Error | null) => void) => void
   destroy: (cb?: (err?: Error | null) => void) => void
   torrents: TorrentLike[]
-  torrentPort?: number
   on: (event: string, cb: (...args: unknown[]) => void) => void
 }
 
@@ -63,7 +62,6 @@ type TorrentLike = {
   torrentFile?: Buffer | Uint8Array
   resume?: () => void
   pause?: () => void
-  addPeer?: (peer: string, source?: unknown) => boolean
 }
 
 let client: WebTorrentLike | null = null
@@ -308,7 +306,6 @@ function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress
 }
 
 function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void {
-  hookPeerRewrite(torrent)
   torrentById.set(id, torrent)
   const resolveInfoHash = (): string | null =>
     normalizeInfoHash(torrent.infoHash) || normalizeInfoHash(meta?.infoHash) || progressById.get(id)?.infoHash || null
@@ -416,130 +413,32 @@ function disconnectTorrentPeers(torrent: TorrentLike): void {
 
 
 
-const peerRewriteHooked = new WeakSet<object>()
-
-let cachedPublicIp: string | null = null
-let publicIpFetch: Promise<string | null> | null = null
-const PUBLIC_IP_TTL_MS = 10 * 60 * 1000
-let publicIpFetchedAt = 0
-
-function isLoopbackTracker(): boolean {
-  try {
-    const url = announceList()[0]
-    if (!url) return false
-    const host = new URL(url).hostname
-    return host === '127.0.0.1' || host === 'localhost' || host === '::1'
-  } catch {
-    return false
-  }
-}
-
-function parsePeerAddr(addr: string): { host: string; port: string } | null {
-  const m = /^\[?([^\]]+?)\]?:(\d+)$/.exec(addr.trim())
-  if (!m) return null
-  return { host: m[1], port: m[2] }
-}
-
-function localListenPorts(): Set<number> {
-  const ports = new Set<number>()
-  const tp = client?.torrentPort
-  if (typeof tp === 'number' && tp > 0) ports.add(tp)
-  return ports
-}
-
-async function refreshPublicIp(force = false): Promise<string | null> {
-  if (!force && cachedPublicIp && Date.now() - publicIpFetchedAt < PUBLIC_IP_TTL_MS) {
-    return cachedPublicIp
-  }
-  if (publicIpFetch) return publicIpFetch
-  publicIpFetch = (async () => {
-    try {
-      const res = await fetch('https://api.ipify.org?format=json', {
-        signal: AbortSignal.timeout(5000)
-      })
-      if (!res.ok) return cachedPublicIp
-      const data = (await res.json()) as { ip?: string }
-      const ip = typeof data.ip === 'string' ? data.ip.trim() : ''
-      if (ip) {
-        cachedPublicIp = ip
-        publicIpFetchedAt = Date.now()
-        console.info('[p2p] public IP for hairpin rewrite', ip)
-      }
-      return cachedPublicIp
-    } catch (error) {
-      console.warn('[p2p] public IP lookup failed', error)
-      return cachedPublicIp
-    } finally {
-      publicIpFetch = null
-    }
-  })()
-  return publicIpFetch
-}
-
-/**
- * Peer address rewrite (TCP path only; cross-NAT uses WebRTC via ws tracker):
- * - Loopback tracker (Docker): any peer → 127.0.0.1:port
- * - Same WAN as us + our listen port → 127.0.0.1 (self). Other same-WAN peers left as WAN:port
- *   (internet / hairpin path — no LAN rewrite).
- */
-function rewritePeerAddress(addr: string): string {
-  const parsed = parsePeerAddr(addr)
-  if (!parsed) return addr
-  const { host, port } = parsed
-  if (host === '127.0.0.1' || host === 'localhost' || host === '::1') return addr
-
-  if (isLoopbackTracker()) {
-    return `127.0.0.1:${port}`
-  }
-
-  const wan = cachedPublicIp
-  if (!wan || host !== wan) return addr
-
-  const portNum = Number(port)
-  if (localListenPorts().has(portNum)) {
-    return `127.0.0.1:${port}`
-  }
-  return addr
-}
-
-function hookPeerRewrite(torrent: TorrentLike): void {
-  if (peerRewriteHooked.has(torrent as object)) return
-  if (typeof torrent.addPeer !== 'function') return
-  peerRewriteHooked.add(torrent as object)
-  void refreshPublicIp()
-  const original = torrent.addPeer.bind(torrent)
-  torrent.addPeer = (peer: string, source?: unknown): boolean => {
-    const next = typeof peer === 'string' ? rewritePeerAddress(peer) : peer
-    if (typeof peer === 'string' && next !== peer) {
-      console.info('[p2p] rewrite tracker peer', peer, '->', next)
-    }
-    return original(next as string, source)
-  }
-}
-
 async function ensureClient(): Promise<WebTorrentLike> {
   if (client) return client
   if (loadError) throw new Error(loadError)
   try {
-    // Dynamic import — do not load webtorrent when P2P is off.
-    // Register NDC stub + arr2hex hex-string compat first (JS-fallback).
+    const webrtc = await installNativeWebRtc()
+    if (!webrtc.ok) {
+      throw new Error(`native WebRTC unavailable: ${webrtc.message}`)
+    }
+    // WebTorrent checks globalThis.WRTC as it is imported, so native WebRTC
+    // must be installed before this dynamic import.
     registerWebtorrentCompat()
     const mod = (await import('webtorrent')) as { default?: new () => WebTorrentLike } & (new () => WebTorrentLike)
     const WebTorrent = mod.default ?? mod
-    const iceServers = getIceServers()
-    const webrtc = probeNativeWebRtc()
+    if (!(WebTorrent as unknown as { WEBRTC_SUPPORT?: boolean }).WEBRTC_SUPPORT) {
+      throw new Error('WebTorrent did not enable the native WebRTC transport')
+    }
+    const iceServers = getStunServers()
     console.info(
       '[p2p] WebTorrent client',
-      webrtc.ok ? 'WebRTC ICE enabled' : 'TCP-only (no hole-punch)',
+      'direct WebRTC enabled',
       'iceServers=',
       iceServers.length,
       'wsTracker=',
       Boolean(getAnnounceList().some((u) => u.startsWith('ws')))
     )
-    // STUN/TURN ICE hole-punching needs native node-datachannel AND a ws:// tracker
-    // for SDP signaling. HTTP opentracker only yields TCP IP:port (needs reachable ports).
-    // Public-path only: DHT/LSD off so peers meet via tracker WAN + WebRTC STUN (no LAN multicast).
-    // Optional TURN stays in Settings but is not required for hole punch / hairpin.
+    // Public-path only: DHT/LSD off so peers meet through the configured tracker.
     client = new (WebTorrent as unknown as new (opts?: object) => WebTorrentLike)({
       dht: false,
       lsd: false,
@@ -554,10 +453,6 @@ async function ensureClient(): Promise<WebTorrentLike> {
     client.on('error', (err: unknown) => {
       console.warn('[p2p/webtorrent] client error', err)
     })
-    client.on('torrent', (torrent: unknown) => {
-      hookPeerRewrite(torrent as TorrentLike)
-    })
-    void refreshPublicIp()
     return client
   } catch (error) {
     loadError =
@@ -591,13 +486,6 @@ export function onP2pProgress(listener: (items: P2pTransferProgress[]) => void):
     listeners.delete(listener)
   }
 }
-
-
-export function getTorrentListenPort(): number | null {
-  const tp = client?.torrentPort
-  return typeof tp === 'number' && tp > 0 ? tp : null
-}
-
 
 export function listP2pProgress(): P2pTransferProgress[] {
   return [...progressById.values()]

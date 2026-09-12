@@ -10,5 +10,5 @@ export {
   listP2pProgress,
   onP2pProgress
 } from './webtorrent-service'
-export { probeNativeWebRtc } from './webtorrent-compat'
+export { installNativeWebRtc } from './webrtc'
 export * from './local-packages'
