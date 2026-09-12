@@ -3,6 +3,11 @@ import { extname, join } from 'path'
 import { session, shell } from 'electron'
 import type { DownloadRecord, DownloadStatus, GameFileContext } from '@shared/types'
 import { getDownloadContext } from './download-context'
+import {
+  isFinishedDownloadStatus,
+  loadDownloadHistory,
+  persistDownloadHistory
+} from './download-history-store'
 import { isArchivePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
@@ -12,7 +17,7 @@ import { sendToRenderer } from './windows'
 
 type TrackedDownload = {
   id: string
-  item: Electron.DownloadItem
+  item?: Electron.DownloadItem
   filename: string
   url: string
   savePath: string
@@ -34,6 +39,8 @@ type TrackedDownload = {
 
 const tracked = new Map<string, TrackedDownload>()
 let broadcastTimer: ReturnType<typeof setTimeout> | null = null
+let historyTimer: ReturnType<typeof setTimeout> | null = null
+let lastHistoryFingerprint = ''
 
 function sanitizeFilename(name: string): string {
   const cleaned = name
@@ -73,6 +80,7 @@ function toRecord(entry: TrackedDownload): DownloadRecord {
     startedAt: entry.startedAt,
     updatedAt: entry.updatedAt,
     gameThreadId: entry.context?.threadId,
+    gameTitle: entry.context?.title,
     gameVersion: entry.context?.version,
     hash: entry.hash,
     libraryStatus: entry.libraryStatus
@@ -83,8 +91,79 @@ function listRecords(): DownloadRecord[] {
   return [...tracked.values()].map(toRecord).sort((a, b) => b.startedAt - a.startedAt)
 }
 
+function historyFingerprint(items: DownloadRecord[]): string {
+  return JSON.stringify(
+    items
+      .filter((item) => isFinishedDownloadStatus(item.status))
+      .map((item) => ({
+        id: item.id,
+        status: item.status,
+        savePath: item.savePath,
+        hash: item.hash,
+        libraryStatus: item.libraryStatus,
+        updatedAt: item.updatedAt
+      }))
+  )
+}
+
+function scheduleHistoryPersist(): void {
+  if (historyTimer) clearTimeout(historyTimer)
+  historyTimer = setTimeout(() => {
+    historyTimer = null
+    const items = listRecords().filter((item) => isFinishedDownloadStatus(item.status))
+    const fingerprint = historyFingerprint(items)
+    if (fingerprint === lastHistoryFingerprint) return
+    lastHistoryFingerprint = fingerprint
+    void persistDownloadHistory(items).catch((error) => {
+      console.warn('Could not persist download history', error)
+    })
+  }, 300)
+}
+
 function broadcast(): void {
   sendToRenderer('downloads:changed', listRecords())
+  scheduleHistoryPersist()
+}
+
+function recordToTracked(row: DownloadRecord): TrackedDownload {
+  return {
+    id: row.id,
+    filename: row.filename,
+    url: row.url,
+    savePath: row.savePath,
+    receivedBytes: row.receivedBytes,
+    totalBytes: row.totalBytes,
+    status: row.status,
+    paused: false,
+    canResume: false,
+    bytesPerSecond: 0,
+    error: row.error,
+    startedAt: row.startedAt,
+    updatedAt: row.updatedAt,
+    lastSampleAt: row.updatedAt,
+    lastSampleBytes: row.receivedBytes,
+    hash: row.hash,
+    libraryStatus: row.libraryStatus,
+    context:
+      row.gameThreadId != null
+        ? {
+            threadId: row.gameThreadId,
+            title: row.gameTitle || row.filename,
+            version: row.gameVersion || ''
+          }
+        : undefined
+  }
+}
+
+export async function restoreDownloadHistory(): Promise<void> {
+  const rows = await loadDownloadHistory()
+  if (!rows.length) return
+  for (const row of rows) {
+    if (tracked.has(row.id)) continue
+    tracked.set(row.id, recordToTracked(row))
+  }
+  lastHistoryFingerprint = historyFingerprint(rows)
+  broadcast()
 }
 
 function scheduleBroadcast(): void {
@@ -104,6 +183,7 @@ function statusFromItem(item: Electron.DownloadItem): DownloadStatus {
 
 function syncFromItem(entry: TrackedDownload): void {
   const { item } = entry
+  if (!item) return
   const now = Date.now()
   const received = item.getReceivedBytes()
   if (now - entry.lastSampleAt >= 400) {
@@ -141,11 +221,82 @@ export function listDownloads(): DownloadRecord[] {
   return listRecords()
 }
 
+/** Record a finished file (e.g. approved P2P) in the Downloads list. */
+export function addCompletedDownload(opts: {
+  filename: string
+  savePath: string
+  sizeBytes: number
+  url?: string
+  gameThreadId?: number | null
+  gameTitle?: string
+  gameVersion?: string | null
+  hash?: string
+}): DownloadRecord {
+  const savePath = opts.savePath
+  const existing = [...tracked.values()].find(
+    (entry) =>
+      entry.savePath.replace(/\\/g, '/').toLowerCase() === savePath.replace(/\\/g, '/').toLowerCase()
+  )
+  const now = Date.now()
+  const size = Math.max(0, opts.sizeBytes || 0)
+  if (existing) {
+    existing.filename = opts.filename || existing.filename
+    existing.savePath = savePath
+    existing.receivedBytes = size
+    existing.totalBytes = size
+    existing.status = 'completed'
+    existing.paused = false
+    existing.canResume = false
+    existing.bytesPerSecond = 0
+    existing.updatedAt = now
+    existing.hash = opts.hash || existing.hash
+    existing.libraryStatus = opts.hash ? 'indexed' : existing.libraryStatus
+    if (opts.gameThreadId != null) {
+      existing.context = {
+        threadId: Number(opts.gameThreadId),
+        title: opts.gameTitle || existing.context?.title || opts.filename,
+        version: opts.gameVersion || existing.context?.version || ''
+      }
+    }
+    broadcast()
+    return toRecord(existing)
+  }
+  const entry: TrackedDownload = {
+    id: nextId(),
+    filename: opts.filename,
+    url: opts.url || '',
+    savePath,
+    receivedBytes: size,
+    totalBytes: size,
+    status: 'completed',
+    paused: false,
+    canResume: false,
+    bytesPerSecond: 0,
+    startedAt: now,
+    updatedAt: now,
+    lastSampleAt: now,
+    lastSampleBytes: size,
+    hash: opts.hash,
+    libraryStatus: opts.hash ? 'indexed' : undefined,
+    context:
+      opts.gameThreadId != null
+        ? {
+            threadId: Number(opts.gameThreadId),
+            title: opts.gameTitle || opts.filename,
+            version: opts.gameVersion || ''
+          }
+        : undefined
+  }
+  tracked.set(entry.id, entry)
+  broadcast()
+  return toRecord(entry)
+}
+
 export function cancelDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
   if (entry && (entry.status === 'progressing' || entry.status === 'paused')) {
     try {
-      entry.item.cancel()
+      entry.item?.cancel()
     } catch (error) {
       console.warn('Could not cancel download', error)
     }
@@ -155,7 +306,7 @@ export function cancelDownload(id: string): DownloadRecord[] {
 
 export function pauseDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
-  if (entry && !entry.item.isPaused() && entry.item.getState() === 'progressing') {
+  if (entry?.item && !entry.item.isPaused() && entry.item.getState() === 'progressing') {
     try {
       entry.item.pause()
       syncFromItem(entry)
@@ -169,7 +320,7 @@ export function pauseDownload(id: string): DownloadRecord[] {
 
 export function resumeDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
-  if (entry && entry.item.canResume()) {
+  if (entry?.item?.canResume()) {
     try {
       entry.item.resume()
       syncFromItem(entry)
@@ -185,11 +336,21 @@ export function removeDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
   if (!entry) return listRecords()
   if (entry.status === 'progressing' || entry.status === 'paused') {
-    entry.item.cancel()
+    entry.item?.cancel()
   }
   tracked.delete(id)
   broadcast()
   return listRecords()
+}
+
+export async function flushDownloadHistory(): Promise<void> {
+  if (historyTimer) {
+    clearTimeout(historyTimer)
+    historyTimer = null
+  }
+  const items = listRecords().filter((item) => isFinishedDownloadStatus(item.status))
+  lastHistoryFingerprint = historyFingerprint(items)
+  await persistDownloadHistory(items)
 }
 
 export function clearFinishedDownloads(): DownloadRecord[] {
@@ -224,15 +385,30 @@ export async function openDownloadsFolder(): Promise<void> {
 }
 
 async function indexArchive(entry: TrackedDownload): Promise<void> {
-  if (!entry.context || !entry.savePath || !isArchivePath(entry.savePath || entry.filename)) return
+  const context = entry.context
+  if (!context || !entry.savePath || !isArchivePath(entry.savePath || entry.filename)) return
   entry.libraryStatus = 'hashing'
   broadcast()
   try {
     const hash = await hashFile(entry.savePath)
     const size = existsSync(entry.savePath) ? statSync(entry.savePath).size : entry.receivedBytes
-    await addGameFileFromDownload(entry.context, entry.savePath, hash, size)
+    await addGameFileFromDownload(context, entry.savePath, hash, size)
     entry.hash = hash
     entry.libraryStatus = 'indexed'
+    void import('./p2p/controller')
+      .then(({ onLibraryPackageAdded }) =>
+        onLibraryPackageAdded({
+          filePath: entry.savePath,
+          contentHash: hash,
+          gameName: context.title,
+          gameVersion: context.version,
+          f95ThreadId: context.threadId,
+          f95ThreadUrl: context.threadUrl
+        })
+      )
+      .catch((error) => {
+        console.warn('[p2p] auto-seed after HTTP download failed', error)
+      })
   } catch (error) {
     console.warn('Could not add archive to game files', error)
     entry.libraryStatus = 'error'
@@ -242,6 +418,9 @@ async function indexArchive(entry: TrackedDownload): Promise<void> {
 
 export function registerDownloadHandler(): void {
   applyConfiguredDownloadPath()
+  void restoreDownloadHistory().catch((error) => {
+    console.warn('Could not restore download history', error)
+  })
   session.defaultSession.on('will-download', (_event, item, webContents) => {
     const dir = getDownloadsDirSync()
     try {

@@ -102,6 +102,17 @@ export type AppSettings = {
   favoriteTags: FavoriteTag[]
   downloadsDir: string
   libraryDir: string
+  /** OFF by default. When on, seed all local packages via WebTorrent (main). */
+  p2pEnabled: boolean
+  /** WebTorrent announce (opentracker). Default http://localhost:6969/announce */
+  trackerAnnounceUrl: string
+  /** Metadata REST base (no trailing slash needed). Default http://localhost:8080 */
+  metadataBaseUrl: string
+  /**
+   * WebSocket tracker (ws:// or wss://) used for WebRTC ICE signaling / hole-punching.
+   * HTTP opentracker cannot exchange SDP. Empty disables WebRTC announce.
+   */
+  trackerWebRtcUrl: string
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
@@ -121,6 +132,7 @@ export type DownloadRecord = {
   startedAt: number
   updatedAt: number
   gameThreadId?: number
+  gameTitle?: string
   gameVersion?: string
   hash?: string
   libraryStatus?: 'hashing' | 'indexed' | 'error'
@@ -399,6 +411,7 @@ export type ThreadReview = {
   rating: number
   date: string
   body: string
+  html: string
 }
 
 export type ThreadReviewsPage = {

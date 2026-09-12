@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { dirname, isAbsolute } from 'path'
+﻿import { mkdir, readFile, writeFile } from 'fs/promises'
+import { dirname, isAbsolute, join } from 'path'
 import { TAG_TIERS, type AppSettings, type FavoriteTag, type TagTier } from '@shared/types'
+import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { getAppPaths } from './paths'
 
 let loaded: AppSettings | null = null
@@ -26,6 +27,26 @@ function defaultFolders(): Pick<AppSettings, 'downloadsDir' | 'libraryDir'> {
   }
 }
 
+function envOrDefault(key: keyof typeof P2P_ENV_DEFAULTS): string {
+  const raw = process.env[key]
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  return P2P_ENV_DEFAULTS[key]
+}
+
+function normalizeUrl(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback
+  const trimmed = value.trim()
+  return trimmed || fallback
+}
+
+function normalizeWebRtcUrl(value: unknown, fallback: string): string {
+  const raw = typeof value === 'string' ? value.trim() : undefined
+  const next = raw === undefined ? fallback.trim() : raw
+  if (!next) return ''
+  if (next.startsWith('ws://') || next.startsWith('wss://')) return next.replace(/\/$/, '')
+  return ''
+}
+
 function normalizeDir(value: unknown, fallback: string): string {
   if (typeof value !== 'string') return fallback
   const trimmed = value.trim()
@@ -34,7 +55,14 @@ function normalizeDir(value: unknown, fallback: string): string {
 }
 
 function emptySettings(): AppSettings {
-  return { favoriteTags: [], ...defaultFolders() }
+  return {
+    favoriteTags: [],
+    p2pEnabled: false,
+    trackerAnnounceUrl: envOrDefault('TRACKER_ANNOUNCE_URL'),
+    metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
+    trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
+    ...defaultFolders()
+  }
 }
 
 function normalizeSettings(value: unknown): AppSettings {
@@ -51,7 +79,11 @@ function normalizeSettings(value: unknown): AppSettings {
   return {
     favoriteTags,
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
-    libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir)
+    libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
+    p2pEnabled: Boolean(raw.p2pEnabled),
+    trackerAnnounceUrl: normalizeUrl(raw.trackerAnnounceUrl, envOrDefault('TRACKER_ANNOUNCE_URL')),
+    metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL')),
+    trackerWebRtcUrl: normalizeWebRtcUrl(raw.trackerWebRtcUrl, envOrDefault('TRACKER_WEBRTC_URL'))
   }
 }
 
@@ -67,7 +99,8 @@ async function readStore(): Promise<AppSettings> {
   if (loaded) return loaded
   try {
     const raw = await readFile(getAppPaths().settingsFile, 'utf8')
-    loaded = normalizeSettings(JSON.parse(raw))
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    loaded = normalizeSettings(parsed)
   } catch {
     loaded = emptySettings()
   }
@@ -87,8 +120,25 @@ export function getDownloadsDirSync(): string {
   return loaded?.downloadsDir ?? getAppPaths().downloadsDir
 }
 
+/** Quarantine folder for P2P downloads awaiting Approve / Reject / Flag. */
+export function getUntrustedDownloadsDirSync(): string {
+  return join(getDownloadsDirSync(), 'untrusted')
+}
+
 export function getLibraryDirSync(): string {
   return loaded?.libraryDir ?? getAppPaths().libraryDir
+}
+
+export function getTrackerAnnounceUrlSync(): string {
+  return loaded?.trackerAnnounceUrl ?? envOrDefault('TRACKER_ANNOUNCE_URL')
+}
+
+export function getMetadataBaseUrlSync(): string {
+  return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
+}
+
+export function getTrackerWebRtcUrlSync(): string {
+  return loaded?.trackerWebRtcUrl ?? envOrDefault('TRACKER_WEBRTC_URL')
 }
 
 export async function getSettings(): Promise<AppSettings> {

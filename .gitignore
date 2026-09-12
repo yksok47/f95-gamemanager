@@ -6,4 +6,12 @@ out
 *.log*
 .env
 .env.*
-.reference
+
+# Agent throwaway scripts/research (only scratch dir allowed)
+.agent-scratch/
+.user-scratch/
+.user-scratch-*/
+
+# Local Electron user-data for extra instances (e.g. bun run dev:peer)
+.userdata/
+.userdata-*/

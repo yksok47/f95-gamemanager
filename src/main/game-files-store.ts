@@ -18,6 +18,8 @@ import { lookupGame } from './f95/lookup'
 import { listSubscriptions, recordSubscriptionPlay } from './subscriptions-store'
 import { pathExists, resolveLongPath, toFsPath } from './win-path'
 import { sendToRenderer } from './windows'
+import { pauseTorrentsForArchive, teardownP2pForContentHash } from './p2p/webtorrent-service'
+import { removeTorrentMapEntry } from './p2p/torrent-map-store'
 
 type StoredGameFile = Omit<
   GameLibraryFile,
@@ -561,6 +563,8 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     throw new Error('That archive is already being installed.')
   }
 
+  await pauseTorrentsForArchive(file.archivePath, file.hash)
+
   const dest = installDest(file)
   installing.set(id, { percent: 0 })
   broadcast()
@@ -600,6 +604,7 @@ export async function showGameArchive(id: string): Promise<void> {
   if (!file?.archivePath || !pathExists(file.archivePath)) {
     throw new Error('The archive is missing from disk.')
   }
+  await pauseTorrentsForArchive(file.archivePath, file.hash)
   shell.showItemInFolder(file.archivePath)
 }
 
@@ -794,8 +799,18 @@ export async function uninstallGameFile(id: string): Promise<GameLibraryFile> {
 export async function removeGameArchive(id: string): Promise<GameLibraryFile> {
   if (installing.has(id)) throw new Error('That version is still being installed.')
   const { files, file } = await getFile(id)
+  const removedHash = file.hash
   await removePath(file.archivePath)
   file.archivePath = ''
+  // Keep hash for history, but stop seeding so P2P re-download can start without restart.
+  if (removedHash) {
+    try {
+      await teardownP2pForContentHash(removedHash)
+      await removeTorrentMapEntry(removedHash)
+    } catch (error) {
+      console.warn('[library] p2p teardown after archive remove failed', error)
+    }
+  }
   if (fileStillPresent(file)) await writeStore(files)
   else await writeStore(files.filter((item) => item.id !== id))
   broadcast()
@@ -806,12 +821,21 @@ export async function removeGameVersion(id: string): Promise<GameLibraryFile[]> 
   if (installing.has(id)) throw new Error('That version is still being installed.')
   await stopPlaySession(id)
   const { files, file } = await getFile(id)
+  const removedHash = file.hash
   const installPath = file.installPath
   if (installPath) await killProcessesUnder(installPath)
   await syncRpgMakerForFile(file, 'backup')
   await removePath(installPath)
   await removeEmptyParents(installPath, getLibraryDirSync())
   await removePath(file.archivePath)
+  if (removedHash) {
+    try {
+      await teardownP2pForContentHash(removedHash)
+      await removeTorrentMapEntry(removedHash)
+    } catch (error) {
+      console.warn('[library] p2p teardown after version remove failed', error)
+    }
+  }
   const next = files.filter((item) => item.id !== id)
   await writeStore(next)
   broadcast()

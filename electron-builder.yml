@@ -2,17 +2,11 @@ appId: com.f95gamemanager.app
 productName: F95 Game Manager
 directories:
   output: dist
+# Only the compiled app. package.json and production node_modules are always added.
+# If every entry is an exclusion, electron-builder keeps the default **/* and packs
+# local junk (.userdata, .user-scratch, .agent-scratch, docs, …) into app.asar.
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!_research/*'
-  - '!UnRen-1.0.11d'
-  - '!UnRen-1.0.11d/**'
-  - '!resources/unren'
-  - '!resources/unren/**'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.env,.env.*,.npmrc}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - 'out/**/*'
 extraResources:
   - from: resources/unren
     to: unren
@@ -29,6 +23,7 @@ asarUnpack:
   - '**/node_modules/7zip-bin/**'
   - '**/7za.exe'
   - '**/node_modules/node-unrar-js/**'
+  - '**/node_modules/node-datachannel/**'
 win:
   executableName: F95GameManager
   target:

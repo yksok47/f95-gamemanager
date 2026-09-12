@@ -23,6 +23,14 @@ import type {
   FollowSyncStatus,
   UnRenAction
 } from '@shared/types'
+import type {
+  PackageFlagKind,
+  PackageListQuery,
+  PackageListResponse,
+  PackageMetadata,
+  P2pTransferProgress,
+  TorrentMapEntry
+} from '@shared/p2p'
 
 const api = {
   auth: {
@@ -76,7 +84,9 @@ const api = {
     save: (settings: Partial<AppSettings>): Promise<AppSettings> =>
       ipcRenderer.invoke('settings:save', settings),
     pickFolder: (currentPath?: string): Promise<string | null> =>
-      ipcRenderer.invoke('settings:pickFolder', currentPath)
+      ipcRenderer.invoke('settings:pickFolder', currentPath),
+    userDataPath: (): Promise<string> => ipcRenderer.invoke('settings:userDataPath'),
+    openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData')
   },
   downloads: {
     list: (): Promise<DownloadRecord[]> => ipcRenderer.invoke('downloads:list'),
@@ -175,6 +185,56 @@ const api = {
   shell: {
     open: (url: string, context?: GameFileContext): Promise<void> =>
       ipcRenderer.invoke('shell:open', url, context)
+  },
+  p2p: {
+    status: (): Promise<unknown> => ipcRenderer.invoke('p2p:status'),
+    add: (magnetOrPath: string, contentHash?: string): Promise<P2pTransferProgress> =>
+      ipcRenderer.invoke('p2p:add', magnetOrPath, contentHash),
+    seed: (
+      filePath: string,
+      meta?: {
+        contentHash?: string
+        gameName?: string
+        gameVersion?: string | null
+        f95ThreadId?: number | null
+        f95ThreadUrl?: string | null
+      }
+    ): Promise<P2pTransferProgress> => ipcRenderer.invoke('p2p:seed', filePath, meta),
+    remove: (id: string, deleteFiles?: boolean): Promise<void> =>
+      ipcRenderer.invoke('p2p:remove', id, Boolean(deleteFiles)),
+    pause: (id: string): Promise<P2pTransferProgress | null> => ipcRenderer.invoke('p2p:pause', id),
+    resume: (id: string): Promise<P2pTransferProgress | null> => ipcRenderer.invoke('p2p:resume', id),
+    progress: (): Promise<P2pTransferProgress[]> => ipcRenderer.invoke('p2p:progress'),
+    listShared: (): Promise<TorrentMapEntry[]> => ipcRenderer.invoke('p2p:listShared'),
+    seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
+    listPackages: (query: PackageListQuery): Promise<PackageListResponse> =>
+      ipcRenderer.invoke('p2p:listPackages', query),
+    downloadByHash: (contentHash: string): Promise<P2pTransferProgress> =>
+      ipcRenderer.invoke('p2p:downloadByHash', contentHash),
+    flag: (contentHash: string, kind: PackageFlagKind, note?: string): Promise<PackageMetadata> =>
+      ipcRenderer.invoke('p2p:flag', contentHash, kind, note),
+    approveQuarantine: (id: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:approveQuarantine', id),
+    rejectQuarantine: (id: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:rejectQuarantine', id),
+    revealQuarantine: (id: string): Promise<string> =>
+      ipcRenderer.invoke('p2p:revealQuarantine', id),
+    flagQuarantine: (id: string, note?: string): Promise<void> =>
+      ipcRenderer.invoke('p2p:flagQuarantine', id, note),
+    onProgress: (listener: (items: P2pTransferProgress[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: P2pTransferProgress[]): void => listener(items)
+      ipcRenderer.on('p2p:progress', wrapped)
+      return () => {
+        ipcRenderer.removeListener('p2p:progress', wrapped)
+      }
+    },
+    onSharedChanged: (listener: (items: TorrentMapEntry[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: TorrentMapEntry[]): void => listener(items)
+      ipcRenderer.on('p2p:shared-changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('p2p:shared-changed', wrapped)
+      }
+    }
   }
 }
 

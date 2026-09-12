@@ -1,10 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export type MenuItem = {
   id: string
   label: string
   disabled?: boolean
+  active?: boolean
   onClick: () => void
 }
 
@@ -13,21 +14,23 @@ type MenuPopoverProps = {
   items: MenuItem[]
   onClose: () => void
   align?: 'left' | 'right'
+  header?: ReactNode
 }
 
 export function MenuPopover({
   anchor,
   items,
   onClose,
-  align = 'right'
+  align = 'right',
+  header
 }: MenuPopoverProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const [pos, setPos] = useState({ top: 0, left: 0, minWidth: 180 })
 
   useLayoutEffect(() => {
     const rect = anchor.getBoundingClientRect()
     const menu = ref.current
-    const width = menu?.offsetWidth || 180
+    const width = Math.max(menu?.offsetWidth || 180, rect.width)
     const height = menu?.offsetHeight || 0
     let left = align === 'right' ? rect.right - width : rect.left
     let top = rect.bottom + 6
@@ -35,7 +38,7 @@ export function MenuPopover({
     if (top + height > window.innerHeight - 8) {
       top = Math.max(8, rect.top - height - 6)
     }
-    setPos({ top, left })
+    setPos({ top, left, minWidth: width })
   }, [anchor, align, items.length])
 
   useEffect(() => {
@@ -65,14 +68,16 @@ export function MenuPopover({
     <div
       ref={ref}
       className="card-menu"
-      style={{ top: pos.top, left: pos.left }}
+      style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
       role="menu"
     >
+      {header ? <div className="card-menu-header">{header}</div> : null}
       {items.map((item) => (
         <button
           key={item.id}
           type="button"
           role="menuitem"
+          className={item.active ? 'is-active' : undefined}
           disabled={item.disabled}
           onClick={() => {
             item.onClick()

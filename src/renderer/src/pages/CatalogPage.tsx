@@ -9,11 +9,13 @@ import type {
   MatchMode
 } from '@shared/types'
 import { FALLBACK_PREFIXES } from '@shared/prefixes'
-import { decodeHtmlEntities } from '@shared/engines'
-import FilterChip, { nextChipState, type FilterChipState } from '../components/FilterChip'
+import { nextChipState, type FilterChipState } from '../components/FilterChip'
+import FilterShelf from '../components/FilterShelf'
 import GameCard from '../components/GameCard'
+import SelectMenu from '../components/SelectMenu'
+import FooterPortal from '../components/FooterPortal'
+import { FilterIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
-import { sortFavoriteTags } from '../lib/favorites'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type CatalogViewProps = {
@@ -69,6 +71,7 @@ export default function CatalogPage({
   const [tagQuery, setTagQuery] = useState('')
   const [creatorInput, setCreatorInput] = useState('')
   const [creator, setCreator] = useState('')
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 400)
@@ -106,12 +109,28 @@ export default function CatalogPage({
   const excludePrefixes = useMemo(() => selectedIds(prefixState, 'exclude'), [prefixState])
   const tags = useMemo(() => selectedIds(tagState, 'include'), [tagState])
   const excludeTags = useMemo(() => selectedIds(tagState, 'exclude'), [tagState])
+  const favoriteIds = useMemo(() => favoriteTags.map((tag) => tag.id), [favoriteTags])
+  const queryTags = useMemo(
+    () => (tags.length ? tags : favoritesOnly ? favoriteIds : []),
+    [tags, favoritesOnly, favoriteIds]
+  )
   const activeFilterCount =
     prefixes.length + excludePrefixes.length + tags.length + excludeTags.length + (creator ? 1 : 0)
 
   useEffect(() => {
     setPage(1)
-  }, [sort, search, creator, prefixes, excludePrefixes, tags, excludeTags, tagType, prefixType])
+  }, [
+    sort,
+    search,
+    creator,
+    prefixes,
+    excludePrefixes,
+    queryTags,
+    excludeTags,
+    tagType,
+    prefixType,
+    favoritesOnly
+  ])
 
   useEffect(() => {
     let cancelled = false
@@ -129,9 +148,9 @@ export default function CatalogPage({
           prefixes: prefixes.length ? prefixes : undefined,
           excludePrefixes: excludePrefixes.length ? excludePrefixes : undefined,
           prefixType,
-          tags: tags.length ? tags : undefined,
+          tags: queryTags.length ? queryTags : undefined,
           excludeTags: excludeTags.length ? excludeTags : undefined,
-          tagType
+          tagType: favoritesOnly && !tags.length ? 'or' : tagType
         })
         if (!cancelled) setData(result)
       } catch (err) {
@@ -160,23 +179,13 @@ export default function CatalogPage({
     prefixes,
     excludePrefixes,
     prefixType,
-    tags,
+    queryTags,
     excludeTags,
     tagType,
+    favoritesOnly,
+    tags,
     onSessionExpired
   ])
-
-  const statusOptions = filters.prefixes.filter((prefix) => prefix.group === 'status')
-  const engineOptions = filters.prefixes.filter((prefix) => prefix.group === 'engine')
-  const favoriteTagIds = useMemo(() => new Set(favoriteTags.map((tag) => tag.id)), [favoriteTags])
-  const sortedFavorites = useMemo(() => sortFavoriteTags(favoriteTags), [favoriteTags])
-  const visibleTags = useMemo(() => {
-    const q = tagQuery.trim().toLowerCase()
-    const list = q
-      ? filters.tags.filter((tag) => tag.name.toLowerCase().includes(q) && !favoriteTagIds.has(tag.id))
-      : filters.tags.filter((tag) => !tagState[tag.id] && !favoriteTagIds.has(tag.id))
-    return list.slice(0, 80)
-  }, [filters.tags, tagQuery, tagState, favoriteTagIds])
 
   function togglePrefix(id: number): void {
     setPrefixState((current) => {
@@ -207,24 +216,57 @@ export default function CatalogPage({
           onChange={(event) => setSearchInput(event.target.value)}
           placeholder="Search games"
         />
-        <select
-          className="toolbar-select"
+        <SelectMenu
           value={sort}
-          onChange={(event) => setSort(event.target.value as CatalogSort)}
-        >
-          {SORTS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+          options={SORTS}
+          ariaLabel="Sort catalog"
+          onChange={setSort}
+        />
         <button
-          className={filtersOpen ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
+          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
+          aria-pressed={favoritesOnly}
+          disabled={!favoriteIds.length}
+          title={
+            favoriteIds.length
+              ? favoritesOnly
+                ? 'Showing all tags'
+                : 'Show only favorite tags'
+              : 'Add favorite tags in Settings'
+          }
+          aria-label="Filter by favorite tags"
+          onClick={() => setFavoritesOnly((value) => !value)}
+        >
+          <StarIcon />
+        </button>
+        <button
+          className={filtersOpen ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={filtersOpen}
+          title={activeFilterCount ? `Filters (${activeFilterCount})` : 'Filters'}
+          aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : 'Filters'}
           onClick={() => setFiltersOpen((open) => !open)}
         >
-          Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+          <FilterIcon />
+          {activeFilterCount ? <span className="icon-btn-badge">{activeFilterCount}</span> : null}
         </button>
+        <div className="toolbar-actions">
+          <button
+            className="ghost-btn icon-btn"
+            type="button"
+            disabled={busy}
+            title="Refresh catalog"
+            aria-label="Refresh catalog"
+            onClick={() => setReloadToken((value) => value + 1)}
+          >
+            <RefreshIcon spinning={busy && Boolean(data)} />
+          </button>
+        </div>
+      </ToolbarPortal>
+      <FooterPortal>
+        <span className="muted pager-label">
+          {data ? `${data.totalGames.toLocaleString()} titles` : 'Loading…'}
+        </span>
         <div className="pager">
           <button
             className="ghost-btn pager-btn"
@@ -244,123 +286,29 @@ export default function CatalogPage({
             ›
           </button>
         </div>
-        <button className="ghost-btn" disabled={busy} onClick={() => setReloadToken((value) => value + 1)}>
-          Refresh
-        </button>
-      </ToolbarPortal>
+      </FooterPortal>
 
       {filtersOpen ? (
-        <section className="filter-shelf">
-          <p className="muted filter-hint">Click a chip to include it, click again to exclude, again to clear.</p>
-          <div className="filter-row">
-            <span className="filter-label">Creator</span>
-            <input
-              className="tag-search"
-              value={creatorInput}
-              onChange={(event) => setCreatorInput(event.target.value)}
-              placeholder="Filter by creator"
-            />
-          </div>
-          <div className="filter-row">
-            <span className="filter-label">Status</span>
-            <div className="filter-chips">
-              {statusOptions.map((prefix) => (
-                <FilterChip
-                  key={prefix.id}
-                  label={decodeHtmlEntities(prefix.name)}
-                  state={prefixState[prefix.id] ?? 'off'}
-                  onClick={() => togglePrefix(prefix.id)}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="filter-row">
-            <span className="filter-label">Engine</span>
-            <div className="filter-chips">
-              {engineOptions.map((prefix) => (
-                <FilterChip
-                  key={prefix.id}
-                  label={decodeHtmlEntities(prefix.name)}
-                  state={prefixState[prefix.id] ?? 'off'}
-                  onClick={() => togglePrefix(prefix.id)}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="filter-row">
-            <span className="filter-label">Match</span>
-            <label className="mode-toggle">
-              Status / engine
-              <select value={prefixType} onChange={(event) => setPrefixType(event.target.value as MatchMode)}>
-                <option value="and">AND</option>
-                <option value="or">OR</option>
-              </select>
-            </label>
-          </div>
-          {sortedFavorites.length ? (
-            <div className="filter-row">
-              <span className="filter-label">Favorites</span>
-              <div className="filter-chips">
-                {sortedFavorites.map((tag) => (
-                  <FilterChip
-                    key={tag.id}
-                    label={tag.name}
-                    state={tagState[tag.id] ?? 'off'}
-                    tone={tag.tier}
-                    onClick={() => toggleTag(tag.id)}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <div className="filter-row">
-            <span className="filter-label">Tags</span>
-            <label className="mode-toggle">
-              Match
-              <select value={tagType} onChange={(event) => setTagType(event.target.value as MatchMode)}>
-                <option value="or">OR</option>
-                <option value="and">AND</option>
-              </select>
-            </label>
-            <input
-              className="tag-search"
-              value={tagQuery}
-              onChange={(event) => setTagQuery(event.target.value)}
-              placeholder="Find a tag"
-            />
-          </div>
-          {filters.tags.some((tag) => tagState[tag.id] && !favoriteTagIds.has(tag.id)) ? (
-            <div className="filter-chips">
-              {filters.tags
-                .filter((tag) => tagState[tag.id] && !favoriteTagIds.has(tag.id))
-                .map((tag) => (
-                  <FilterChip
-                    key={tag.id}
-                    label={tag.name}
-                    state={tagState[tag.id]}
-                    onClick={() => toggleTag(tag.id)}
-                  />
-                ))}
-            </div>
-          ) : null}
-          <div className="filter-chips tag-results">
-            {visibleTags.map((tag) => (
-              <FilterChip
-                key={tag.id}
-                label={tag.name}
-                state={tagState[tag.id] ?? 'off'}
-                onClick={() => toggleTag(tag.id)}
-              />
-            ))}
-          </div>
-        </section>
+        <FilterShelf
+          filters={filters}
+          prefixState={prefixState}
+          tagState={tagState}
+          prefixType={prefixType}
+          tagType={tagType}
+          tagQuery={tagQuery}
+          creatorInput={creatorInput}
+          favoriteTags={favoriteTags}
+          onTogglePrefix={togglePrefix}
+          onToggleTag={toggleTag}
+          onPrefixType={setPrefixType}
+          onTagType={setTagType}
+          onTagQuery={setTagQuery}
+          onCreatorInput={setCreatorInput}
+        />
       ) : null}
 
       {error ? <p className="catalog-status error-text">{error}</p> : null}
       {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
-      {data ? (
-        <p className="catalog-status muted">{data.totalGames.toLocaleString()} titles</p>
-      ) : null}
 
       {data && data.games.length === 0 ? (
         <div className="empty-state">No games match these filters.</div>

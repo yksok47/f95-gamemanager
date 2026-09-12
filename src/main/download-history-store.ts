@@ -1,0 +1,86 @@
+/**
+ * Persist finished HTTP downloads so they survive restart until the user clears them.
+ */
+import { mkdir, readFile, writeFile } from 'fs/promises'
+import { dirname } from 'path'
+import type { DownloadRecord, DownloadStatus } from '@shared/types'
+import { getAppPaths } from './paths'
+
+const FINISHED = new Set<DownloadStatus>(['completed', 'cancelled', 'interrupted'])
+
+export type DownloadHistoryStore = {
+  version: 1
+  items: DownloadRecord[]
+}
+
+function empty(): DownloadHistoryStore {
+  return { version: 1, items: [] }
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+export function isFinishedDownloadStatus(status: DownloadStatus): boolean {
+  return FINISHED.has(status)
+}
+
+export function normalizeDownloadHistory(value: unknown): DownloadHistoryStore {
+  if (!value || typeof value !== 'object') return empty()
+  const raw = value as Partial<DownloadHistoryStore>
+  if (!Array.isArray(raw.items)) return empty()
+  const items: DownloadRecord[] = []
+  for (const item of raw.items) {
+    if (!item || typeof item !== 'object') continue
+    const e = item as Partial<DownloadRecord>
+    if (typeof e.id !== 'string' || !e.id) continue
+    const status = e.status
+    if (status !== 'completed' && status !== 'cancelled' && status !== 'interrupted') continue
+    items.push({
+      id: e.id,
+      filename: asString(e.filename) || 'download',
+      url: asString(e.url) || '',
+      savePath: asString(e.savePath) || '',
+      receivedBytes: asNumber(e.receivedBytes) ?? 0,
+      totalBytes: asNumber(e.totalBytes) ?? 0,
+      status,
+      paused: false,
+      canResume: false,
+      bytesPerSecond: 0,
+      error: asString(e.error),
+      startedAt: asNumber(e.startedAt) ?? Date.now(),
+      updatedAt: asNumber(e.updatedAt) ?? Date.now(),
+      gameThreadId: asNumber(e.gameThreadId),
+      gameTitle: asString(e.gameTitle),
+      gameVersion: asString(e.gameVersion),
+      hash: asString(e.hash),
+      libraryStatus: e.libraryStatus === 'hashing' || e.libraryStatus === 'indexed' || e.libraryStatus === 'error'
+        ? e.libraryStatus
+        : undefined
+    })
+  }
+  return { version: 1, items }
+}
+
+export async function loadDownloadHistory(): Promise<DownloadRecord[]> {
+  try {
+    const raw = await readFile(getAppPaths().downloadsHistoryFile, 'utf8')
+    return normalizeDownloadHistory(JSON.parse(raw)).items
+  } catch {
+    return []
+  }
+}
+
+export async function persistDownloadHistory(items: DownloadRecord[]): Promise<void> {
+  const file = getAppPaths().downloadsHistoryFile
+  await mkdir(dirname(file), { recursive: true })
+  const store: DownloadHistoryStore = {
+    version: 1,
+    items: normalizeDownloadHistory({ version: 1, items }).items
+  }
+  await writeFile(file, JSON.stringify(store, null, 2), 'utf8')
+}

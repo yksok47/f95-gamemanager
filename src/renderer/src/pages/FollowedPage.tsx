@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { FavoriteTag, FollowSyncStatus, ImportResult, Subscription } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
+import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import { formatRelativeTime, gameUpdateState } from '@shared/updates'
 import GameCard from '../components/GameCard'
 import { MenuPopover } from '../components/MenuPopover'
+import SelectMenu from '../components/SelectMenu'
+import FooterPortal from '../components/FooterPortal'
+import { HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
+import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
@@ -63,6 +68,11 @@ type FollowedPageProps = {
   onSessionExpired: () => Promise<void>
 }
 
+function syncProgress(sync: FollowSyncStatus): number {
+  const total = sync.checked + sync.pending
+  return total ? sync.checked / total : 0
+}
+
 function formatImport(result: ImportResult): string {
   const label = result.source === 'watched' ? 'watched threads' : 'bookmarks'
   return `Imported ${result.added} ${label} (${result.alreadyFollowed} already followed, ${result.found} found).`
@@ -86,8 +96,9 @@ export default function FollowedPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
-  const [libraryOnly, setLibraryOnly] = useState(false)
   const [updatesOnly, setUpdatesOnly] = useState(false)
+  const [hideCompleted, setHideCompleted] = useState(false)
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -133,11 +144,10 @@ export default function FollowedPage({
       games
         .filter((game) => matchesQuery(game, needle))
         .filter((game) => {
-          if (!libraryOnly) return true
-          const lib = libraryByThread.get(game.threadId)
-          return Boolean(lib?.hasArchive || lib?.isInstalled)
-        })
-        .filter((game) => {
+          if (hideCompleted && isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog))) {
+            return false
+          }
+          if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
           if (!updatesOnly) return true
           const lib = libraryByThread.get(game.threadId)
           const flags = gameUpdateState({
@@ -148,7 +158,18 @@ export default function FollowedPage({
           return flags.updateAvailable || flags.unplayedUpdate
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [games, needle, sort, descending, libraryOnly, updatesOnly, libraryByThread]
+    [
+      games,
+      needle,
+      sort,
+      descending,
+      updatesOnly,
+      hideCompleted,
+      favoritesOnly,
+      favoriteTags,
+      libraryByThread,
+      prefixCatalog
+    ]
   )
 
   function sessionForThread(threadId: number) {
@@ -198,21 +219,15 @@ export default function FollowedPage({
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Filter followed"
         />
-        <select
-          className="toolbar-select"
+        <SelectMenu
           value={sort}
-          onChange={(event) => {
-            const next = event.target.value as FollowedSort
+          options={SORTS}
+          ariaLabel="Sort followed"
+          onChange={(next) => {
             setSort(next)
             setDescending(next !== 'title')
           }}
-        >
-          {SORTS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+        />
         <button
           className="ghost-btn pager-btn"
           type="button"
@@ -234,13 +249,39 @@ export default function FollowedPage({
           {descending ? '↓' : '↑'}
         </button>
         <button
-          className={libraryOnly ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
+          className={hideCompleted ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
-          aria-pressed={libraryOnly}
-          title="Show only games with a downloaded archive or install"
-          onClick={() => setLibraryOnly((value) => !value)}
+          aria-pressed={hideCompleted}
+          title={
+            hideCompleted
+              ? 'Show completed, on hold, and abandoned titles'
+              : 'Hide completed, on hold, and abandoned titles'
+          }
+          aria-label={
+            hideCompleted
+              ? 'Show completed, on hold, and abandoned titles'
+              : 'Hide completed, on hold, and abandoned titles'
+          }
+          onClick={() => setHideCompleted((value) => !value)}
         >
-          In library
+          <HideCompletedIcon />
+        </button>
+        <button
+          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={favoritesOnly}
+          disabled={!favoriteTags.length}
+          title={
+            favoriteTags.length
+              ? favoritesOnly
+                ? 'Showing all tags'
+                : 'Show only favorite tags'
+              : 'Add favorite tags in Settings'
+          }
+          aria-label="Filter by favorite tags"
+          onClick={() => setFavoritesOnly((value) => !value)}
+        >
+          <StarIcon />
         </button>
         <button
           className={updatesOnly ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
@@ -251,61 +292,88 @@ export default function FollowedPage({
         >
           Updates
         </button>
-        <button
-          className="ghost-btn"
-          type="button"
-          disabled={sync?.running}
-          title={
-            sync?.lastRunAt
-              ? `Last check ${formatRelativeTime(sync.lastRunAt)}`
-              : 'Refresh metadata for followed games not checked in the last day'
-          }
-          onClick={() => void checkUpdates()}
-        >
-          {sync?.running
-            ? sync.pending
-              ? `Checking… ${sync.pending}`
-              : 'Checking…'
-            : 'Check updates'}
-        </button>
-        <span className="muted pager-label">
-          {needle || libraryOnly || updatesOnly ? `${visible.length}/${games.length}` : `${games.length} followed`}
-        </span>
-        <div className="import-menu">
+        <div className="toolbar-actions">
           <button
-            ref={importBtnRef}
-            className="ghost-btn menu-trigger-btn"
+            className={sync?.running ? 'ghost-btn icon-btn sync-btn is-running' : 'ghost-btn icon-btn sync-btn'}
             type="button"
-            aria-haspopup="menu"
-            aria-expanded={importOpen}
-            disabled={busy !== null}
-            onClick={() => setImportOpen((open) => !open)}
+            disabled={sync?.running}
+            aria-label={
+              sync?.running
+                ? sync.pending
+                  ? `Checking updates, ${sync.pending} remaining`
+                  : 'Checking updates'
+                : 'Check updates'
+            }
+            title={
+              sync?.running
+                ? sync.pending
+                  ? `Checking… ${sync.pending} remaining`
+                  : 'Checking…'
+                : sync?.lastRunAt
+                  ? `Last check ${formatRelativeTime(sync.lastRunAt)}`
+                  : 'Refresh metadata for followed games not checked in the last day'
+            }
+            onClick={() => void checkUpdates()}
           >
-            {busy ? 'Importing…' : 'Import'}
-            <span className="menu-caret" aria-hidden="true">
-              ▾
-            </span>
+            {sync?.running ? (
+              <span
+                className="sync-progress"
+                style={{
+                  ['--p' as string]: syncProgress(sync)
+                }}
+              />
+            ) : null}
+            <RefreshIcon spinning={Boolean(sync?.running)} />
           </button>
-          {importOpen && importBtnRef.current ? (
-            <MenuPopover
-              anchor={importBtnRef.current}
-              items={[
-                {
-                  id: 'watched',
-                  label: 'Watched threads',
-                  onClick: () => void runImport('watched')
-                },
-                {
-                  id: 'bookmarks',
-                  label: 'Bookmarks',
-                  onClick: () => void runImport('bookmarks')
-                }
-              ]}
-              onClose={() => setImportOpen(false)}
-            />
-          ) : null}
+          <div className="import-menu">
+            <button
+              ref={importBtnRef}
+              className="ghost-btn icon-btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={importOpen}
+              aria-label={busy ? 'Importing' : 'Import'}
+              title={busy ? 'Importing…' : 'Import watched threads or bookmarks'}
+              disabled={busy !== null}
+              onClick={() => setImportOpen((open) => !open)}
+            >
+              <ImportIcon />
+            </button>
+            {importOpen && importBtnRef.current ? (
+              <MenuPopover
+                anchor={importBtnRef.current}
+                items={[
+                  {
+                    id: 'watched',
+                    label: 'Watched threads',
+                    onClick: () => void runImport('watched')
+                  },
+                  {
+                    id: 'bookmarks',
+                    label: 'Bookmarks',
+                    onClick: () => void runImport('bookmarks')
+                  }
+                ]}
+                onClose={() => setImportOpen(false)}
+              />
+            ) : null}
+          </div>
         </div>
       </ToolbarPortal>
+      <FooterPortal>
+        <span className="muted pager-label">
+          {needle || updatesOnly || hideCompleted || favoritesOnly
+            ? `${visible.length}/${games.length}`
+            : `${games.length} followed`}
+        </span>
+        {sync?.running ? (
+          <span className="muted pager-label">
+            {sync.pending
+              ? `Checking ${sync.checked}/${sync.checked + sync.pending}`
+              : 'Checking…'}
+          </span>
+        ) : null}
+      </FooterPortal>
 
       {message ? <p className="catalog-status muted">{message}</p> : null}
       {error ? <p className="catalog-status error-text">{error}</p> : null}
@@ -318,10 +386,10 @@ export default function FollowedPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {libraryOnly && !needle && !updatesOnly
-            ? 'No followed games are downloaded or installed yet.'
-            : updatesOnly && !needle
-              ? 'No followed games have a newer version than the install or last play.'
+          {updatesOnly && !needle && !favoritesOnly && !hideCompleted
+            ? 'No followed games have a newer version than the install or last play.'
+            : favoritesOnly && !needle
+              ? 'No followed games match your favorite tags.'
               : 'No followed games match that filter.'}
         </div>
       ) : (

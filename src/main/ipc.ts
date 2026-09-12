@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain } from 'electron'
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
   CatalogGame,
@@ -61,6 +61,7 @@ import {
   setRenpyToolForFile,
   showRenpySave
 } from './renpy/saves'
+import { getAppPaths } from './paths'
 import { getSettings, saveSettings } from './settings-store'
 import {
   applyCatalogScreens,
@@ -74,6 +75,29 @@ import {
 } from './subscriptions-store'
 import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed } from './follow-sync'
 import { openInAppWindow } from './open-url'
+import type { PackageFlagKind, PackageListQuery } from '@shared/p2p'
+import {
+  flagPackageAs,
+  listPackagesForDiscovery,
+  p2pAdd,
+  p2pDownloadByContentHash,
+  flagQuarantinedDownload,
+  revealQuarantinedDownload,
+  rejectQuarantinedDownload,
+  approveQuarantinedDownload,
+  p2pListProgress,
+  p2pListShared,
+  p2pRemoveTransfer,
+  p2pPauseTransfer,
+  p2pResumeTransfer,
+  p2pSeed,
+  p2pStatus,
+  seedAllLocalPackages,
+  subscribeP2pProgress,
+  onP2pEnabledChanged,
+  onTorrentMapChanged
+} from './p2p'
+
 
 function toIpcError(error: unknown): Error {
   if (error instanceof F95Error) {
@@ -248,9 +272,33 @@ export function registerIpc(): void {
 
   ipcMain.handle('settings:save', async (_event, next: Partial<AppSettings>) => {
     try {
+      const before = await getSettings()
       const settings = await saveSettings(next)
       applyConfiguredDownloadPath()
+      if (before.p2pEnabled !== settings.p2pEnabled) {
+        void onP2pEnabledChanged(settings.p2pEnabled).catch((error) =>
+          console.warn('[p2p] onP2pEnabledChanged failed', error)
+        )
+      }
       return settings
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('settings:userDataPath', async () => {
+    try {
+      return getAppPaths().userData
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('settings:openUserData', async () => {
+    try {
+      const dir = getAppPaths().userData
+      const error = await shell.openPath(dir)
+      if (error) throw new Error(error)
     } catch (error) {
       throw toIpcError(error)
     }
@@ -601,5 +649,162 @@ export function registerIpc(): void {
     } catch (error) {
       throw toIpcError(error)
     }
+  })
+
+  // --- P2P (WebTorrent main-process stubs) ---
+  ipcMain.handle('p2p:status', async () => {
+    try {
+      return await p2pStatus()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:add', async (_event, magnetOrPath: string, contentHash?: string) => {
+    try {
+      return await p2pAdd(String(magnetOrPath), contentHash ? String(contentHash) : undefined)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:seed',
+    async (
+      _event,
+      filePath: string,
+      meta?: {
+        contentHash?: string
+        gameName?: string
+        gameVersion?: string | null
+        f95ThreadId?: number | null
+        f95ThreadUrl?: string | null
+      }
+    ) => {
+      try {
+        return await p2pSeed(String(filePath), meta)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+  ipcMain.handle('p2p:remove', async (_event, id: string, deleteFiles?: boolean) => {
+    try {
+      await p2pRemoveTransfer(String(id), Boolean(deleteFiles))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:pause', async (_event, id: string) => {
+    try {
+      return await p2pPauseTransfer(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:resume', async (_event, id: string) => {
+    try {
+      return await p2pResumeTransfer(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:progress', async () => {
+    try {
+      return await p2pListProgress()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:listShared', async () => {
+    try {
+      return await p2pListShared()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:seedAll', async () => {
+    try {
+      return await seedAllLocalPackages()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:listPackages', async (_event, query?: PackageListQuery) => {
+    try {
+      return await listPackagesForDiscovery(query && typeof query === 'object' ? (query as PackageListQuery) : ({ f95ThreadId: '' } as PackageListQuery))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:downloadByHash', async (_event, contentHash: string) => {
+    try {
+      return await p2pDownloadByContentHash(String(contentHash || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:flag',
+    async (_event, contentHash: string, kind: PackageFlagKind, note?: string) => {
+      try {
+        return await flagPackageAs(String(contentHash), kind, note ? String(note) : undefined)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+
+  ipcMain.handle('p2p:approveQuarantine', async (_event, id: string) => {
+    try {
+      await approveQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:rejectQuarantine', async (_event, id: string) => {
+    try {
+      await rejectQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:revealQuarantine', async (_event, id: string) => {
+    try {
+      return await revealQuarantinedDownload(String(id || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle(
+    'p2p:flagQuarantine',
+    async (_event, id: string, note?: string) => {
+      try {
+        await flagQuarantinedDownload(String(id || ''), note ? String(note) : undefined)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  subscribeP2pProgress((items) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('p2p:progress', items)
+    }
+  })
+
+  let sharedNotifyTimer: ReturnType<typeof setTimeout> | null = null
+  onTorrentMapChanged(() => {
+    if (sharedNotifyTimer) clearTimeout(sharedNotifyTimer)
+    sharedNotifyTimer = setTimeout(() => {
+      void p2pListShared()
+        .then((rows) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send('p2p:shared-changed', rows)
+          }
+        })
+        .catch((error) => {
+          console.warn('[p2p] shared-changed notify failed', error)
+        })
+    }, 50)
   })
 }

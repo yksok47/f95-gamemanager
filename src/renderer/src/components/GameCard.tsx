@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, Subscription } from '@shared/types'
 import { engineFromTitle, normalizeEngine } from '@shared/engines'
-import { engineFromPrefixIds } from '@shared/prefixes'
+import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import { formatUpdateDate, gameUpdateState } from '@shared/updates'
 import EngineBadge from './EngineBadge'
 import { favoriteTagsOnGame } from '../lib/favorites'
@@ -93,6 +93,7 @@ export default function GameCard({
     installedVersion: library?.installedVersion,
     lastPlayedVersion: game.lastPlayedVersion
   })
+  const status = gameStatusFlags(game.prefixes, prefixCatalog)
 
   useEffect(() => {
     setBroken(!game.coverUrl)
@@ -146,7 +147,7 @@ export default function GameCard({
   function onCardClick(event: MouseEvent): void {
     if (!onOpen) return
     const target = event.target as HTMLElement
-    if (target.closest('button, select, a, label, .library-badge')) return
+    if (target.closest('button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge')) return
     onOpen()
   }
 
@@ -185,67 +186,73 @@ export default function GameCard({
             ) : null}
           </div>
         ) : null}
-        <EngineBadge name={engine} />
-        {library?.isInstalled || library?.hasArchive ? (
-          library.isInstalled && onPlay ? (
-            <button
-              className="library-badge library-badge-installed"
-              type="button"
-              disabled={playing}
-              title={
-                playing
-                  ? 'Playing'
-                  : library.installedVersion
-                    ? `Play ${library.installedVersion}`
-                    : 'Play'
-              }
-              onClick={(event) => {
-                event.stopPropagation()
-                onPlay()
-              }}
-            >
-              {library.hasArchive ? (
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
-                  />
-                </svg>
-              ) : null}
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path fill="currentColor" d="M4.2 2.8v10.4L13.4 8z" />
-              </svg>
-              <span className="sr-only">{playing ? 'Playing' : 'Play'}</span>
-            </button>
-          ) : (
+        <div className="cover-tl">
+          {updates.updateAvailable ? (
             <span
-              className={library.isInstalled ? 'library-badge library-badge-installed' : 'library-badge'}
+              className="cover-update-badge"
               title={
-                library.isInstalled
-                  ? library.installedVersion
-                    ? `Installed ${library.installedVersion}`
-                    : 'Installed'
-                  : 'Archive downloaded'
+                library?.installedVersion
+                  ? `Update available · installed ${library.installedVersion}`
+                  : 'Update available'
               }
             >
-              {library.hasArchive ? (
+              Update
+            </span>
+          ) : null}
+          {status.completed ? (
+            <span className="cover-status-badge cover-status-completed" title="Completed">
+              Completed
+            </span>
+          ) : null}
+          {status.onHold ? (
+            <span className="cover-status-badge cover-status-onhold" title="On hold">
+              On hold
+            </span>
+          ) : null}
+          {status.abandoned ? (
+            <span className="cover-status-badge cover-status-abandoned" title="Abandoned">
+              Abandoned
+            </span>
+          ) : null}
+          <EngineBadge name={engine} />
+        </div>
+        {library?.hasArchive || (library?.isInstalled && onPlay) ? (
+          <div className="cover-bl">
+            {library.hasArchive ? (
+              <span className="archive-badge" title="Archive downloaded">
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path
                     fill="currentColor"
                     d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
                   />
                 </svg>
-              ) : null}
-              {library.isInstalled ? (
+                <span className="sr-only">Archive downloaded</span>
+              </span>
+            ) : null}
+            {library.isInstalled && onPlay ? (
+              <button
+                className="play-badge"
+                type="button"
+                disabled={playing}
+                title={
+                  playing
+                    ? 'Playing'
+                    : library.installedVersion
+                      ? `Play ${library.installedVersion}`
+                      : 'Play'
+                }
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onPlay()
+                }}
+              >
                 <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M6.4 11.6 3.2 8.4l1.2-1.2 2 2 5.2-5.2 1.2 1.2z"
-                  />
+                  <path fill="currentColor" d="M4.2 2.8v10.4L13.4 8z" />
                 </svg>
-              ) : null}
-            </span>
-          )
+                <span className="sr-only">{playing ? 'Playing' : 'Play'}</span>
+              </button>
+            ) : null}
+          </div>
         ) : null}
         {game.version ? (
           <span className="cover-version" title={game.version}>
@@ -265,16 +272,22 @@ export default function GameCard({
                 <svg className="follow-icon-default" viewBox="0 0 16 16">
                   <path
                     fill="currentColor"
-                    d="M6.4 11.6 3.2 8.4l1.2-1.2 2 2 5.2-5.2 1.2 1.2z"
+                    d="M8 3.2c3.2 0 5.9 2 7.2 4.8-1.3 2.8-4 4.8-7.2 4.8S2.1 10.8.8 8C2.1 5.2 4.8 3.2 8 3.2m0 2A2.8 2.8 0 1 0 10.8 8 2.8 2.8 0 0 0 8 5.2z"
                   />
                 </svg>
                 <svg className="follow-icon-hover" viewBox="0 0 16 16">
-                  <path fill="currentColor" d="M3.2 7.2h9.6v1.6H3.2z" />
+                  <path
+                    fill="currentColor"
+                    d="M2.1 2.1 13.9 13.9l-1.1 1.1-1.8-1.8C10 13.6 9 13.8 8 13.8 4.8 13.8 2.1 11.8.8 9c.5-1.1 1.3-2.1 2.2-2.9L1 3.2zm5.2 5.2a2.8 2.8 0 0 0 3.4 3.4l-1-1A1.6 1.6 0 0 1 8 10.4 1.6 1.6 0 0 1 6.4 8.8zm5.4 2.2-1.1-1.1c.7-.7 1.1-1.6 1.1-2.6A2.8 2.8 0 0 0 8 5.2c-.4 0-.8.1-1.1.2L5.6 4.1C6.3 3.8 7.1 3.6 8 3.6c3.2 0 5.9 2 7.2 4.8-.5 1.1-1.3 2.1-2.5 2.9z"
+                  />
                 </svg>
               </>
             ) : (
               <svg viewBox="0 0 16 16">
-                <path fill="currentColor" d="M7.2 3.2h1.6v9.6H7.2zM3.2 7.2h9.6v1.6H3.2z" />
+                <path
+                  fill="currentColor"
+                  d="M8 3.2c3.2 0 5.9 2 7.2 4.8-1.3 2.8-4 4.8-7.2 4.8S2.1 10.8.8 8C2.1 5.2 4.8 3.2 8 3.2m0 1.6C5.6 4.8 3.6 6.2 2.6 8 3.6 9.8 5.6 11.2 8 11.2S12.4 9.8 13.4 8C12.4 6.2 10.4 4.8 8 4.8m0 1.2A2 2 0 1 1 6 8a2 2 0 0 1 2-2z"
+                />
               </svg>
             )}
           </span>
@@ -284,13 +297,8 @@ export default function GameCard({
       <div className="game-meta">
         <h2 className="game-title">{game.title}</h2>
         <span className="muted">{game.creator || 'Unknown creator'}</span>
-        {updates.updateAvailable || updates.unplayedUpdate || playing ? (
+        {updates.unplayedUpdate || playing ? (
           <div className="game-meta-row">
-            {updates.updateAvailable ? (
-              <span className="update-chip" title={`Installed ${library?.installedVersion}`}>
-                Update
-              </span>
-            ) : null}
             {updates.unplayedUpdate ? (
               <span className="update-chip update-chip-play" title={`Last played ${game.lastPlayedVersion}`}>
                 New since play
