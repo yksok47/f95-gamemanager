@@ -12,6 +12,8 @@ if (!samplesRoot) {
   process.exit(1)
 }
 
+const additive = process.argv.includes('--additive')
+
 const LINKS_FILE = parserMetaFile('firstPost', 'links.txt')
 const COOKIES_FILE = parserMetaFile('firstPost', 'cookies.txt')
 const USER_AGENT_FILE = parserMetaFile('firstPost', 'user-agent.txt')
@@ -100,14 +102,32 @@ if (!links.length) {
 
 const userAgent = readUserAgent(USER_AGENT_FILE)
 
+const pending = links
+  .map((url, index) => ({ id: String(index + 1), url }))
+  .filter(({ id }) => {
+    if (!additive) return true
+    return !existsSync(sampleFile('firstPost', id, 'input.html'))
+  })
+
 console.log(`Samples root: ${samplesRoot}`)
-console.log(`Downloading ${links.length} page(s) with ${curlBin()}`)
+if (additive) {
+  const skipped = links.length - pending.length
+  console.log(
+    `Additive mode: ${pending.length} new page(s) to download with ${curlBin()}, ${skipped} existing sample(s) skipped`
+  )
+} else {
+  console.log(`Downloading ${pending.length} page(s) with ${curlBin()}`)
+}
 console.log(`Using user-agent from ${USER_AGENT_FILE}`)
 if (existsSync(COOKIES_FILE)) console.log(`Using cookies from ${COOKIES_FILE}`)
 
+if (!pending.length) {
+  console.log('Nothing to download.')
+  process.exit(0)
+}
+
 let failed = 0
-for (const [index, url] of links.entries()) {
-  const id = String(index + 1)
+for (const [index, { id, url }] of pending.entries()) {
   const dest = sampleFile('firstPost', id, 'input.html')
   process.stdout.write(`${id}/${links.length} ${url} ... `)
   const result = download(url, dest, userAgent)
@@ -117,7 +137,7 @@ for (const [index, url] of links.entries()) {
     failed += 1
     console.log(`FAILED ${result.error ?? result.status}`)
   }
-  if (index < links.length - 1) sleep(DELAY_MS)
+  if (index < pending.length - 1) sleep(DELAY_MS)
 }
 
 if (failed) {

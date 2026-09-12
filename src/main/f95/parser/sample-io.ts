@@ -13,7 +13,7 @@ export function resolveSamplesRoot(): string | null {
   const junction = join(PARSER_ROOT, 'samples')
   if (existsSync(junction)) return junction
 
-  const sibling = resolve(PARSER_ROOT, '../../../../f95-gamemanager-parser-samples')
+  const sibling = resolve(PARSER_ROOT, '../../../../../f95-gamemanager-parser-samples')
   if (existsSync(sibling)) return sibling
 
   return null
