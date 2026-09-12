@@ -78,6 +78,10 @@ export type TagTier = 'bronze' | 'silver' | 'gold'
 
 export const GAME_RARITIES: GameRarity[] = ['regular', 'rare', 'epic', 'legendary']
 export const TAG_TIERS: TagTier[] = ['gold', 'silver', 'bronze']
+/** Max ranked tags allowed in one gold/silver/bronze group. */
+export const TAGS_PER_TIER_LIMIT = 10
+/** F95 only honors this many include or exclude tags per request. */
+export const TAG_QUERY_LIMIT = 10
 
 export const RARITY_RANK: Record<GameRarity, number> = {
   regular: 0,
@@ -98,8 +102,14 @@ export type FavoriteTag = {
   tier: TagTier
 }
 
+export type HatedTag = {
+  id: number
+  name: string
+}
+
 export type AppSettings = {
   favoriteTags: FavoriteTag[]
+  hatedTags: HatedTag[]
   downloadsDir: string
   libraryDir: string
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */

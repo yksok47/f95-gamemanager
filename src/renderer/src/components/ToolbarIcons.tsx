@@ -1,5 +1,16 @@
 import type { JSX } from 'react'
 
+export function ClearIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M4.2 3.1 8 6.9l3.8-3.8 1.1 1.1L9.1 8l3.8 3.8-1.1 1.1L8 9.1l-3.8 3.8-1.1-1.1L6.9 8 3.1 4.2z"
+      />
+    </svg>
+  )
+}
+
 export function FilterIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
@@ -28,6 +39,17 @@ export function StarIcon(): JSX.Element {
       <path
         fill="currentColor"
         d="m8 2.2 1.7 3.5 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6z"
+      />
+    </svg>
+  )
+}
+
+export function HateIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 1.4A6.6 6.6 0 1 0 14.6 8 6.6 6.6 0 0 0 8 1.4m3.7 3.1L4.5 11.7A5 5 0 0 1 4.3 4.3 5 5 0 0 1 11.7 4.5"
       />
     </svg>
   )

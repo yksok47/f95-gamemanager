@@ -1,20 +1,16 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AppSettings, CatalogTag, FavoriteTag, TagTier } from '@shared/types'
+import type { AppSettings, CatalogTag, FavoriteTag, HatedTag } from '@shared/types'
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
-import { TAG_TIERS } from '@shared/types'
-import { sortFavoriteTags } from '../lib/favorites'
+import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
+import HatedTagsEditor from '../components/HatedTagsEditor'
+import RankedTagsEditor from '../components/RankedTagsEditor'
 import Switch from '../components/Switch'
-import TagBrowser from '../components/TagBrowser'
 
-type SettingsTab = 'general' | 'p2p' | 'tags'
+type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated'
 
 type SettingsPageProps = {
   settings: AppSettings
   onSaveSettings: (next: Partial<AppSettings>) => Promise<void>
-}
-
-function tierLabel(tier: TagTier): string {
-  return tier[0].toUpperCase() + tier.slice(1)
 }
 
 type StatusTone = 'ok' | 'warn' | 'down' | 'idle'
@@ -101,13 +97,12 @@ export default function SettingsPage({
   onSaveSettings
 }: SettingsPageProps): JSX.Element {
   const favoriteTags = settings.favoriteTags
+  const hatedTags = settings.hatedTags ?? []
   const [tab, setTab] = useState<SettingsTab>('general')
   const [tags, setTags] = useState<CatalogTag[]>([])
   const [busy, setBusy] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [addAs, setAddAs] = useState<TagTier>('gold')
   const [userDataPath, setUserDataPath] = useState('')
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
   const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
@@ -159,13 +154,8 @@ export default function SettingsPage({
     }
   }, [])
 
-  const grouped = useMemo(() => {
-    const byTier: Record<TagTier, FavoriteTag[]> = { gold: [], silver: [], bronze: [] }
-    for (const tag of sortFavoriteTags(favoriteTags)) {
-      byTier[tag.tier].push(tag)
-    }
-    return byTier
-  }, [favoriteTags])
+  const favoriteIds = useMemo(() => new Set(favoriteTags.map((tag) => tag.id)), [favoriteTags])
+  const hatedIds = useMemo(() => new Set(hatedTags.map((tag) => tag.id)), [hatedTags])
 
   async function persist(next: Partial<AppSettings>): Promise<void> {
     setSaving(true)
@@ -179,14 +169,18 @@ export default function SettingsPage({
     }
   }
 
-  function assignTag(tag: CatalogTag, tier: TagTier): void {
-    const next = favoriteTags.filter((item) => item.id !== tag.id)
-    next.push({ id: tag.id, name: tag.name, tier })
-    void persist({ favoriteTags: next })
+  function saveFavorites(next: FavoriteTag[]): void {
+    void persist({
+      favoriteTags: next,
+      hatedTags: hatedTags.filter((tag) => !next.some((item) => item.id === tag.id))
+    })
   }
 
-  function removeTag(id: number): void {
-    void persist({ favoriteTags: favoriteTags.filter((tag) => tag.id !== id) })
+  function saveHated(next: HatedTag[]): void {
+    void persist({
+      hatedTags: next,
+      favoriteTags: favoriteTags.filter((tag) => !next.some((item) => item.id === tag.id))
+    })
   }
 
   async function chooseFolder(key: 'downloadsDir' | 'libraryDir'): Promise<void> {
@@ -198,7 +192,8 @@ export default function SettingsPage({
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: 'General' },
     { id: 'p2p', label: 'P2P' },
-    { id: 'tags', label: 'Favorite tags' }
+    { id: 'tags', label: 'Favorite tags' },
+    { id: 'hated', label: 'Hated tags' }
   ]
 
   async function refreshP2pStatus(): Promise<void> {
@@ -439,78 +434,27 @@ export default function SettingsPage({
         ) : null}
 
         {tab === 'tags' ? (
-          <div className="settings-tab-body">
-            <p className="muted settings-tag-hint">
-              Click a group to select it, then click tags below to add them.
-              {saving ? ' Saving…' : ''}
-            </p>
-            <div className="favorite-tiers">
-              {TAG_TIERS.map((tier) => (
-                <div
-                  key={tier}
-                  className={`favorite-tier favorite-tier-${tier}${addAs === tier ? ' is-selected' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={addAs === tier}
-                  onClick={() => setAddAs(tier)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      setAddAs(tier)
-                    }
-                  }}
-                >
-                  <h2>{tierLabel(tier)}</h2>
-                  {grouped[tier].length ? (
-                    <div className="filter-chips">
-                      {grouped[tier].map((tag) => (
-                        <button
-                          key={tag.id}
-                          type="button"
-                          className={`chip chip-${tag.tier}`}
-                          title="Remove from favorites"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            removeTag(tag.id)
-                          }}
-                        >
-                          {tag.name} ×
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="muted">No {tier} tags yet.</p>
-                  )}
-                </div>
-              ))}
-            </div>
+          <RankedTagsEditor
+            selected={favoriteTags}
+            catalogTags={tags}
+            busy={busy}
+            saving={saving}
+            hint={`Click a group, then click tags to add them. ${TAGS_PER_TIER_LIMIT} tags per group. The catalog can only apply ${TAG_QUERY_LIMIT} includes at once, so the star keeps gold first, then silver.`}
+            removeTitle="Remove from favorites"
+            blockedIds={hatedIds}
+            onChange={saveFavorites}
+          />
+        ) : null}
 
-            {busy ? <p className="muted">Loading tags…</p> : null}
-
-            <TagBrowser
-              tags={tags}
-              query={query}
-              onQueryChange={setQuery}
-              renderTag={(tag) => {
-                const current = favoriteTags.find((item) => item.id === tag.id)
-                return (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    className={current ? `chip chip-${current.tier}` : 'chip'}
-                    title={
-                      current
-                        ? `Move to ${tierLabel(addAs)}`
-                        : `Add to ${tierLabel(addAs)}`
-                    }
-                    onClick={() => assignTag(tag, addAs)}
-                  >
-                    {tag.name}
-                  </button>
-                )
-              }}
-            />
-          </div>
+        {tab === 'hated' ? (
+          <HatedTagsEditor
+            selected={hatedTags}
+            catalogTags={tags}
+            busy={busy}
+            saving={saving}
+            blockedIds={favoriteIds}
+            onChange={saveHated}
+          />
         ) : null}
 
         {error ? <p className="error-text">{error}</p> : null}

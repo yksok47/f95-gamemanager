@@ -1,16 +1,16 @@
-import { TAG_TIER_RANK, type FavoriteTag, type TagTier } from '@shared/types'
+import { sortRankedTags } from '@shared/ranked-tags'
+import type { FavoriteTag, HatedTag, TagTier } from '@shared/types'
 
-export function sortFavoriteTags(tags: FavoriteTag[]): FavoriteTag[] {
-  return [...tags].sort(
-    (a, b) => TAG_TIER_RANK[b.tier] - TAG_TIER_RANK[a.tier] || a.name.localeCompare(b.name)
-  )
-}
+export { selectTagsForQuery } from '@shared/ranked-tags'
+export { sortRankedTags as sortFavoriteTags } from '@shared/ranked-tags'
 
 export function gameHasFavoriteTag(
   tagIds: number[] | undefined,
-  favorites: FavoriteTag[]
+  favorites: Array<{ id: number }>
 ): boolean {
-  return favoriteTagsOnGame(tagIds, favorites).length > 0
+  if (!tagIds?.length || !favorites.length) return false
+  const present = new Set(tagIds)
+  return favorites.some((tag) => present.has(tag.id))
 }
 
 export function favoriteTagsOnGame(
@@ -19,8 +19,9 @@ export function favoriteTagsOnGame(
 ): FavoriteTag[] {
   if (!tagIds?.length || !favorites.length) return []
   const present = new Set(tagIds)
-  return sortFavoriteTags(favorites.filter((tag) => present.has(tag.id)))
+  return sortRankedTags(favorites.filter((tag) => present.has(tag.id)))
 }
+
 
 export function favoriteTierByName(
   name: string,
@@ -29,4 +30,19 @@ export function favoriteTierByName(
   const needle = name.trim().toLowerCase()
   if (!needle) return undefined
   return favorites.find((tag) => tag.name.toLowerCase() === needle)?.tier
+}
+
+export function hatedTagsOnGame(
+  tagIds: number[] | undefined,
+  hated: HatedTag[]
+): HatedTag[] {
+  if (!tagIds?.length || !hated.length) return []
+  const present = new Set(tagIds)
+  return hated.filter((tag) => present.has(tag.id)).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export function isHatedTagName(name: string, hated: HatedTag[]): boolean {
+  const needle = name.trim().toLowerCase()
+  if (!needle) return false
+  return hated.some((tag) => tag.name.toLowerCase() === needle)
 }

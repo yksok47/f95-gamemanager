@@ -136,7 +136,6 @@ button {
   gap: 8px;
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
 }
 
 .toolbar-actions {
@@ -234,8 +233,9 @@ button {
 
 .icon-btn-badge {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: auto;
+  bottom: -2px;
+  right: -2px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -250,6 +250,61 @@ button {
 
 .ghost-btn.icon-btn {
   position: relative;
+}
+
+.filter-split {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.filter-split.is-split .ghost-btn.icon-btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right-width: 0;
+}
+
+.filter-split.is-split .filter-split-clear {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.filter-split:hover .ghost-btn,
+.filter-split.is-open .ghost-btn,
+.filter-split.is-open .ghost-btn.nav-btn-active {
+  border-color: var(--accent);
+}
+
+.filter-split-clear {
+  position: relative;
+}
+
+.filter-split-count,
+.filter-split-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filter-split-count {
+  min-width: 1.2em;
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.filter-split-x {
+  display: none;
+}
+
+.filter-split:hover .filter-split-count,
+.filter-split:focus-within .filter-split-count {
+  display: none;
+}
+
+.filter-split:hover .filter-split-x,
+.filter-split:focus-within .filter-split-x {
+  display: inline-flex;
 }
 
 .user-avatar {
@@ -712,8 +767,29 @@ button {
 }
 
 .catalog-page {
+  position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 100%;
+}
+
+.filter-overlay {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  height: 0;
+}
+
+.filter-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  border: 0;
+  padding: 0;
+  background: color-mix(in srgb, #080a10 52%, transparent);
+  cursor: default;
 }
 
 .catalog-header {
@@ -751,12 +827,16 @@ button {
 }
 
 .filter-shelf {
+  position: relative;
+  z-index: 1;
   margin: 0 16px;
   padding: 14px;
   border-radius: 0 0 16px 16px;
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 14px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
   box-shadow: var(--shadow);
 }
 
@@ -935,6 +1015,11 @@ button {
   color: var(--accent);
 }
 
+.match-toggle button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .tag-results {
   max-height: 160px;
   overflow: auto;
@@ -967,6 +1052,24 @@ button {
   color: var(--danger);
 }
 
+.chip-hate {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(240, 113, 120, 0.16);
+}
+
+.chip-hate.chip-include,
+.chip-hate.chip-exclude,
+.chip-hate.chip-off {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.chip-hate.chip-include,
+.chip-hate.chip-exclude {
+  background: rgba(240, 113, 120, 0.16);
+}
+
 .chip-gold {
   border-color: #f0b429;
   color: #f0b429;
@@ -996,6 +1099,12 @@ button {
   border-color: #cd7f32;
   background: rgba(205, 127, 50, 0.18);
   color: #e0a060;
+}
+
+.chip-locked,
+.chip:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .mode-toggle {
@@ -1713,6 +1822,13 @@ button {
   cursor: pointer;
 }
 
+.favorite-tier-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .favorite-tier h2 {
   margin: 0;
   font-size: 1rem;
@@ -1749,6 +1865,20 @@ button {
 
 .favorite-tier-bronze.is-selected {
   background: color-mix(in srgb, #cd7f32 14%, var(--bg));
+}
+
+.favorite-tier-hate {
+  border-color: var(--danger);
+  cursor: default;
+}
+
+.favorite-tier-hate.is-selected {
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 55%, transparent);
+}
+
+.hated-tags-panel {
+  margin-bottom: 20px;
 }
 
 .settings-tag-hint {
@@ -1960,7 +2090,7 @@ button {
 .details-hero .link-chip,
 .details-hero .details-pill,
 .details-hero .details-rarity,
-.details-hero .chip:not(.chip-gold):not(.chip-silver):not(.chip-bronze) {
+.details-hero .chip:not(.chip-gold):not(.chip-silver):not(.chip-bronze):not(.chip-hate) {
   background: rgba(18, 20, 26, 0.72);
   border-color: rgba(255, 255, 255, 0.16);
   backdrop-filter: blur(8px);

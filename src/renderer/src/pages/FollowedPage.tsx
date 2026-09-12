@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { FavoriteTag, FollowSyncStatus, ImportResult, Subscription } from '@shared/types'
+import type { FavoriteTag, FollowSyncStatus, HatedTag, ImportResult, Subscription } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import { formatRelativeTime, gameUpdateState } from '@shared/updates'
@@ -7,7 +7,7 @@ import GameCard from '../components/GameCard'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
-import { HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
+import { HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
@@ -62,6 +62,7 @@ function compareGames(
 type FollowedPageProps = {
   games: Subscription[]
   favoriteTags: FavoriteTag[]
+  hatedTags: HatedTag[]
   onRemove: (threadId: number) => Promise<void>
   onOpen: (game: Subscription) => void
   onImported: () => Promise<void>
@@ -81,6 +82,7 @@ function formatImport(result: ImportResult): string {
 export default function FollowedPage({
   games,
   favoriteTags,
+  hatedTags,
   onRemove,
   onOpen,
   onImported,
@@ -99,6 +101,7 @@ export default function FollowedPage({
   const [updatesOnly, setUpdatesOnly] = useState(false)
   const [hideCompleted, setHideCompleted] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [hatedActive, setHatedActive] = useState(false)
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -148,6 +151,7 @@ export default function FollowedPage({
             return false
           }
           if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
+          if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
           if (!updatesOnly) return true
           const lib = libraryByThread.get(game.threadId)
           const flags = gameUpdateState({
@@ -167,6 +171,8 @@ export default function FollowedPage({
       hideCompleted,
       favoritesOnly,
       favoriteTags,
+      hatedActive,
+      hatedTags,
       libraryByThread,
       prefixCatalog
     ]
@@ -284,6 +290,23 @@ export default function FollowedPage({
           <StarIcon />
         </button>
         <button
+          className={hatedActive ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={hatedActive}
+          disabled={!hatedTags.length}
+          title={
+            hatedTags.length
+              ? hatedActive
+                ? 'Showing hated tags'
+                : 'Hide games with hated tags'
+              : 'Add hated tags in Settings'
+          }
+          aria-label="Hide games with hated tags"
+          onClick={() => setHatedActive((value) => !value)}
+        >
+          <HateIcon />
+        </button>
+        <button
           className={updatesOnly ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
           type="button"
           aria-pressed={updatesOnly}
@@ -362,7 +385,7 @@ export default function FollowedPage({
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || updatesOnly || hideCompleted || favoritesOnly
+          {needle || updatesOnly || hideCompleted || favoritesOnly || hatedActive
             ? `${visible.length}/${games.length}`
             : `${games.length} followed`}
         </span>
@@ -386,11 +409,13 @@ export default function FollowedPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {updatesOnly && !needle && !favoritesOnly && !hideCompleted
+          {updatesOnly && !needle && !favoritesOnly && !hatedActive && !hideCompleted
             ? 'No followed games have a newer version than the install or last play.'
             : favoritesOnly && !needle
               ? 'No followed games match your favorite tags.'
-              : 'No followed games match that filter.'}
+              : hatedActive && !needle
+                ? 'No followed games remain after hiding hated tags.'
+                : 'No followed games match that filter.'}
         </div>
       ) : (
         <div className="catalog-grid">
@@ -400,6 +425,7 @@ export default function FollowedPage({
               game={game}
               subscribed
               favoriteTags={favoriteTags}
+              hatedTags={hatedTags}
               onToggle={() => void onRemove(game.threadId)}
               onOpen={() => onOpen(game)}
               onPlay={

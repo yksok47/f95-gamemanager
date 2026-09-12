@@ -3,6 +3,7 @@ import type {
   CatalogGame,
   DownloadRecord,
   FavoriteTag,
+  HatedTag,
   GameLibraryFile,
   GameRarity,
   GameSummary,
@@ -23,7 +24,7 @@ import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
-import { favoriteTierByName } from '../lib/favorites'
+import { favoriteTierByName, isHatedTagName } from '../lib/favorites'
 import { formatBytes, isActiveDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import ReviewCard from '../components/ReviewCard'
@@ -46,6 +47,7 @@ type GameDetailsPageProps = {
   subscribed: boolean
   rarity?: GameRarity
   favoriteTags?: FavoriteTag[]
+  hatedTags?: HatedTag[]
   onClose: () => void
   onOpenThread: (threadId: number, title: string) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
@@ -150,6 +152,7 @@ export default function GameDetailsPage({
   subscribed,
   rarity = 'regular',
   favoriteTags = [],
+  hatedTags = [],
   onClose,
   onOpenThread,
   onToggleFollow,
@@ -947,12 +950,20 @@ export default function GameDetailsPage({
                       if (aTier && bTier) return TAG_TIER_RANK[bTier] - TAG_TIER_RANK[aTier]
                       if (aTier && !bTier) return -1
                       if (!aTier && bTier) return 1
+                      const aHate = isHatedTagName(a, hatedTags)
+                      const bHate = isHatedTagName(b, hatedTags)
+                      if (aHate && !bHate) return -1
+                      if (!aHate && bHate) return 1
                       return 0
                     })
                     .map((tag) => {
                       const tier = favoriteTierByName(tag, favoriteTags)
+                      const hated = isHatedTagName(tag, hatedTags)
                       return (
-                        <span key={tag} className={tier ? `chip chip-${tier}` : 'chip'}>
+                        <span
+                          key={tag}
+                          className={tier ? `chip chip-${tier}` : hated ? 'chip chip-hate' : 'chip'}
+                        >
                           {tag}
                         </span>
                       )

@@ -1,6 +1,14 @@
 ﻿import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join } from 'path'
-import { TAG_TIERS, type AppSettings, type FavoriteTag, type TagTier } from '@shared/types'
+import { capTagsPerTier } from '@shared/ranked-tags'
+import {
+  TAG_QUERY_LIMIT,
+  TAG_TIERS,
+  type AppSettings,
+  type FavoriteTag,
+  type HatedTag,
+  type TagTier
+} from '@shared/types'
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { getAppPaths } from './paths'
 
@@ -93,9 +101,44 @@ function normalizeUploadLimitKBps(value: unknown): number {
   return Math.min(MAX_UPLOAD_LIMIT_KBPS, Math.floor(n))
 }
 
+function readRankedTags(value: unknown): FavoriteTag[] {
+  const seen = new Set<number>()
+  const tags: FavoriteTag[] = []
+  for (const item of Array.isArray(value) ? value : []) {
+    const next = normalizeFavorite(item)
+    if (!next || seen.has(next.id)) continue
+    seen.add(next.id)
+    tags.push(next)
+  }
+  return capTagsPerTier(tags)
+}
+
+function normalizeHated(value: unknown): HatedTag | null {
+  if (!value || typeof value !== 'object') return null
+  const item = value as Partial<HatedTag>
+  const id = Number(item.id)
+  const name = typeof item.name === 'string' ? item.name.trim() : ''
+  if (!Number.isFinite(id) || id <= 0 || !name) return null
+  return { id, name }
+}
+
+function readHatedTags(value: unknown): HatedTag[] {
+  const seen = new Set<number>()
+  const tags: HatedTag[] = []
+  for (const item of Array.isArray(value) ? value : []) {
+    const next = normalizeHated(item)
+    if (!next || seen.has(next.id)) continue
+    seen.add(next.id)
+    tags.push(next)
+    if (tags.length >= TAG_QUERY_LIMIT) break
+  }
+  return tags.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 function emptySettings(): AppSettings {
   return {
     favoriteTags: [],
+    hatedTags: [],
     p2pEnabled: false,
     metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
     trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
@@ -107,16 +150,12 @@ function emptySettings(): AppSettings {
 function normalizeSettings(value: unknown): AppSettings {
   const raw = value && typeof value === 'object' ? (value as Partial<AppSettings>) : {}
   const defaults = defaultFolders()
-  const seen = new Set<number>()
-  const favoriteTags: FavoriteTag[] = []
-  for (const item of Array.isArray(raw.favoriteTags) ? raw.favoriteTags : []) {
-    const next = normalizeFavorite(item)
-    if (!next || seen.has(next.id)) continue
-    seen.add(next.id)
-    favoriteTags.push(next)
-  }
+  const favoriteTags = readRankedTags(raw.favoriteTags)
+  const favoriteIds = new Set(favoriteTags.map((tag) => tag.id))
+  const hatedTags = readHatedTags(raw.hatedTags).filter((tag) => !favoriteIds.has(tag.id))
   return {
     favoriteTags,
+    hatedTags,
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
     p2pEnabled: Boolean(raw.p2pEnabled),

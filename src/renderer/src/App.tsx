@@ -84,6 +84,7 @@ export default function App(): JSX.Element {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [settings, setSettings] = useState<AppSettings>({
     favoriteTags: [],
+    hatedTags: [],
     downloadsDir: '',
     libraryDir: '',
     p2pEnabled: false,
@@ -97,6 +98,7 @@ export default function App(): JSX.Element {
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
   const details = detailsStack.at(-1) ?? null
   const favoriteTags = settings.favoriteTags
+  const hatedTags = settings.hatedTags ?? []
 // Nav badge = in-progress downloads only (not background seeding/uploads)
   const activeP2pCount = settings.p2pEnabled
     ? p2pTransfers.filter(
@@ -367,6 +369,7 @@ export default function App(): JSX.Element {
           followedIds={followedIds}
           rarityById={rarityById}
           favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
           onToggleFollow={handleToggleFollow}
           onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
           onSessionExpired={handleSessionExpired}
@@ -400,6 +403,7 @@ export default function App(): JSX.Element {
         <FollowedPage
           games={subscriptions}
           favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
           onRemove={handleRemove}
           onOpen={(game) => setDetailsStack([toSummary(game)])}
           onImported={loadSubscriptions}
@@ -409,6 +413,7 @@ export default function App(): JSX.Element {
         <LibraryPage
           subscriptions={subscriptions}
           favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
           rarityById={rarityById}
           onToggleFollow={handleToggleFollow}
           onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
@@ -436,6 +441,7 @@ export default function App(): JSX.Element {
           subscribed={followedIds.has(details.threadId)}
           rarity={rarityById.get(details.threadId) ?? details.rarity}
           favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
           onClose={() => setDetailsStack((stack) => stack.slice(0, -1))}
           onOpenThread={(threadId, title) => {
             if (threadId === details.threadId) return

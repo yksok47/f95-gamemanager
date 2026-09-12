@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
-import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, Subscription } from '@shared/types'
+import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
 import { engineFromTitle, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import { formatUpdateDate, gameUpdateState } from '@shared/updates'
 import EngineBadge from './EngineBadge'
-import { favoriteTagsOnGame } from '../lib/favorites'
+import { favoriteTagsOnGame, hatedTagsOnGame } from '../lib/favorites'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import type { GameLibraryStatus } from '../lib/library'
@@ -36,6 +36,7 @@ type GameCardProps = {
   }
   subscribed: boolean
   favoriteTags?: FavoriteTag[]
+  hatedTags?: HatedTag[]
   onToggle: () => void
   onOpen?: () => void
   onPlay?: () => void
@@ -62,6 +63,7 @@ export default function GameCard({
   game,
   subscribed,
   favoriteTags = [],
+  hatedTags = [],
   onToggle,
   onOpen,
   onPlay,
@@ -74,7 +76,8 @@ export default function GameCard({
   const coverRef = useRef<HTMLDivElement>(null)
   const previewing = useRef(false)
   const rarity = game.rarity ?? 'regular'
-  const shownTags = favoriteTagsOnGame(game.tags, favoriteTags)
+  const shownFavorites = favoriteTagsOnGame(game.tags, favoriteTags)
+  const shownHated = hatedTagsOnGame(game.tags, hatedTags)
   const engine = cardEngine(game, library, prefixCatalog)
   const likes = saneLikeCount(game.likes)
   const views = saneViewCount(game.views)
@@ -345,10 +348,15 @@ export default function GameCard({
                   : ''}
           </span>
         </div>
-        {shownTags.length ? (
+        {shownFavorites.length || shownHated.length ? (
           <div className="card-tags">
-            {shownTags.map((tag) => (
-              <span key={tag.id} className={`chip chip-${tag.tier}`}>
+            {shownFavorites.map((tag) => (
+              <span key={`fav-${tag.id}`} className={`chip chip-${tag.tier}`}>
+                {tag.name}
+              </span>
+            ))}
+            {shownHated.map((tag) => (
+              <span key={`hate-${tag.id}`} className="chip chip-hate">
                 {tag.name}
               </span>
             ))}

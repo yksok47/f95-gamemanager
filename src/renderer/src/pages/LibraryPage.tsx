@@ -1,10 +1,10 @@
 import { useMemo, useState, type JSX } from 'react'
-import type { CatalogGame, FavoriteTag, GameRarity, Subscription } from '@shared/types'
+import type { CatalogGame, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import GameCard from '../components/GameCard'
 import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
-import { HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
+import { HateIcon, HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
@@ -30,6 +30,7 @@ const SORTS: Array<{ value: LibrarySort; label: string }> = [
 type LibraryPageProps = {
   subscriptions: Subscription[]
   favoriteTags: FavoriteTag[]
+  hatedTags: HatedTag[]
   rarityById: Map<number, GameRarity>
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onOpen: (game: LibraryGame) => void
@@ -87,6 +88,7 @@ function toCatalogGame(game: LibraryGame): CatalogGame {
 export default function LibraryPage({
   subscriptions,
   favoriteTags,
+  hatedTags,
   rarityById,
   onToggleFollow,
   onOpen,
@@ -100,6 +102,7 @@ export default function LibraryPage({
   const [descending, setDescending] = useState(true)
   const [hideCompleted, setHideCompleted] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [hatedActive, setHatedActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
@@ -117,10 +120,11 @@ export default function LibraryPage({
             return false
           }
           if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
+          if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
           return true
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, prefixCatalog]
+    [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, hatedActive, hatedTags, prefixCatalog]
   )
 
   function sessionForThread(threadId: number) {
@@ -214,10 +218,27 @@ export default function LibraryPage({
         >
           <StarIcon />
         </button>
+        <button
+          className={hatedActive ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          aria-pressed={hatedActive}
+          disabled={!hatedTags.length}
+          title={
+            hatedTags.length
+              ? hatedActive
+                ? 'Showing hated tags'
+                : 'Hide games with hated tags'
+              : 'Add hated tags in Settings'
+          }
+          aria-label="Hide games with hated tags"
+          onClick={() => setHatedActive((value) => !value)}
+        >
+          <HateIcon />
+        </button>
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || hideCompleted || favoritesOnly
+          {needle || hideCompleted || favoritesOnly || hatedActive
             ? `${visible.length}/${games.length}`
             : `${games.length} in library`}
         </span>
@@ -234,7 +255,9 @@ export default function LibraryPage({
         <div className="empty-state">
           {favoritesOnly && !needle
             ? 'No library games match your favorite tags.'
-            : 'No library games match that filter.'}
+            : hatedActive && !needle
+              ? 'No library games remain after hiding hated tags.'
+              : 'No library games match that filter.'}
         </div>
       ) : (
         <div className="catalog-grid">
@@ -246,6 +269,7 @@ export default function LibraryPage({
                 game={{ ...game, rarity: rarityById.get(game.threadId) }}
                 subscribed={subscribed}
                 favoriteTags={favoriteTags}
+                hatedTags={hatedTags}
                 onToggle={() => void onToggleFollow(toCatalogGame(game))}
                 onOpen={() => onOpen(game)}
                 onPlay={
