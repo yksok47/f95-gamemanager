@@ -411,6 +411,7 @@ export type ThreadReview = {
   rating: number
   date: string
   body: string
+  html: string
 }
 
 export type ThreadReviewsPage = {

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type JSX, type MouseEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type {
   CatalogGame,
   DownloadRecord,
@@ -26,6 +26,7 @@ import UnRenPanel from '../components/UnRenPanel'
 import { favoriteTierByName } from '../lib/favorites'
 import { formatBytes, isActiveDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
+import ReviewCard from '../components/ReviewCard'
 import { usePlaySessions } from '../lib/library'
 
 type DetailsTab =
@@ -164,6 +165,9 @@ export default function GameDetailsPage({
   const [tab, setTab] = useState<DetailsTab>('description')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
   const [lightbox, setLightbox] = useState<number | null>(null)
+  const lightboxThumbRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const lightboxThumbsRef = useRef<HTMLDivElement>(null)
+  const lightboxDrag = useRef({ active: false, moved: false, startX: 0, startLeft: 0 })
   const [coverBroken, setCoverBroken] = useState(!summary.coverUrl)
   const [fullCoverReady, setFullCoverReady] = useState(false)
   const [openVersions, setOpenVersions] = useState<Record<number, boolean>>({})
@@ -448,6 +452,75 @@ export default function GameDetailsPage({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [lightbox, gallery.length, onClose])
+
+  useEffect(() => {
+    if (lightbox == null) return
+    lightboxThumbRefs.current[lightbox]?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'center',
+      block: 'nearest'
+    })
+  }, [lightbox])
+
+  useEffect(() => {
+    const strip = lightboxThumbsRef.current
+    if (!strip || lightbox == null) return
+    const drag = lightboxDrag.current
+
+    function onWheel(event: WheelEvent): void {
+      if (!strip.scrollWidth) return
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (!delta) return
+      event.preventDefault()
+      strip.scrollLeft += delta
+    }
+
+    function onPointerDown(event: PointerEvent): void {
+      if (event.button !== 0) return
+      drag.active = true
+      drag.moved = false
+      drag.startX = event.clientX
+      drag.startLeft = strip.scrollLeft
+    }
+
+    function onPointerMove(event: PointerEvent): void {
+      if (!drag.active) return
+      const dx = event.clientX - drag.startX
+      if (!drag.moved && Math.abs(dx) < 8) return
+      if (!drag.moved) {
+        drag.moved = true
+        strip.setPointerCapture(event.pointerId)
+      }
+      strip.scrollLeft = drag.startLeft - dx
+    }
+
+    function endDrag(event: PointerEvent): void {
+      drag.active = false
+      if (strip.hasPointerCapture(event.pointerId)) strip.releasePointerCapture(event.pointerId)
+    }
+
+    function onClickCapture(event: MouseEvent): void {
+      if (!drag.moved) return
+      event.preventDefault()
+      event.stopPropagation()
+      drag.moved = false
+    }
+
+    strip.addEventListener('wheel', onWheel, { passive: false })
+    strip.addEventListener('pointerdown', onPointerDown)
+    strip.addEventListener('pointermove', onPointerMove)
+    strip.addEventListener('pointerup', endDrag)
+    strip.addEventListener('pointercancel', endDrag)
+    strip.addEventListener('click', onClickCapture, true)
+    return () => {
+      strip.removeEventListener('wheel', onWheel)
+      strip.removeEventListener('pointerdown', onPointerDown)
+      strip.removeEventListener('pointermove', onPointerMove)
+      strip.removeEventListener('pointerup', endDrag)
+      strip.removeEventListener('pointercancel', endDrag)
+      strip.removeEventListener('click', onClickCapture, true)
+    }
+  }, [lightbox])
 
   const latestInstalled = useMemo(() => {
     const installed = files.filter((file) => file.isInstalled)
@@ -748,6 +821,7 @@ export default function GameDetailsPage({
         }
         onClick={(event) => event.stopPropagation()}
       >
+        <div className="details-modal-corners" aria-hidden="true" />
         <div
           className="details-modal"
           role="dialog"
@@ -982,7 +1056,7 @@ export default function GameDetailsPage({
         ))}
       </div>
 
-      <div className="details-body">
+      <div className={tab === 'description' ? 'details-body details-body-description' : 'details-body'}>
         {tab === 'description' ? (
           details?.descriptionHtml ? (
             <div
@@ -1233,6 +1307,27 @@ export default function GameDetailsPage({
         {tab === 'reviews' ? (
           reviewItems.length || reviewsTotalPages > 1 || reviewsBusy || reviewsError ? (
             <div className="review-list">
+              {reviewsError ? (
+                <p className="error-text">
+                  {reviewsError}{' '}
+                  <button className="ghost-btn" type="button" onClick={() => setReviewsReload((value) => value + 1)}>
+                    Retry
+                  </button>
+                </p>
+              ) : reviewsBusy ? (
+                <p className="muted">Loading reviews…</p>
+              ) : reviewItems.length ? (
+                reviewItems.map((review, index) => (
+                  <ReviewCard
+                    key={`${review.author}-${reviewPage}-${index}`}
+                    review={review}
+                    date={formatDate(review.date)}
+                    onProseClick={onProseClick}
+                  />
+                ))
+              ) : (
+                <p className="muted">No reviews on this page.</p>
+              )}
               {reviewsTotalPages > 1 ? (
                 <div className="pager review-pager">
                   <button
@@ -1256,29 +1351,6 @@ export default function GameDetailsPage({
                   </button>
                 </div>
               ) : null}
-              {reviewsError ? (
-                <p className="error-text">
-                  {reviewsError}{' '}
-                  <button className="ghost-btn" type="button" onClick={() => setReviewsReload((value) => value + 1)}>
-                    Retry
-                  </button>
-                </p>
-              ) : reviewsBusy ? (
-                <p className="muted">Loading reviews…</p>
-              ) : reviewItems.length ? (
-                reviewItems.map((review, index) => (
-                  <article key={`${review.author}-${reviewPage}-${index}`} className="review-card">
-                    <header>
-                      <strong>{review.author}</strong>
-                      <span>{review.rating ? `${review.rating}★` : 'No score'}</span>
-                      <span className="muted">{formatDate(review.date)}</span>
-                    </header>
-                    <p>{review.body}</p>
-                  </article>
-                ))
-              ) : (
-                <p className="muted">No reviews on this page.</p>
-              )}
             </div>
           ) : (
             <p className="muted">{busy ? 'Loading reviews…' : 'No reviews were found for this thread.'}</p>
@@ -1351,30 +1423,65 @@ export default function GameDetailsPage({
 
       {lightbox != null && gallery[lightbox] ? (
         <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
-          <img src={gallery[lightbox]} alt="" referrerPolicy="no-referrer" onClick={(event) => event.stopPropagation()} />
+          <div className="lightbox-stage">
+            <img
+              src={gallery[lightbox]}
+              alt=""
+              referrerPolicy="no-referrer"
+              onClick={(event) => event.stopPropagation()}
+            />
+            {gallery.length > 1 ? (
+              <>
+                <button
+                  className="lightbox-nav lightbox-prev"
+                  type="button"
+                  aria-label="Previous photo"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setLightbox((index) => (index == null ? 0 : (index - 1 + gallery.length) % gallery.length))
+                  }}
+                >
+                  ‹
+                </button>
+                <button
+                  className="lightbox-nav lightbox-next"
+                  type="button"
+                  aria-label="Next photo"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setLightbox((index) => (index == null ? 0 : (index + 1) % gallery.length))
+                  }}
+                >
+                  ›
+                </button>
+              </>
+            ) : null}
+          </div>
           {gallery.length > 1 ? (
-            <>
-              <button
-                className="lightbox-nav lightbox-prev"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setLightbox((index) => (index == null ? 0 : (index - 1 + gallery.length) % gallery.length))
-                }}
-              >
-                ‹
-              </button>
-              <button
-                className="lightbox-nav lightbox-next"
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setLightbox((index) => (index == null ? 0 : (index + 1) % gallery.length))
-                }}
-              >
-                ›
-              </button>
-            </>
+            <div
+              ref={lightboxThumbsRef}
+              className="lightbox-thumbs"
+              role="listbox"
+              aria-label="Gallery thumbnails"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {gallery.map((url, index) => (
+                <button
+                  key={`${url}-${index}`}
+                  ref={(node) => {
+                    lightboxThumbRefs.current[index] = node
+                  }}
+                  className={index === lightbox ? 'lightbox-thumb is-active' : 'lightbox-thumb'}
+                  type="button"
+                  role="option"
+                  aria-selected={index === lightbox}
+                  title={`Photo ${index + 1} of ${gallery.length}`}
+                  onClick={() => setLightbox(index)}
+                >
+                  <img src={url} alt="" referrerPolicy="no-referrer" draggable={false} />
+                </button>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

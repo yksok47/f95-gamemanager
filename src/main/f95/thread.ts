@@ -17,7 +17,7 @@ import { extractThreadId, parseGameTitle, PREFIX_NODE_SELECTOR } from './parse'
 import { isWeakCover, parseThreadCounts, headingTitle } from './lookup'
 
 const HOST = 'https://f95zone.to'
-const CACHE_VERSION = 18
+const CACHE_VERSION = 19
 const LIGHTBOX_SELECTOR =
   'a.js-lbImage, a[data-fancybox], a.lbContainer, .lbContainer--inline, .lbContainer-zoomer, a.lbContainer-overlay'
 
@@ -1616,22 +1616,26 @@ function jsonLdReviewCount($: CheerioAPI): number {
   return 0
 }
 
-function reviewFromNode(node: Cheerio<AnyNode>): ThreadReview | null {
+function reviewContent(node: Cheerio<AnyNode>): Cheerio<AnyNode> {
+  const content = node
+    .find(
+      '.bbWrapper, .message-body, .lfsReview-content, .structItem-cell--main, .br-review-content, blockquote'
+    )
+    .first()
+  if (content.length) return content.clone()
+  return node.clone().children('h1, h2, h3, h4, .ratingStars, .username').remove().end()
+}
+
+function reviewFromNode(node: Cheerio<AnyNode>, threadId: number): ThreadReview | null {
   const author =
     node.find('a.username').first().text().trim() ||
     normalize(
       node.find('.message-name, .message-attribution-user, .structItem-parts, h2, h3, h4').first().text()
     )
-  const body =
-    normalize(
-      node
-        .find(
-          '.bbWrapper, .message-body, .lfsReview-content, .structItem-cell--main, .br-review-content, blockquote'
-        )
-        .first()
-        .text()
-    ) ||
-    normalize(node.clone().children('h1, h2, h3, h4, .ratingStars, .username').remove().end().text())
+  const content = reviewContent(node)
+  content.find('.ratingStars, .br-rating, [data-score], [data-rating]').remove()
+  const html = sanitizeHtml(content.html() || '', threadId)
+  const body = normalize(content.text())
   if (!author && !body) return null
   const ratingText =
     node.find('.ratingStars, [data-score], [data-rating], .br-rating').first().attr('title') ||
@@ -1643,10 +1647,10 @@ function reviewFromNode(node: Cheerio<AnyNode>): ThreadReview | null {
   const rating = Number(String(ratingText).match(/(\d+(?:\.\d+)?)/)?.[1] || 0)
   const date =
     node.find('time').first().attr('datetime') || normalize(node.find('time, .u-dt').first().text())
-  return { author: author || 'Anonymous', rating, date: date || '', body }
+  return { author: author || 'Anonymous', rating, date: date || '', body, html }
 }
 
-function parseReviewNodes($: CheerioAPI, isReviewsPage = false): ThreadReview[] {
+function parseReviewNodes($: CheerioAPI, isReviewsPage = false, threadId = 0): ThreadReview[] {
   const reviews: ThreadReview[] = []
   const selectors = [
     '.lfsReview',
@@ -1661,7 +1665,7 @@ function parseReviewNodes($: CheerioAPI, isReviewsPage = false): ThreadReview[] 
   $(selectors.join(', ')).each((_, el) => {
     const node = $(el)
     if (node.find('.bbCodeSpoiler').length && node.closest('.message--post').length) return
-    const review = reviewFromNode(node)
+    const review = reviewFromNode(node, threadId)
     if (review && (review.body.length > 20 || review.rating)) reviews.push(review)
   })
   if (reviews.length) return unique(reviews, (item) => `${item.author}:${item.body.slice(0, 80)}`)
@@ -1674,11 +1678,12 @@ function parseReviewNodes($: CheerioAPI, isReviewsPage = false): ThreadReview[] 
     const author = heading.find('a.username').text().trim() || normalize(heading.text())
     if (!author || /review/i.test(author)) return
     const chunk = heading.nextUntil('h2, h3, h4')
+    const html = sanitizeHtml(chunk.toArray().map((item) => $.html(item) || '').join(''), threadId)
     const body = normalize(chunk.text())
     if (!body) return
     const nearby = heading.prevAll().toArray().slice(0, 3).map((item) => $(item).text()).join(' ')
     const rating = Number((nearby + heading.parent().text()).match(/(\d+(?:\.\d+)?)\s*star/i)?.[1] || 0)
-    reviews.push({ author, rating, date: '', body })
+    reviews.push({ author, rating, date: '', body, html })
   })
   return unique(reviews, (item) => `${item.author}:${item.body.slice(0, 80)}`)
 }
@@ -1745,7 +1750,7 @@ export async function fetchThreadReviews(
       ) {
         continue
       }
-      const reviews = parseReviewNodes($, true)
+      const reviews = parseReviewNodes($, true, threadId)
       if (!reviews.length && safePage === 1) continue
       const nav = parsePageNav($)
       const total = reviewsTotalFrom($, reviews.length)
@@ -1766,7 +1771,8 @@ export async function fetchThreadReviews(
     }
   }
 
-  const fallback = options.fallback$ && safePage <= 1 ? parseReviewNodes(options.fallback$, false) : []
+  const fallback =
+    options.fallback$ && safePage <= 1 ? parseReviewNodes(options.fallback$, false, threadId) : []
   const value: ThreadReviewsPage = {
     threadId,
     page: safePage,

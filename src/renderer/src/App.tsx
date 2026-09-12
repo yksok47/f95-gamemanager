@@ -361,6 +361,7 @@ export default function App(): JSX.Element {
       <footer className="app-footer">
         <FooterSlot />
       </footer>
+      <main className="app-main">
       {view === 'catalog' ? (
         <CatalogPage
           followedIds={followedIds}
@@ -416,6 +417,7 @@ export default function App(): JSX.Element {
       ) : (
         <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
       )}
+      </main>
       {details ? (
         <GameDetailsPage
           summary={{
