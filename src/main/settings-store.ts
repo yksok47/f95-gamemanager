@@ -47,17 +47,45 @@ function normalizeUrl(value: unknown, fallback: string): string {
   return trimmed || fallback
 }
 
-function migrateLegacyWebRtcPort(url: string): string {
+/** Upgrade known production metadata host from cleartext http → https. */
+function migrateMetadataHttps(url: string): string {
   try {
     const parsed = new URL(url)
-    if ((parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.port === '8000') {
-      parsed.port = '6969'
+    if (parsed.protocol === 'http:' && parsed.hostname === '130.61.67.157') {
+      parsed.protocol = 'https:'
       return parsed.toString().replace(/\/$/, '')
     }
   } catch {
     /* keep */
   }
   return url
+}
+
+/** Upgrade known production tracker host from cleartext ws → wss. */
+function migrateTrackerWss(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'ws:' && parsed.hostname === '130.61.67.157') {
+      parsed.protocol = 'wss:'
+      return parsed.toString().replace(/\/$/, '')
+    }
+  } catch {
+    /* keep */
+  }
+  return url
+}
+
+function migrateLegacyWebRtcPort(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if ((parsed.protocol === 'ws:' || parsed.protocol === 'wss:') && parsed.port === '8000') {
+      parsed.port = '6969'
+      return migrateTrackerWss(parsed.toString().replace(/\/$/, ''))
+    }
+  } catch {
+    /* keep */
+  }
+  return migrateTrackerWss(url)
 }
 
 function httpAnnounceToWs(value: unknown): string {
@@ -159,7 +187,9 @@ function normalizeSettings(value: unknown): AppSettings {
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
     p2pEnabled: Boolean(raw.p2pEnabled),
-    metadataBaseUrl: normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL')),
+    metadataBaseUrl: migrateMetadataHttps(
+      normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL'))
+    ),
     trackerWebRtcUrl: normalizeWebRtcUrl(
       raw.trackerWebRtcUrl ||
         httpAnnounceToWs((raw as { trackerAnnounceUrl?: unknown }).trackerAnnounceUrl),

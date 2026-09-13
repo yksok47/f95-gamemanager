@@ -187,8 +187,8 @@ export type PackageListResponse = {
 
 /**
  * Env keys (production Oracle defaults; override in Settings → P2P or process.env):
- *   TRACKER_WEBRTC_URL=ws://130.61.67.157:6969
- *   METADATA_BASE_URL=http://130.61.67.157:6767
+ *   TRACKER_WEBRTC_URL=wss://130.61.67.157:6969
+ *   METADATA_BASE_URL=https://130.61.67.157:6767
  */
 export const P2P_ENV_KEYS = {
   METADATA_BASE_URL: 'METADATA_BASE_URL',
@@ -196,6 +196,6 @@ export const P2P_ENV_KEYS = {
 } as const
 
 export const P2P_ENV_DEFAULTS = {
-  METADATA_BASE_URL: 'http://130.61.67.157:6767',
-  TRACKER_WEBRTC_URL: 'ws://130.61.67.157:6969'
+  METADATA_BASE_URL: 'https://130.61.67.157:6767',
+  TRACKER_WEBRTC_URL: 'wss://130.61.67.157:6969'
 } as const

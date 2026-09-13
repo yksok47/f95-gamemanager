@@ -21,6 +21,7 @@ import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
 import { getAnnounceList, getP2pEnv, getTrackerStatsUrl } from "./env";
+import { metadataFetch } from "./metadata-tls-fetch";
 import { installNativeWebRtc } from "./webrtc";
 import {
   flagPackage,
@@ -107,7 +108,7 @@ async function trackerAnnounceHealth(): Promise<{
   const url = getTrackerStatsUrl();
   if (!url) return { ok: false, message: "no tracker URL" };
   try {
-    const res = await fetch(url, {
+    const res = await metadataFetch(url, {
       method: "GET",
       signal: AbortSignal.timeout(5_000),
     });

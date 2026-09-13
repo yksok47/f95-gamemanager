@@ -44,12 +44,12 @@ function scrapeCounts(files: Record<string, ScrapeFile> | undefined): Map<string
   return out
 }
 
-async function loadWs(): Promise<new (url: string) => TrackerSocket> {
+async function loadWs(): Promise<new (url: string, opts?: object) => TrackerSocket> {
   const mod = (await import('ws')) as {
-    default?: new (url: string) => TrackerSocket
-    WebSocket?: new (url: string) => TrackerSocket
+    default?: new (url: string, opts?: object) => TrackerSocket
+    WebSocket?: new (url: string, opts?: object) => TrackerSocket
   }
-  return mod.default ?? mod.WebSocket ?? (mod as unknown as new (url: string) => TrackerSocket)
+  return mod.default ?? mod.WebSocket ?? (mod as unknown as new (url: string, opts?: object) => TrackerSocket)
 }
 
 async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>> {
@@ -57,6 +57,8 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>>
   if (!url || !infoHashes.length) return new Map()
 
   const WebSocket = await loadWs()
+  const { getP2pHttpsAgent } = await import('./p2p-tls')
+  const socketOpts = url.startsWith('wss:') ? { agent: getP2pHttpsAgent() } : undefined
 
   return new Promise((resolve) => {
     let settled = false
@@ -72,7 +74,7 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>>
       resolve(counts)
     }
 
-    const socket = new WebSocket(url)
+    const socket = new WebSocket(url, socketOpts)
     const timer = setTimeout(() => {
       console.warn('[p2p] tracker scrape timeout')
       finish(new Map())

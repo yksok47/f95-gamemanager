@@ -15,6 +15,10 @@ extraResources:
       - '**/*'
       - '!_cabs'
       - '!_cabs/**'
+  - from: resources/certs
+    to: certs
+    filter:
+      - '**/*'
   - from: node_modules/7zip-bin/win
     to: 7zip/win
     filter:

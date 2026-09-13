@@ -7,9 +7,11 @@
 
 ## Env (Tracker compose — sibling repo `C:\Repos\p2p-tracker`)
 ```
-TRACKER_WEBRTC_URL=ws://localhost:6969
-METADATA_BASE_URL=http://localhost:8080
+TRACKER_WEBRTC_URL=wss://localhost:6969
+METADATA_BASE_URL=https://localhost:8080
 ```
+
+TLS: metadata-api (HTTPS) and the WebSocket tracker (WSS) share a private CA (`p2p-tracker/certs`). The app pins `resources/certs/metadata-ca.crt`.
 
 ## Dual hash
 - `contentHash` = SHA-256 file bytes (metadata index / matching)

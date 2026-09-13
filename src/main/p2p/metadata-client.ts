@@ -21,6 +21,7 @@ import { normalizeInfoHash } from '@shared/content-address'
 import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageListQuery, PackageListResponse, PackageMetadata, PackageStats } from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
+import { metadataFetch } from './metadata-tls-fetch'
 import { appendFile } from 'fs/promises'
 import { join } from 'path'
 import { getAppPaths } from '../paths'
@@ -168,7 +169,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (body !== undefined) init.body = JSON.stringify(body)
   let res: Response
   try {
-    res = await fetch(url, init)
+    res = await metadataFetch(url, init)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     throw new Error(`metadata ${method} ${url} failed: ${reason}`)

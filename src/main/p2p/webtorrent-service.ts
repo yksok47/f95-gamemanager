@@ -729,6 +729,7 @@ async function ensureClient(): Promise<WebTorrentLike> {
       Boolean(getAnnounceList().some((u) => u.startsWith('ws')))
     )
     // Public-path only: DHT/LSD off so peers meet through the configured tracker.
+    const { getP2pHttpsAgent } = await import('./p2p-tls')
     client = new (WebTorrent as unknown as new (opts?: object) => WebTorrentLike)({
       dht: false,
       lsd: false,
@@ -738,6 +739,10 @@ async function ensureClient(): Promise<WebTorrentLike> {
       tracker: {
         rtcConfig: {
           iceServers
+        },
+        // Trust private CA for wss:// tracker (same pin as metadata HTTPS).
+        proxyOpts: {
+          httpsAgent: getP2pHttpsAgent()
         }
       }
     })
