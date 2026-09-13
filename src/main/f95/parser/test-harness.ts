@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { PARSERS, type ParserName } from './pipeline'
 import {
   formatParserOutput,
+  inputSampleParser,
   listPipelineSampleIds,
   normalizeText,
   readSampleFile,
@@ -36,7 +37,7 @@ export function defineParserTests(name: ParserName, parse: (input: string) => un
 
     for (const id of ids) {
       it(`sample ${id}`, () => {
-        const input = readSampleFile(spec.name, id, spec.inputFile)
+        const input = readSampleFile(inputSampleParser(spec), id, spec.inputFile)
         const actual = parse(input)
         const formatted = formatParserOutput(spec, actual)
 

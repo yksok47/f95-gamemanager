@@ -1061,6 +1061,7 @@ export default function GameDetailsPage({
                   ))}
                 </div>
                 <span className="details-pill">{version || 'Unknown version'}</span>
+                <span className="details-pill">Thread {summary.threadId}</span>
                 {updates.updateAvailable ? (
                   <span className="details-pill details-pill-update">
                     Update from {latestInstalled?.version}

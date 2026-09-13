@@ -471,7 +471,6 @@ export type ThreadReview = {
   author: string
   rating: number
   date: string
-  body: string
   html: string
 }
 

@@ -1,14 +1,18 @@
 /**
- * Sample pipeline: only firstPost inputs are authored (full thread HTML).
- * Each parser's output is copied to every dependent parser's matching input.
+ * Sample pipeline: firstPost and reviews inputs are authored (downloaded HTML).
+ * Each firstPost-derived parser's output is copied to every dependent parser's matching input.
  *
  *   firstPost
  *     ├─ banner, description, gallery, overview, notes
  *     ├─ changelogSection → changelog
  *     └─ downloadsSection → downloads
+ *
+ *   threadPage  (same full-page HTML as firstPost; JSON page chrome)
+ *   reviews     (separate root: /br-reviews pages)
  */
 export type ParserName =
   | 'firstPost'
+  | 'threadPage'
   | 'banner'
   | 'description'
   | 'gallery'
@@ -18,6 +22,7 @@ export type ParserName =
   | 'downloads'
   | 'overview'
   | 'notes'
+  | 'reviews'
 
 export type ParserSpec = {
   name: ParserName
@@ -25,6 +30,11 @@ export type ParserSpec = {
   outputFile: string
   /** Parser whose output is copied to this parser's input. `null` for roots. */
   source: ParserName | null
+  /**
+   * When set, sample IDs and input files are read from this parser's folders
+   * (output still written under `name`). Used when two roots share authored HTML.
+   */
+  inputFrom?: ParserName
 }
 
 export const PARSERS: Record<ParserName, ParserSpec> = {
@@ -33,6 +43,13 @@ export const PARSERS: Record<ParserName, ParserSpec> = {
     inputFile: 'input.html',
     outputFile: 'output.html',
     source: null
+  },
+  threadPage: {
+    name: 'threadPage',
+    inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: null,
+    inputFrom: 'firstPost'
   },
   banner: {
     name: 'banner',
@@ -87,12 +104,19 @@ export const PARSERS: Record<ParserName, ParserSpec> = {
     inputFile: 'input.html',
     outputFile: 'output.json',
     source: 'firstPost'
+  },
+  reviews: {
+    name: 'reviews',
+    inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: null
   }
 }
 
 /** Parents first, so one pass can copy outputs down the chain. */
 export const PARSER_ORDER: ParserName[] = [
   'firstPost',
+  'threadPage',
   'banner',
   'description',
   'gallery',
@@ -101,5 +125,6 @@ export const PARSER_ORDER: ParserName[] = [
   'downloadsSection',
   'downloads',
   'overview',
-  'notes'
+  'notes',
+  'reviews'
 ]

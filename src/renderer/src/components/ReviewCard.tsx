@@ -121,9 +121,7 @@ export default function ReviewCard({ review, date, onProseClick }: ReviewCardPro
             onClick={onProseClick}
             dangerouslySetInnerHTML={{ __html: review.html }}
           />
-        ) : (
-          <p className="review-prose-text">{review.body}</p>
-        )}
+        ) : null}
       </div>
     </article>
   )

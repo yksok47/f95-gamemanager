@@ -32,7 +32,7 @@ export type OverviewMeta = {
 
 /**
  * General information from first-post HTML: version, developer, dates, OS,
- * language, genre, creator social links, related game thread links, etc.
+ * language, creator social links, related game thread links, etc.
  */
 export function parseOverview(html: string): OverviewMeta {
   if (!html.trim()) {
@@ -92,7 +92,7 @@ function classifySection(raw: string): 'description' | 'changelog' | 'downloads'
 
 function isMetaFieldLabel(raw: string): boolean {
   const text = labelText(raw).toLowerCase()
-  return /^(thread updated|thread update|updated|last updated|last update|update date|release date|released|publication date|published|first release|developer|developers|creator|author|developer\/publisher|publisher|modder|mod version|original game|prequel|sequel|version|release version|engine|status|censored|censorship|os|platform|language|languages|genre|other games|related games|more games|also (?:try|check|play)|store|website|socials|resolution|voices|translation)$/.test(
+  return /^(thread updated|thread update|updated|last updated|last update|update date|release date|released|publication date|published|first release|developer|developers|creator|author|developer\/publisher|publisher|modder|mod version|original game|prequel|sequel|version|release version|engine|status|censored|censorship|os|platform|language|languages|other games|related games|more games|also (?:try|check|play)|store|website|socials|resolution|voices|translation)$/.test(
     text
   )
 }

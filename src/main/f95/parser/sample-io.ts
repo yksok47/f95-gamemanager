@@ -58,7 +58,13 @@ export function rootParser(spec: ParserSpec): ParserSpec {
 }
 
 export function listPipelineSampleIds(spec: ParserSpec): string[] {
+  if (spec.inputFrom) return listSampleIds(spec.inputFrom)
   return listSampleIds(rootParser(spec).name)
+}
+
+/** Folder that holds this parser's authored/propagated input files. */
+export function inputSampleParser(spec: ParserSpec): ParserName {
+  return spec.inputFrom ?? spec.name
 }
 
 export function readSampleFile(parser: ParserName, id: string, filename: string): string {

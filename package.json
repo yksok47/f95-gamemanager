@@ -17,6 +17,7 @@
     "test:p2p": "bun test src/shared/content-address.test.ts src/shared/p2p.test.ts src/main/p2p/share-claim.test.ts",
     "parser:fetch": "bun src/main/f95/parser/fetch-samples.ts",
     "parser:fetch:add": "bun src/main/f95/parser/fetch-samples.ts --additive",
+    "parser:fetch:reviews": "bun src/main/f95/parser/fetch-samples.ts reviews",
     "parser:update": "bun src/main/f95/parser/update-samples.ts",
     "parser:propagate": "bun src/main/f95/parser/propagate-samples.ts",
     "test:parser": "vitest run",

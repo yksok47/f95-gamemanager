@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { PARSERS, type ParserName } from './pipeline'
 import { parserMetaFile, resolveSamplesRoot, sampleFile } from './sample-io'
 
 const samplesRoot = resolveSamplesRoot()
@@ -14,9 +15,37 @@ if (!samplesRoot) {
 
 const additive = process.argv.includes('--additive')
 
-const LINKS_FILE = parserMetaFile('firstPost', 'links.txt')
-const COOKIES_FILE = parserMetaFile('firstPost', 'cookies.txt')
-const USER_AGENT_FILE = parserMetaFile('firstPost', 'user-agent.txt')
+function parserArg(): ParserName {
+  const flagIndex = process.argv.indexOf('--parser')
+  if (flagIndex >= 0) {
+    const value = process.argv[flagIndex + 1]
+    if (!value || !(value in PARSERS)) {
+      console.error(`Unknown --parser value. Expected one of: ${Object.keys(PARSERS).join(', ')}`)
+      process.exit(1)
+    }
+    return value as ParserName
+  }
+
+  const positional = process.argv.slice(2).find((arg) => !arg.startsWith('-'))
+  if (positional) {
+    if (!(positional in PARSERS)) {
+      console.error(`Unknown parser "${positional}". Expected one of: ${Object.keys(PARSERS).join(', ')}`)
+      process.exit(1)
+    }
+    return positional as ParserName
+  }
+
+  return 'firstPost'
+}
+
+const parser = parserArg()
+const LINKS_FILE = parserMetaFile(parser, 'links.txt')
+const COOKIES_FILE = existsSync(parserMetaFile(parser, 'cookies.txt'))
+  ? parserMetaFile(parser, 'cookies.txt')
+  : parserMetaFile('firstPost', 'cookies.txt')
+const USER_AGENT_FILE = existsSync(parserMetaFile(parser, 'user-agent.txt'))
+  ? parserMetaFile(parser, 'user-agent.txt')
+  : parserMetaFile('firstPost', 'user-agent.txt')
 const DELAY_MS = 1500
 
 function readLinks(path: string): string[] {
@@ -106,10 +135,11 @@ const pending = links
   .map((url, index) => ({ id: String(index + 1), url }))
   .filter(({ id }) => {
     if (!additive) return true
-    return !existsSync(sampleFile('firstPost', id, 'input.html'))
+    return !existsSync(sampleFile(parser, id, 'input.html'))
   })
 
 console.log(`Samples root: ${samplesRoot}`)
+console.log(`Parser: ${parser}`)
 if (additive) {
   const skipped = links.length - pending.length
   console.log(
@@ -128,7 +158,7 @@ if (!pending.length) {
 
 let failed = 0
 for (const [index, { id, url }] of pending.entries()) {
-  const dest = sampleFile('firstPost', id, 'input.html')
+  const dest = sampleFile(parser, id, 'input.html')
   process.stdout.write(`${id}/${links.length} ${url} ... `)
   const result = download(url, dest, userAgent)
   if (result.ok) {

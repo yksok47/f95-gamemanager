@@ -41,51 +41,52 @@ function detailsFromCatalog(game: CatalogGame): GameDetails {
 export function parseThreadCounts($: ReturnType<typeof load>): { likes: number; views: number } {
   let views = 0
   let likes = 0
+
+  // Thread pages often omit view counts; never read similar-thread / sidebar widgets.
   const viewBlocks = [
-    $('.p-description').first().text(),
-    $('.p-title-meta').first().text(),
-    $('.p-description ul.listInline, .p-title ul.listInline').first().text()
-  ]
+    $(".p-description").first().text(),
+    $(".p-title-meta").first().text(),
+    $(".p-description ul.listInline, .p-title ul.listInline").first().text(),
+  ];
   for (const text of viewBlocks) {
-    const match = text.match(/Views?:\s*([\d,.]+(?:\.\d+)?\s*[kmb]?)/i)
-    views = saneViewCount(parseCountText(match?.[1]))
-    if (views) break
+    const match = text.match(/Views?:\s*([\d,.]+(?:\.\d+)?\s*[kmb]?)/i);
+    views = saneViewCount(parseCountText(match?.[1]));
+    if (views) break;
   }
 
-  $('dt').each((_, el) => {
-    const node = $(el)
-    if (node.closest('.node-stats').length) return
-    const label = node.text().replace(/\s+/g, ' ').trim()
-    const value = (node.next('dd').text() || node.prev('dd').text()).replace(/\s+/g, ' ').trim()
-    if (!views && /^views?$/i.test(label)) views = saneViewCount(parseCountText(value))
-    if (!likes && /^(likes?|reactions?)$/i.test(label)) likes = saneLikeCount(parseCountText(value))
-  })
+  $(".p-body-header dt, .p-description dt, .p-title-meta dt, .p-title dt").each((_, el) => {
+    const node = $(el);
+    const label = node.text().replace(/\s+/g, " ").trim();
+    const value = (node.next("dd").text() || node.prev("dd").text()).replace(/\s+/g, " ").trim();
+    if (!views && /^views?$/i.test(label)) views = saneViewCount(parseCountText(value));
+    if (!likes && /^(likes?|reactions?)$/i.test(label)) likes = saneLikeCount(parseCountText(value));
+  });
 
-  const post = $('.message-threadStarterPost').first().length
-    ? $('.message-threadStarterPost').first()
-    : $('article.message--post, .message--post').first()
+  const post = $(".message-threadStarterPost").first().length
+    ? $(".message-threadStarterPost").first()
+    : $("article.message--post, .message--post").first();
   if (!likes) {
-    likes = saneLikeCount(parseCountText(post.find('[data-reaction-count]').first().attr('data-reaction-count')))
+    likes = saneLikeCount(parseCountText(post.find("[data-reaction-count]").first().attr("data-reaction-count")));
   }
   if (!likes) {
-    const link = post.find('a.reactionsBar-link, .message-attribution-opposite a[href*="/reactions"]').first()
-    const text = link.text().replace(/\s+/g, ' ').trim()
-    const others = text.match(/and\s+([\d,.]+)\s+others/i)
-    let fromPeople = 0
+    const link = post.find('a.reactionsBar-link, .message-attribution-opposite a[href*="/reactions"]').first();
+    const text = link.text().replace(/\s+/g, " ").trim();
+    const others = text.match(/and\s+([\d,.]+)\s+others/i);
+    let fromPeople = 0;
     if (others) {
-      const extra = parseCountText(others[1])
-      const named = link.find('bdi, .username').length || Math.min(3, (text.match(/,/g) || []).length + 1)
-      fromPeople = extra + Math.max(1, named)
+      const extra = parseCountText(others[1]);
+      const named = link.find("bdi, .username").length || Math.min(3, (text.match(/,/g) || []).length + 1);
+      fromPeople = extra + Math.max(1, named);
     }
     likes = saneLikeCount(
-      parseCountText(link.attr('data-reaction-count')) ||
+      parseCountText(link.attr("data-reaction-count")) ||
         fromPeople ||
-        parseCountText(link.attr('title')) ||
-        parseCountText(text)
-    )
+        parseCountText(link.attr("title")) ||
+        parseCountText(text),
+    );
   }
 
-  return { likes, views }
+  return { likes, views };
 }
 
 export function isWeakCover(url: string | null | undefined): boolean {
