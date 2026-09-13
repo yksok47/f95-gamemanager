@@ -17,10 +17,13 @@ import type {
   ThreadReview
 } from '@shared/types'
 import { pickLikeCount, pickViewCount } from '@shared/counts'
-import { GAME_RARITIES, TAG_TIER_RANK } from '@shared/types'
+import { TAG_TIER_RANK } from '@shared/types'
 import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
+import { gameStatusFlags } from '@shared/prefixes'
 import { formatPlaytime, formatRelativeTime, formatSessionTime, formatUpdateDate, gameUpdateState, isRelativeDate } from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
+import FollowButton from '../components/FollowButton'
+import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
 import GameP2pSection from '../components/GameP2pSection'
 import { confirm } from '../components/ConfirmDialog'
@@ -29,10 +32,12 @@ import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
+import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { favoriteTierByName, isHatedTagName } from '../lib/favorites'
 import { formatBytes, isActiveDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import ReviewCard from '../components/ReviewCard'
+import { RefreshIcon } from '../components/ToolbarIcons'
 import { usePlaySessions } from '../lib/library'
 
 type DetailsTab =
@@ -62,10 +67,6 @@ type GameDetailsPageProps = {
   onSessionExpired: () => Promise<void>
   /** When false/undefined, P2P section is hidden */
   p2pEnabled?: boolean
-}
-
-function rarityLabel(rarity: GameRarity): string {
-  return rarity[0].toUpperCase() + rarity.slice(1)
 }
 
 function formatDate(value: string): string {
@@ -319,6 +320,7 @@ export default function GameDetailsPage({
   onSessionExpired,
   p2pEnabled = false
 }: GameDetailsPageProps): JSX.Element {
+  const prefixCatalog = useCatalogPrefixes()
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -333,11 +335,11 @@ export default function GameDetailsPage({
   const [fullCoverReady, setFullCoverReady] = useState(false)
   const [openVersions, setOpenVersions] = useState<Record<number, boolean>>({})
   const [files, setFiles] = useState<GameLibraryFile[]>([])
+  const [filesReady, setFilesReady] = useState(false)
   const [installBytes, setInstallBytes] = useState<number | null>(null)
   const [transfers, setTransfers] = useState<DownloadRecord[]>([])
+  const [threadIdCopied, setThreadIdCopied] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
-  const [shareP2pBusy, setShareP2pBusy] = useState<string | null>(null)
-  const [shareP2pError, setShareP2pError] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
   const [refreshingMeta, setRefreshingMeta] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
@@ -365,6 +367,7 @@ export default function GameDetailsPage({
     setReviewsBusy(false)
     setReviewsError(null)
     setReviewsReload(0)
+    setThreadIdCopied(false)
 
     async function load(): Promise<void> {
       try {
@@ -391,7 +394,15 @@ export default function GameDetailsPage({
 
   useEffect(() => {
     if (!details) return
-    if (reviewPage <= 1) {
+
+    const detailsComplete = details.reviewsTotal <= details.reviews.length
+    // Prefer the payload from the single thread fetch. Only hit /br-reviews when
+    // the user opens Reviews and the thread page didn't carry the full listing,
+    // when paginating, or on explicit retry.
+    const useDetailsPayload =
+      reviewPage <= 1 && reviewsReload === 0 && (detailsComplete || tab !== 'reviews')
+
+    if (useDetailsPayload) {
       setReviewItems(details.reviews)
       setReviewsTotalPages(Math.max(1, details.reviewsTotalPages || 1))
       setReviewsError(null)
@@ -408,7 +419,7 @@ export default function GameDetailsPage({
       .then((next) => {
         if (cancelled) return
         setReviewItems(next.reviews)
-        setReviewsTotalPages(Math.max(1, next.totalPages, details.reviewsTotalPages || 1))
+        setReviewsTotalPages(Math.max(1, next.totalPages))
       })
       .catch(async (err: unknown) => {
         if (cancelled) return
@@ -426,18 +437,22 @@ export default function GameDetailsPage({
     return () => {
       cancelled = true
     }
-  }, [details, reviewPage, reviewsReload, summary.threadId, onSessionExpired])
+  }, [details, reviewPage, reviewsReload, tab, summary.threadId, onSessionExpired])
 
   useEffect(() => {
     let cancelled = false
 
     async function refreshFiles(): Promise<void> {
       const items = await window.api.library.list(summary.threadId)
-      if (!cancelled) setFiles(items)
+      if (!cancelled) {
+        setFiles(items)
+        setFilesReady(true)
+      }
     }
 
     setInstallError(null)
     setPlayError(null)
+    setFilesReady(false)
     void refreshFiles()
     const stopLibrary = window.api.library.onChange(() => {
       void refreshFiles()
@@ -519,6 +534,16 @@ export default function GameDetailsPage({
   )
   const version = details?.version || summary.version
   const engine = normalizeEngine(details?.engine) || engineFromFields(details?.fields)
+  const status = useMemo(() => {
+    const fromPrefixes = gameStatusFlags(summary.prefixes, prefixCatalog)
+    const statusValue =
+      details?.fields.find((field) => /^status$/i.test(field.label))?.value ?? ''
+    return {
+      completed: fromPrefixes.completed || /\b(completed?|complete)\b/i.test(statusValue),
+      abandoned: fromPrefixes.abandoned || /\babandoned\b/i.test(statusValue),
+      onHold: fromPrefixes.onHold || /\bon[\s-]?hold\b/i.test(statusValue)
+    }
+  }, [summary.prefixes, prefixCatalog, details?.fields])
   const packageBytes = useMemo(
     () => files.reduce((sum, file) => sum + (file.hasArchive ? file.size || 0 : 0), 0),
     [files]
@@ -719,6 +744,31 @@ export default function GameDetailsPage({
     lastPlayedVersion
   })
 
+  const pendingInstall = useMemo(() => {
+    if (latestInstalled) return null
+    const candidates = files.filter((file) => file.hasArchive && !file.isInstalled)
+    if (!candidates.length) return null
+    return (
+      [...candidates]
+        .sort((a, b) => {
+          const versions = compareGameVersions(a.version, b.version)
+          if (versions) return versions
+          return (a.downloadedAt || 0) - (b.downloadedAt || 0)
+        })
+        .at(-1) ?? null
+    )
+  }, [files, latestInstalled])
+
+  const installingFile = useMemo(
+    () => files.find((file) => file.installPercent != null) ?? null,
+    [files]
+  )
+
+  const hasLocalCopy = useMemo(
+    () => files.some((file) => file.hasArchive || file.isInstalled),
+    [files]
+  )
+
   const gameTransfers = useMemo(
     () =>
       transfers.filter(
@@ -750,6 +800,11 @@ export default function GameDetailsPage({
       updatedAt: details?.updatedAt || summary.updatedAt,
       screens: summary.screens
     })
+  }
+
+  function openDownloadsTab(): void {
+    setTab('downloads')
+    setP2pReloadKey((n) => n + 1)
   }
 
   async function installFile(id: string): Promise<void> {
@@ -861,32 +916,6 @@ export default function GameDetailsPage({
     }
   }
 
-  async function shareViaP2p(file: GameLibraryFile): Promise<void> {
-    if (!p2pEnabled) {
-      setShareP2pError('Enable P2P in Settings first.')
-      return
-    }
-    if (!file.archivePath) {
-      setShareP2pError('No archive path to share.')
-      return
-    }
-    setShareP2pBusy(file.id)
-    setShareP2pError(null)
-    try {
-      await window.api.p2p.seed(file.archivePath, {
-        contentHash: file.hash || undefined,
-        gameName: title,
-        gameVersion: file.version || version || undefined,
-        f95ThreadId: summary.threadId,
-        f95ThreadUrl: threadUrl || undefined
-      })
-    } catch (err) {
-      setShareP2pError(err instanceof Error ? err.message : 'P2P share failed')
-    } finally {
-      setShareP2pBusy(null)
-    }
-  }
-
   function removeMenuItems(file: GameLibraryFile): MenuItem[] {
     const items: MenuItem[] = []
     if (file.hasArchive) {
@@ -912,13 +941,6 @@ export default function GameDetailsPage({
         label: 'Show archive',
         onClick: () => void window.api.library.showArchive(file.id)
       })
-      if (p2pEnabled) {
-        items.push({
-          id: 'share-p2p',
-          label: shareP2pBusy === file.id ? 'Sharing…' : 'Share via P2P',
-          onClick: () => void shareViaP2p(file)
-        })
-      }
     }
     if (file.isInstalled) {
       items.push({
@@ -930,27 +952,6 @@ export default function GameDetailsPage({
         id: 'open-folder',
         label: 'Open folder',
         onClick: () => void window.api.library.showInstall(file.id)
-      })
-    }
-    if (engineKind(file.engine) === 'renpy' || engineKind(engine) === 'renpy') {
-      items.push({
-        id: 'open-saves',
-        label: 'Open saves',
-        onClick: () => {
-          void window.api.renpy.openSaves(file.id, title).catch((err) => {
-            setInstallError(err instanceof Error ? err.message : 'Could not open the save folder.')
-          })
-        }
-      })
-    } else if (engineKind(file.engine) === 'rpgmaker' || engineKind(engine) === 'rpgmaker') {
-      items.push({
-        id: 'open-saves',
-        label: 'Open saves',
-        onClick: () => {
-          void window.api.rpgmaker.openSaves(file.id, summary.threadId, title).catch((err) => {
-            setInstallError(err instanceof Error ? err.message : 'Could not open the save folder.')
-          })
-        }
       })
     }
     return items
@@ -979,6 +980,58 @@ export default function GameDetailsPage({
     void openUrl(href)
   }
 
+  function copyThreadId(): void {
+    void navigator.clipboard.writeText(String(summary.threadId)).then(() => {
+      setThreadIdCopied(true)
+      window.setTimeout(() => setThreadIdCopied(false), 1500)
+    })
+  }
+
+  const statusPlayLabel = threadSessions.length
+    ? `Playing · ${formatSessionTime(elapsedMs(threadSessions[0].startedAt, threadSessions[0].elapsedMs))}`
+    : lastPlayedAt
+      ? `Last played ${lastPlayedVersion || 'unknown'} · ${formatRelativeTime(lastPlayedAt)}`
+      : null
+  const statusParts = [
+    statusPlayLabel,
+    totalPlaytimeMs ? `${formatPlaytime(totalPlaytimeMs)} total` : null,
+    updatedLabel ? `Thread updated ${updatedLabel}` : null
+  ].filter(Boolean) as string[]
+  const showCheckedStatus = Boolean(summary.checkedAt || (subscribed && onRefresh))
+  const showStatusLine = statusParts.length > 0 || showCheckedStatus
+
+  function handleShellClick(event: MouseEvent<HTMLDivElement>): void {
+    const page = event.currentTarget.querySelector('.details-page')
+    if (page instanceof HTMLElement && page.contains(event.target as Node)) {
+      event.stopPropagation()
+      return
+    }
+
+    const modal = event.currentTarget.querySelector('.details-modal')
+    if (!(modal instanceof HTMLElement)) {
+      event.stopPropagation()
+      return
+    }
+
+    const canScroll = modal.scrollHeight > modal.clientHeight + 1
+    if (!canScroll) return
+
+    const pageRect = page instanceof HTMLElement ? page.getBoundingClientRect() : null
+    const modalRect = modal.getBoundingClientRect()
+    if (!pageRect) {
+      event.stopPropagation()
+      return
+    }
+
+    const inScrollbarLane =
+      event.clientX > pageRect.right &&
+      event.clientX <= modalRect.right &&
+      event.clientY >= modalRect.top &&
+      event.clientY <= modalRect.bottom
+
+    if (inScrollbarLane) event.stopPropagation()
+  }
+
   return (
     <div
       className="details-backdrop"
@@ -987,19 +1040,18 @@ export default function GameDetailsPage({
         else onClose()
       }}
     >
-      <div
-        className={
-          rarity === 'regular' ? 'details-modal-frame' : `details-modal-frame details-modal-frame-${rarity}`
-        }
-        onClick={(event) => event.stopPropagation()}
-      >
+      <div className="details-modal-shell" onClick={handleShellClick}>
+        <div
+          className={
+            rarity === 'regular' ? 'details-modal-frame' : `details-modal-frame details-modal-frame-${rarity}`
+          }
+        >
         <div className="details-modal-corners" aria-hidden="true" />
         <div
           className="details-modal"
           role="dialog"
           aria-modal="true"
           aria-labelledby="details-title"
-          onClick={(event) => event.stopPropagation()}
         >
         <div className="details-page">
           <div className={coverBroken || !coverUrl ? 'details-hero details-hero-empty' : 'details-hero'}>
@@ -1039,75 +1091,129 @@ export default function GameDetailsPage({
                 <span aria-hidden="true" />
               </div>
             ) : null}
-            <button className="details-close" type="button" aria-label="Close" onClick={onClose}>
-              <span aria-hidden="true">×</span>
-            </button>
+            <FollowButton
+              variant="modal"
+              subscribed={subscribed}
+              onToggle={() => void onToggleFollow(toCatalogGame(summary, details))}
+            />
             <div className="details-info">
-              <h1 id="details-title" className="details-title">
-                {title}
-              </h1>
-              <div className="details-sub">
-                <div className="details-creator">
-                  <span>{creator || 'Unknown creator'}</span>
-                  {creatorLinks.map((link) => (
-                    <button
-                      key={link.url}
-                      className="link-chip"
-                      type="button"
-                      onClick={() => void openUrl(link.url)}
-                    >
-                      {link.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="details-title-row">
+                <h1 id="details-title" className="details-title">
+                  <a
+                    className="details-title-link"
+                    href={threadUrl}
+                    title="Open thread on F95zone"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      void openUrl(threadUrl)
+                    }}
+                  >
+                    {title}
+                  </a>
+                </h1>
                 <span className="details-pill">{version || 'Unknown version'}</span>
-                <span className="details-pill">Thread {summary.threadId}</span>
-                {updates.updateAvailable ? (
-                  <span className="details-pill details-pill-update">
-                    Update from {latestInstalled?.version}
-                  </span>
-                ) : null}
-                {updates.unplayedUpdate ? (
-                  <span className="details-pill details-pill-play">New since {lastPlayedVersion}</span>
-                ) : null}
-                {threadSessions.length ? (
-                  <span className="details-pill details-pill-play">Playing</span>
-                ) : null}
                 {engine ? (
                   <EngineBadge name={engine} />
                 ) : (
                   <span className="details-pill">Unknown engine</span>
                 )}
-                {packageBytes > 0 ? (
-                  <span className="details-pill">Package {formatBytes(packageBytes)}</span>
-                ) : null}
-                {installBytes ? (
-                  <span className="details-pill">Installed {formatBytes(installBytes)}</span>
-                ) : null}
-                <span className={`details-pill ${ratingClass(summary.rating)}`}>
-                  {formatRating(summary.rating)}
-                </span>
-                {likes ? (
-                  <span className="details-pill">
-                    {formatCount(likes)} likes
+                {status.completed ? (
+                  <span className="cover-status-badge cover-status-completed" title="Completed">
+                    Completed
                   </span>
                 ) : null}
-                {views ? (
-                  <span className="details-pill">
-                    {formatCount(views)} views
+                {status.onHold ? (
+                  <span className="cover-status-badge cover-status-onhold" title="On hold">
+                    On hold
+                  </span>
+                ) : null}
+                {status.abandoned ? (
+                  <span className="cover-status-badge cover-status-abandoned" title="Abandoned">
+                    Abandoned
                   </span>
                 ) : null}
               </div>
-              {lastPlayedAt || summary.checkedAt || updatedLabel || totalPlaytimeMs || threadSessions.length ? (
+              <div className="details-sub">
+                <div className="details-sub-row">
+                  {updates.updateAvailable ? (
+                    <span className="details-pill details-pill-update">
+                      Update from {latestInstalled?.version}
+                    </span>
+                  ) : null}
+                  {updates.unplayedUpdate ? (
+                    <span className="details-pill details-pill-play">New since {lastPlayedVersion}</span>
+                  ) : null}
+                  {threadSessions.length ? (
+                    <span className="details-pill details-pill-play">Playing</span>
+                  ) : null}
+                  <div className="details-creator">
+                    <span>{creator || 'Unknown creator'}</span>
+                    {creatorLinks.map((link) => (
+                      <button
+                        key={link.url}
+                        className="link-chip"
+                        type="button"
+                        onClick={() => void openUrl(link.url)}
+                      >
+                        {link.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="details-sub-row">
+                  <span className={`details-pill ${ratingClass(summary.rating)}`}>
+                    {formatRating(summary.rating)}
+                  </span>
+                  {likes ? (
+                    <span className="details-pill">
+                      {formatCount(likes)} likes
+                    </span>
+                  ) : null}
+                  {views ? (
+                    <span className="details-pill">
+                      {formatCount(views)} views
+                    </span>
+                  ) : null}
+                  {packageBytes > 0 ? (
+                    <span className="details-pill">Package {formatBytes(packageBytes)}</span>
+                  ) : null}
+                  {installBytes ? (
+                    <span className="details-pill">Installed {formatBytes(installBytes)}</span>
+                  ) : null}
+                  <button
+                    className="details-pill details-pill-copy"
+                    type="button"
+                    title={threadIdCopied ? 'Copied' : 'Copy thread ID'}
+                    onClick={copyThreadId}
+                  >
+                    {threadIdCopied ? 'Copied' : `Thread ${summary.threadId}`}
+                  </button>
+                </div>
+              </div>
+              {showStatusLine ? (
                 <p className="details-status muted">
-                  {threadSessions.length
-                    ? `Playing · ${formatSessionTime(elapsedMs(threadSessions[0].startedAt, threadSessions[0].elapsedMs))}`
-                    : lastPlayedAt
-                      ? `Last played ${lastPlayedVersion || 'unknown'} · ${formatRelativeTime(lastPlayedAt)}`
-                      : 'Not played yet'}
-                  {totalPlaytimeMs ? ` · ${formatPlaytime(totalPlaytimeMs)} total` : ''}
-                  {updatedLabel ? ` · Thread updated ${updatedLabel}` : ''}
-                  {summary.checkedAt ? ` · Data checked ${formatRelativeTime(summary.checkedAt)}` : ''}
+                  {statusParts.join(' · ')}
+                  {showCheckedStatus ? (
+                    <>
+                      {statusParts.length ? ' · ' : null}
+                      <span className="details-checked">
+                        Data checked{' '}
+                        {summary.checkedAt ? formatRelativeTime(summary.checkedAt) : 'never'}
+                        {subscribed && onRefresh ? (
+                          <button
+                            className="details-refresh-link"
+                            type="button"
+                            disabled={refreshingMeta}
+                            title={refreshingMeta ? 'Refreshing…' : 'Refresh metadata'}
+                            aria-label={refreshingMeta ? 'Refreshing metadata' : 'Refresh metadata'}
+                            onClick={() => void refreshMetadata()}
+                          >
+                            <RefreshIcon spinning={refreshingMeta} />
+                          </button>
+                        ) : null}
+                      </span>
+                    </>
+                  ) : null}
                 </p>
               ) : null}
               {details?.tags.length ? (
@@ -1150,44 +1256,37 @@ export default function GameDetailsPage({
                     Play{latestInstalled.version ? ` ${latestInstalled.version}` : ''}
                   </button>
                 ) : null}
-                <button
-                  className={subscribed || latestInstalled ? 'ghost-btn' : 'primary-btn'}
-                  type="button"
-                  onClick={() => void onToggleFollow(toCatalogGame(summary, details))}
-                >
-                  {subscribed ? 'Unfollow' : 'Follow'}
-                </button>
-                {subscribed && onSetRarity ? (
-                  <label className="rarity-field details-rarity">
-                    <span className="muted">Rarity</span>
-                    <select
-                      className={`rarity-select rarity-select-${rarity}`}
-                      value={rarity}
-                      onChange={(event) => void onSetRarity(summary.threadId, event.target.value as GameRarity)}
-                    >
-                      {GAME_RARITIES.map((value) => (
-                        <option key={value} value={value}>
-                          {rarityLabel(value)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                ) : null}
-                {subscribed && onRefresh ? (
+                {installingFile ? (
+                  <button className="primary-btn" type="button" disabled>
+                    Installing… {installingFile.installPercent}%
+                  </button>
+                ) : pendingInstall ? (
                   <button
-                    className="ghost-btn"
+                    className="primary-btn"
                     type="button"
-                    disabled={refreshingMeta}
-                    onClick={() => void refreshMetadata()}
+                    onClick={() => void installFile(pendingInstall.id)}
                   >
-                    {refreshingMeta ? 'Refreshing…' : 'Refresh metadata'}
+                    Install{pendingInstall.version ? ` ${pendingInstall.version}` : ''}
+                  </button>
+                ) : updates.updateAvailable ? (
+                  <button className="update-btn" type="button" onClick={openDownloadsTab}>
+                    Update
+                    {version ? ` to ${version}` : ''}
+                  </button>
+                ) : filesReady && !hasLocalCopy ? (
+                  <button className="primary-btn" type="button" onClick={openDownloadsTab}>
+                    Download
                   </button>
                 ) : null}
-                <button className="ghost-btn" type="button" onClick={() => void openUrl(threadUrl)}>
-                  Open thread
-                </button>
+                {subscribed && onSetRarity ? (
+                  <RaritySlider
+                    value={rarity}
+                    onChange={(next) => void onSetRarity(summary.threadId, next)}
+                  />
+                ) : null}
               </div>
               {playError ? <p className="error-text">{playError}</p> : null}
+              {installError ? <p className="error-text">{installError}</p> : null}
             </div>
           </div>
           {gameTransfers.length ? (
@@ -1348,7 +1447,6 @@ export default function GameDetailsPage({
           files.length ? (
             <div className="library-file-list">
               {installError ? <p className="error-text">{installError}</p> : null}
-              {shareP2pError ? <p className="error-text">{shareP2pError}</p> : null}
               {files.map((file) => (
                 <article key={file.id} className="library-file">
                   <div className="library-file-main">
@@ -1403,11 +1501,11 @@ export default function GameDetailsPage({
                         <button className="stop-btn" type="button" onClick={() => void stopFile(file.id)}>
                           Stop
                         </button>
-                      ) : (
+                      ) : file.installPercent == null ? (
                         <button className="primary-btn" type="button" onClick={() => void playFile(file.id)}>
                           Play
                         </button>
-                      )
+                      ) : null
                     ) : null}
                     {file.hasArchive ? (
                       <button
@@ -1663,7 +1761,8 @@ export default function GameDetailsPage({
         </div>
       ) : null}
         </div>
-      </div>
+        </div>
+        </div>
       </div>
     </div>
   )

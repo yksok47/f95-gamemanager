@@ -1,9 +1,12 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio'
 import type { AnyNode } from 'domhandler'
-import type { ThreadReview } from '@shared/types'
+import type { ThreadReview, ThreadReviewsPage } from '@shared/types'
 import { extractThreadId } from '../../parse'
 
 export type { ThreadReview } from '@shared/types'
+
+const REVIEW_NODE_SELECTOR =
+  '.lfsReview, .message--review, .structItem--review, [class*="br-review"]'
 
 const HOST = 'https://f95zone.to'
 const LIGHTBOX_SELECTOR =
@@ -97,6 +100,38 @@ export function parseReviewsTotalDocument($: CheerioAPI, fallback: number): numb
   const fromTab = Number(tabText.match(/([\d,]+)/)?.[1]?.replace(/,/g, '') || 0)
   const fromHeading = Number(heading.match(/([\d,]+)\s*review/i)?.[1]?.replace(/,/g, '') || 0)
   return fromTab || fromHeading || jsonLdReviewCount($) || fallback
+}
+
+/** True when the document is (or clearly contains) a reviews listing. */
+export function documentHasReviewNodes($: CheerioAPI): boolean {
+  return $(REVIEW_NODE_SELECTOR).length > 0
+}
+
+/**
+ * Build a reviews page payload from one already-loaded document.
+ * Pass `isReviewsPage=false` for the thread page (embedded / fallback reviews).
+ */
+export function reviewsPageFromDocument(
+  $: CheerioAPI,
+  threadId: number,
+  isReviewsPage: boolean,
+  requestedPage = 1
+): ThreadReviewsPage {
+  const reviews = parseReviewsDocument($, threadId, isReviewsPage)
+  const nav = isReviewsPage
+    ? parseReviewsPageNavDocument($)
+    : { page: requestedPage, totalPages: 1 }
+  const total = parseReviewsTotalDocument($, reviews.length)
+  const estimatedPages =
+    reviews.length && total > reviews.length ? Math.ceil(total / reviews.length) : 1
+  const totalPages = nav.totalPages > 1 ? nav.totalPages : Math.max(1, estimatedPages)
+  return {
+    threadId,
+    page: nav.page || requestedPage,
+    totalPages,
+    total: total || reviews.length,
+    reviews
+  }
 }
 
 function reviewFromNode(node: Cheerio<AnyNode>, threadId: number): ThreadReview | null {

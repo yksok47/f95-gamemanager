@@ -4,6 +4,7 @@ import { engineFromTitle, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import { formatUpdateDate, gameUpdateState } from '@shared/updates'
 import EngineBadge from './EngineBadge'
+import FollowButton from './FollowButton'
 import { favoriteTagsOnGame, hatedTagsOnGame } from '../lib/favorites'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
@@ -137,7 +138,6 @@ export default function GameCard({
     event.preventDefault()
   }
 
-  const followLabel = subscribed ? 'Unfollow' : 'Follow'
   const cardClass = [
     rarity === 'regular' ? 'game-card' : `game-card game-card-${rarity}`,
     onOpen ? 'game-card-openable' : '',
@@ -262,40 +262,7 @@ export default function GameCard({
             {game.version}
           </span>
         ) : null}
-        <button
-          className={subscribed ? 'follow-btn follow-btn-on' : 'follow-btn'}
-          type="button"
-          aria-label={followLabel}
-          title={followLabel}
-          onClick={onToggle}
-        >
-          <span className="follow-icon" aria-hidden="true">
-            {subscribed ? (
-              <>
-                <svg className="follow-icon-default" viewBox="0 0 16 16">
-                  <path
-                    fill="currentColor"
-                    d="M8 3.2c3.2 0 5.9 2 7.2 4.8-1.3 2.8-4 4.8-7.2 4.8S2.1 10.8.8 8C2.1 5.2 4.8 3.2 8 3.2m0 2A2.8 2.8 0 1 0 10.8 8 2.8 2.8 0 0 0 8 5.2z"
-                  />
-                </svg>
-                <svg className="follow-icon-hover" viewBox="0 0 16 16">
-                  <path
-                    fill="currentColor"
-                    d="M2.1 2.1 13.9 13.9l-1.1 1.1-1.8-1.8C10 13.6 9 13.8 8 13.8 4.8 13.8 2.1 11.8.8 9c.5-1.1 1.3-2.1 2.2-2.9L1 3.2zm5.2 5.2a2.8 2.8 0 0 0 3.4 3.4l-1-1A1.6 1.6 0 0 1 8 10.4 1.6 1.6 0 0 1 6.4 8.8zm5.4 2.2-1.1-1.1c.7-.7 1.1-1.6 1.1-2.6A2.8 2.8 0 0 0 8 5.2c-.4 0-.8.1-1.1.2L5.6 4.1C6.3 3.8 7.1 3.6 8 3.6c3.2 0 5.9 2 7.2 4.8-.5 1.1-1.3 2.1-2.5 2.9z"
-                  />
-                </svg>
-              </>
-            ) : (
-              <svg viewBox="0 0 16 16">
-                <path
-                  fill="currentColor"
-                  d="M8 3.2c3.2 0 5.9 2 7.2 4.8-1.3 2.8-4 4.8-7.2 4.8S2.1 10.8.8 8C2.1 5.2 4.8 3.2 8 3.2m0 1.6C5.6 4.8 3.6 6.2 2.6 8 3.6 9.8 5.6 11.2 8 11.2S12.4 9.8 13.4 8C12.4 6.2 10.4 4.8 8 4.8m0 1.2A2 2 0 1 1 6 8a2 2 0 0 1 2-2z"
-                />
-              </svg>
-            )}
-          </span>
-          <span className="follow-label">{followLabel}</span>
-        </button>
+        <FollowButton subscribed={subscribed} onToggle={onToggle} />
       </div>
       <div className="game-meta">
         <h2 className="game-title">{game.title}</h2>

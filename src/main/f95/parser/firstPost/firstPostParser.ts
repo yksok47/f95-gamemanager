@@ -1,7 +1,12 @@
-import { load } from 'cheerio'
+import { load, type CheerioAPI } from 'cheerio'
 
+/** Extract the starter-post body HTML from a full thread page document. */
 export function parseFirstPost(pageHtml: string): string {
-  const $ = load(pageHtml)
+  return parseFirstPostDocument(load(pageHtml))
+}
+
+/** Same extraction against an already-loaded Cheerio document (avoids re-parse). */
+export function parseFirstPostDocument($: CheerioAPI): string {
   const starter = $('.message-threadStarterPost').first()
   const post = starter.length ? starter : $('.message--post').first()
   if (!post.length) return ''

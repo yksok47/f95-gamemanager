@@ -2,13 +2,19 @@
  * Sample pipeline: firstPost and reviews inputs are authored (downloaded HTML).
  * Each firstPost-derived parser's output is copied to every dependent parser's matching input.
  *
+ * Live path (`thread.ts` → `composeFirstPost`):
+ *   1. GET /threads/{id}/ once
+ *   2. threadPage + firstPost from that document
+ *   3. composeFirstPost runs the section parsers below on the first-post HTML
+ *   4. reviews page 1 from the same thread document (no /br-reviews until pagination)
+ *
  *   firstPost
  *     ├─ banner, description, gallery, overview, notes
  *     ├─ changelogSection → changelog
  *     └─ downloadsSection → downloads
  *
  *   threadPage  (same full-page HTML as firstPost; JSON page chrome)
- *   reviews     (separate root: /br-reviews pages)
+ *   reviews     (separate root: /br-reviews pages; pagination only at runtime)
  */
 export type ParserName =
   | 'firstPost'
