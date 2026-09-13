@@ -221,17 +221,6 @@ export default function GameCard({
         </div>
         {library?.hasArchive || (library?.isInstalled && onPlay) ? (
           <div className="cover-bl">
-            {library.hasArchive ? (
-              <span className="archive-badge" title="Archive downloaded">
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
-                  />
-                </svg>
-                <span className="sr-only">Archive downloaded</span>
-              </span>
-            ) : null}
             {library.isInstalled && onPlay ? (
               <button
                 className="play-badge"
@@ -254,6 +243,17 @@ export default function GameCard({
                 </svg>
                 <span className="sr-only">{playing ? 'Playing' : 'Play'}</span>
               </button>
+            ) : null}
+            {library.hasArchive ? (
+              <span className="archive-badge" title="Archive downloaded">
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
+                  />
+                </svg>
+                <span className="sr-only">Archive downloaded</span>
+              </span>
             ) : null}
           </div>
         ) : null}

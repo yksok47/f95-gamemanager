@@ -330,7 +330,21 @@ export default function GameDetailsPage({
   const [lightbox, setLightbox] = useState<number | null>(null)
   const lightboxThumbRefs = useRef<Array<HTMLButtonElement | null>>([])
   const lightboxThumbsRef = useRef<HTMLDivElement>(null)
+  const lightboxStageRef = useRef<HTMLDivElement>(null)
   const lightboxDrag = useRef({ active: false, moved: false, startX: 0, startLeft: 0 })
+  const lightboxSwipe = useRef({
+    active: false,
+    moved: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    dx: 0
+  })
+  const modalScrollRef = useRef<HTMLDivElement>(null)
+  const modalRailRef = useRef<HTMLDivElement>(null)
+  const modalScrollSyncing = useRef(false)
+  const [modalRailHeight, setModalRailHeight] = useState(0)
+  const [modalRailActive, setModalRailActive] = useState(false)
   const [coverBroken, setCoverBroken] = useState(!summary.coverUrl)
   const [fullCoverReady, setFullCoverReady] = useState(false)
   const [openVersions, setOpenVersions] = useState<Record<number, boolean>>({})
@@ -625,6 +639,56 @@ export default function GameDetailsPage({
   }, [])
 
   useEffect(() => {
+    const modal = modalScrollRef.current
+    if (!modal) return
+
+    function syncRailMetrics(): void {
+      const scrollHeight = modal.scrollHeight
+      const needsRail = scrollHeight > modal.clientHeight + 1
+      setModalRailHeight(scrollHeight)
+      setModalRailActive(needsRail)
+      const rail = modalRailRef.current
+      if (!rail || modalScrollSyncing.current) return
+      if (Math.abs(rail.scrollTop - modal.scrollTop) > 1) rail.scrollTop = modal.scrollTop
+    }
+
+    syncRailMetrics()
+    const observer = new ResizeObserver(syncRailMetrics)
+    observer.observe(modal)
+    const page = modal.firstElementChild
+    if (page) observer.observe(page)
+    return () => observer.disconnect()
+  }, [details, tab, busy, files, reviewItems, gallery.length])
+
+  useEffect(() => {
+    if (!modalRailActive) return
+    const modal = modalScrollRef.current
+    const rail = modalRailRef.current
+    if (!modal || !rail) return
+    rail.scrollTop = modal.scrollTop
+  }, [modalRailActive, modalRailHeight])
+
+  function onModalScroll(): void {
+    if (modalScrollSyncing.current) return
+    const modal = modalScrollRef.current
+    const rail = modalRailRef.current
+    if (!modal || !rail) return
+    modalScrollSyncing.current = true
+    rail.scrollTop = modal.scrollTop
+    modalScrollSyncing.current = false
+  }
+
+  function onModalRailScroll(): void {
+    if (modalScrollSyncing.current) return
+    const modal = modalScrollRef.current
+    const rail = modalRailRef.current
+    if (!modal || !rail) return
+    modalScrollSyncing.current = true
+    modal.scrollTop = rail.scrollTop
+    modalScrollSyncing.current = false
+  }
+
+  useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
         if (lightbox != null) setLightbox(null)
@@ -711,6 +775,99 @@ export default function GameDetailsPage({
       strip.removeEventListener('click', onClickCapture, true)
     }
   }, [lightbox])
+
+  useEffect(() => {
+    const stage = lightboxStageRef.current
+    if (!stage || lightbox == null || gallery.length <= 1) return
+    const swipe = lightboxSwipe.current
+    const image = (): HTMLImageElement | null => stage.querySelector('img')
+    const SWIPE_THRESHOLD = 56
+    const LOCK_THRESHOLD = 10
+
+    function resetTransform(): void {
+      const img = image()
+      if (!img) return
+      img.style.transition = 'transform 160ms ease'
+      img.style.transform = ''
+    }
+
+    function onPointerDown(event: PointerEvent): void {
+      if (event.button !== 0) return
+      if ((event.target as HTMLElement | null)?.closest?.('.lightbox-nav')) return
+      swipe.active = true
+      swipe.moved = false
+      swipe.pointerId = event.pointerId
+      swipe.startX = event.clientX
+      swipe.startY = event.clientY
+      swipe.dx = 0
+      const img = image()
+      if (img) img.style.transition = 'none'
+    }
+
+    function onPointerMove(event: PointerEvent): void {
+      if (!swipe.active || event.pointerId !== swipe.pointerId) return
+      const dx = event.clientX - swipe.startX
+      const dy = event.clientY - swipe.startY
+      if (!swipe.moved) {
+        if (Math.abs(dx) < LOCK_THRESHOLD && Math.abs(dy) < LOCK_THRESHOLD) return
+        if (Math.abs(dy) > Math.abs(dx)) {
+          swipe.active = false
+          return
+        }
+        swipe.moved = true
+        stage.setPointerCapture(event.pointerId)
+      }
+      swipe.dx = dx
+      const img = image()
+      if (img) img.style.transform = `translateX(${dx}px)`
+    }
+
+    function endSwipe(event: PointerEvent): void {
+      if (!swipe.active || event.pointerId !== swipe.pointerId) return
+      const dx = swipe.dx
+      const moved = swipe.moved
+      swipe.active = false
+      if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId)
+      if (!moved) {
+        const img = image()
+        if (img) img.style.transition = ''
+        return
+      }
+      if (Math.abs(dx) >= SWIPE_THRESHOLD) {
+        const img = image()
+        if (img) {
+          img.style.transition = 'none'
+          img.style.transform = ''
+        }
+        const delta = dx < 0 ? 1 : -1
+        setLightbox((index) =>
+          index == null ? index : (index + delta + gallery.length) % gallery.length
+        )
+        return
+      }
+      resetTransform()
+    }
+
+    function onClickCapture(event: globalThis.MouseEvent): void {
+      if (!swipe.moved) return
+      event.preventDefault()
+      event.stopPropagation()
+      swipe.moved = false
+    }
+
+    stage.addEventListener('pointerdown', onPointerDown)
+    stage.addEventListener('pointermove', onPointerMove)
+    stage.addEventListener('pointerup', endSwipe)
+    stage.addEventListener('pointercancel', endSwipe)
+    stage.addEventListener('click', onClickCapture, true)
+    return () => {
+      stage.removeEventListener('pointerdown', onPointerDown)
+      stage.removeEventListener('pointermove', onPointerMove)
+      stage.removeEventListener('pointerup', endSwipe)
+      stage.removeEventListener('pointercancel', endSwipe)
+      stage.removeEventListener('click', onClickCapture, true)
+    }
+  }, [lightbox, gallery.length])
 
   const latestInstalled = useMemo(() => {
     const installed = files.filter((file) => file.isInstalled)
@@ -1000,38 +1157,6 @@ export default function GameDetailsPage({
   const showCheckedStatus = Boolean(summary.checkedAt || (subscribed && onRefresh))
   const showStatusLine = statusParts.length > 0 || showCheckedStatus
 
-  function handleShellClick(event: MouseEvent<HTMLDivElement>): void {
-    const page = event.currentTarget.querySelector('.details-page')
-    if (page instanceof HTMLElement && page.contains(event.target as Node)) {
-      event.stopPropagation()
-      return
-    }
-
-    const modal = event.currentTarget.querySelector('.details-modal')
-    if (!(modal instanceof HTMLElement)) {
-      event.stopPropagation()
-      return
-    }
-
-    const canScroll = modal.scrollHeight > modal.clientHeight + 1
-    if (!canScroll) return
-
-    const pageRect = page instanceof HTMLElement ? page.getBoundingClientRect() : null
-    const modalRect = modal.getBoundingClientRect()
-    if (!pageRect) {
-      event.stopPropagation()
-      return
-    }
-
-    const inScrollbarLane =
-      event.clientX > pageRect.right &&
-      event.clientX <= modalRect.right &&
-      event.clientY >= modalRect.top &&
-      event.clientY <= modalRect.bottom
-
-    if (inScrollbarLane) event.stopPropagation()
-  }
-
   return (
     <div
       className="details-backdrop"
@@ -1040,18 +1165,20 @@ export default function GameDetailsPage({
         else onClose()
       }}
     >
-      <div className="details-modal-shell" onClick={handleShellClick}>
+      <div className="details-modal-shell">
         <div
           className={
             rarity === 'regular' ? 'details-modal-frame' : `details-modal-frame details-modal-frame-${rarity}`
           }
         >
-        <div className="details-modal-corners" aria-hidden="true" />
+        <div className="details-modal-card" onClick={(event) => event.stopPropagation()}>
         <div
           className="details-modal"
+          ref={modalScrollRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="details-title"
+          onScroll={onModalScroll}
         >
         <div className="details-page">
           <div className={coverBroken || !coverUrl ? 'details-hero details-hero-empty' : 'details-hero'}>
@@ -1698,11 +1825,12 @@ export default function GameDetailsPage({
 
       {lightbox != null && gallery[lightbox] ? (
         <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
-          <div className="lightbox-stage">
+          <div className="lightbox-stage" ref={lightboxStageRef}>
             <img
               src={gallery[lightbox]}
               alt=""
               referrerPolicy="no-referrer"
+              draggable={false}
               onClick={(event) => event.stopPropagation()}
             />
             {gallery.length > 1 ? (
@@ -1761,6 +1889,19 @@ export default function GameDetailsPage({
         </div>
       ) : null}
         </div>
+        </div>
+        </div>
+        <div className="details-modal-rail-slot" aria-hidden="true">
+          {modalRailActive ? (
+            <div
+              className="details-modal-rail"
+              ref={modalRailRef}
+              onClick={(event) => event.stopPropagation()}
+              onScroll={onModalRailScroll}
+            >
+              <div className="details-modal-rail-spacer" style={{ height: modalRailHeight }} />
+            </div>
+          ) : null}
         </div>
         </div>
       </div>
