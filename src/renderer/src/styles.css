@@ -2050,6 +2050,15 @@ button {
   font: inherit;
 }
 
+.folder-path::placeholder {
+  color: var(--muted);
+}
+
+.folder-path:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .favorite-tiers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3453,6 +3462,80 @@ button.details-pill {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  align-items: center;
+}
+
+.saves-controls {
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 55%, transparent);
+}
+
+.saves-location-field {
+  margin-bottom: 0;
+}
+
+.saves-location-field .filter-label {
+  min-width: 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.saves-location-meta {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.saves-toolbar-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.saves-slots-field {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.saves-slots-field .filter-label {
+  min-width: 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.saves-slots-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.saves-slots-control .save-place-input {
+  width: 4.5rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.saves-slots-control .muted {
+  font-size: 0.82rem;
+}
+
+@media (max-width: 720px) {
+  .saves-controls .folder-path-row {
+    flex-wrap: wrap;
+  }
+
+  .saves-controls .folder-path {
+    flex: 1 1 100%;
+  }
 }
 
 .save-pages {
@@ -3512,12 +3595,6 @@ button.details-pill {
   cursor: grabbing;
 }
 
-.save-slots-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .save-place-input {
   width: 72px;
   border: 1px solid var(--border);
@@ -3525,6 +3602,15 @@ button.details-pill {
   background: var(--bg);
   color: var(--text);
   padding: 4px 6px;
+}
+
+.save-place-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.save-place-input:disabled {
+  opacity: 0.6;
 }
 
 .save-grid {

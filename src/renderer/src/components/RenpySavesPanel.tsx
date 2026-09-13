@@ -477,46 +477,19 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
       <section className="renpy-section">
         <div className="renpy-section-head">
           <h2>Saves</h2>
-          <label className="save-slots-field">
-            <span className="muted">Slots per page</span>
-            <input
-              className="save-place-input"
-              type="number"
-              min={detectedSlots}
-              step={1}
-              value={slotsPerPage}
-              disabled={busy || running}
-              onChange={(event) => {
-                const next = Number(event.target.value)
-                if (!Number.isInteger(next) || next < 1) return
-                setSlotsInput(Math.max(detectedSlots, next))
-              }}
-              onMouseDown={(event) => event.stopPropagation()}
-            />
-          </label>
           <div className="renpy-actions">
+            {selected.size > 0 ? (
+              <button
+                className="stop-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running}
+                onClick={() => void deleteSelected()}
+              >
+                Delete {selected.size}
+              </button>
+            ) : null}
             <button
-              className="stop-btn"
-              type="button"
-              disabled={busy || running || selected.size === 0}
-              onClick={() => void deleteSelected()}
-            >
-              {selected.size ? `Delete selected (${selected.size})` : 'Delete selected'}
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              disabled={busy || running || !info?.savePath}
-              onClick={() =>
-                void window.api.renpy.openSaves(activeId, lookupTitle).catch((err) => {
-                  setError(err instanceof Error ? err.message : 'Could not open the save folder.')
-                })
-              }
-            >
-              Open folder
-            </button>
-            <button
-              className="ghost-btn"
+              className="ghost-btn saves-toolbar-btn"
               type="button"
               disabled={busy || running}
               onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle))}
@@ -525,12 +498,82 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
             </button>
           </div>
         </div>
-        {info?.savePath ? (
-          <p className="muted library-file-meta" title={info.savePath}>
-            {info.savePath}
-            {info.savePathExists ? ` · ${formatBytes(info.saveFolderBytes)}` : ''}
-          </p>
-        ) : null}
+
+        <div className="saves-controls">
+          <div className="folder-field saves-location-field">
+            <span className="filter-label">Save location</span>
+            <div className="folder-path-row">
+              <input
+                className="folder-path"
+                readOnly
+                value={info?.savePath ?? ''}
+                placeholder={busy && !info ? 'Reading…' : 'Not set — browse to choose a folder'}
+                title={info?.savePath || undefined}
+              />
+              {info?.savePath && info.savePathExists ? (
+                <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
+              ) : null}
+              <button
+                className="ghost-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running || !activeId}
+                onClick={() => void withInfo(() => window.api.renpy.chooseSaveDirectory(activeId, lookupTitle))}
+              >
+                {info?.savePath ? 'Change' : 'Browse'}
+              </button>
+              <button
+                className="ghost-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running || !info?.savePath}
+                onClick={() =>
+                  void window.api.renpy.openSaves(activeId, lookupTitle).catch((err) => {
+                    setError(err instanceof Error ? err.message : 'Could not open the save folder.')
+                  })
+                }
+              >
+                Open
+              </button>
+              {info?.savePath ? (
+                <button
+                  className="ghost-btn saves-toolbar-btn"
+                  type="button"
+                  disabled={busy || running || !activeId}
+                  title="Clear the saved location and try auto-detection again"
+                  onClick={() => void withInfo(() => window.api.renpy.clearSaveDirectory(activeId, lookupTitle))}
+                >
+                  Auto-detect
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {info?.savePath ? (
+            <label className="saves-slots-field">
+              <span className="filter-label">Slots per page</span>
+              <div className="saves-slots-control">
+                <input
+                  className="save-place-input"
+                  type="number"
+                  min={detectedSlots}
+                  step={1}
+                  value={slotsPerPage}
+                  disabled={busy || running}
+                  aria-describedby="saves-slots-hint"
+                  onChange={(event) => {
+                    const next = Number(event.target.value)
+                    if (!Number.isInteger(next) || next < 1) return
+                    setSlotsInput(Math.max(detectedSlots, next))
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                />
+                <span className="muted" id="saves-slots-hint">
+                  At least {detectedSlots} from existing saves
+                </span>
+              </div>
+            </label>
+          ) : null}
+        </div>
+
         {busy && !info ? (
           <p className="muted">Reading save location…</p>
         ) : info?.savePath ? (

@@ -728,9 +728,13 @@ export async function getGameFile(id: string): Promise<StoredGameFile> {
   return file
 }
 
-export async function setRenpySaveDirectory(id: string, saveDirectory: string | null): Promise<void> {
+export async function setRenpySaveDirectory(id: string, saveDirectory: string | null | undefined): Promise<void> {
   const { files, file } = await getFile(id)
-  file.renpySaveDirectory = saveDirectory
+  if (saveDirectory === undefined) {
+    delete file.renpySaveDirectory
+  } else {
+    file.renpySaveDirectory = saveDirectory
+  }
   await writeStore(files)
   broadcast()
 }

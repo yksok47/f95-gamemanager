@@ -194,7 +194,7 @@ export type GameLibraryFile = {
   tags?: number[]
   timestamp?: number
   updatedAt?: string
-  /** Folder name under %APPDATA%/RenPy, or null when saves live in game/saves. */
+  /** Folder name under %APPDATA%/RenPy (or absolute path), or null when saves live in game/saves. */
   renpySaveDirectory?: string | null
   screens?: string[]
 }

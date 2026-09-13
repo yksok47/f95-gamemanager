@@ -154,6 +154,10 @@ const api = {
       ipcRenderer.invoke('renpy:setAllOptions', fileId, enabled),
     openSaves: (fileId: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:openSaves', fileId, title),
+    chooseSaveDirectory: (fileId: string, title = ''): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:chooseSaveDirectory', fileId, title),
+    clearSaveDirectory: (fileId: string, title = ''): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:clearSaveDirectory', fileId, title),
     showSave: (fileId: string, savePath: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:showSave', fileId, savePath, title),
     deleteSave: (fileId: string, savePath: string, title = ''): Promise<RenpyInfo> =>

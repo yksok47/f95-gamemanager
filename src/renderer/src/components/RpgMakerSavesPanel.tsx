@@ -126,31 +126,17 @@ export default function RpgMakerSavesPanel({
         <div className="renpy-section-head">
           <h2>Saves</h2>
           <div className="renpy-actions">
-            <button
-              className="stop-btn"
-              type="button"
-              disabled={busy || selected.size === 0}
-              onClick={() => void deleteSelected()}
-            >
-              {selected.size ? `Delete selected (${selected.size})` : 'Delete selected'}
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              disabled={busy || !info?.gameSavePathExists}
-              onClick={() => openFolder('game')}
-            >
-              Open game folder
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              disabled={busy || !info?.backupPath}
-              onClick={() => openFolder('backup')}
-            >
-              Open AppData backup
-            </button>
-            <button className="ghost-btn" type="button" disabled={busy} onClick={() => void load()}>
+            {selected.size > 0 ? (
+              <button
+                className="stop-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy}
+                onClick={() => void deleteSelected()}
+              >
+                Delete {selected.size}
+              </button>
+            ) : null}
+            <button className="ghost-btn saves-toolbar-btn" type="button" disabled={busy} onClick={() => void load()}>
               Refresh
             </button>
           </div>
@@ -169,20 +155,59 @@ export default function RpgMakerSavesPanel({
           </label>
         ) : null}
 
-        {info?.gameSavePath ? (
-          <p className="muted library-file-meta" title={info.gameSavePath}>
-            Game: {info.gameSavePath}
-            {info.gameSavePathExists ? '' : ' (not created yet)'}
-          </p>
-        ) : (
-          <p className="muted library-file-meta">Game: not installed · saves still live in AppData</p>
-        )}
-        {info?.backupPath ? (
-          <p className="muted library-file-meta" title={info.backupPath}>
-            AppData: {info.backupPath}
-            {info.backupPathExists || saves.length ? ` · ${formatBytes(info.saveFolderBytes)}` : ''}
-          </p>
-        ) : null}
+        <div className="saves-controls">
+          <div className="folder-field saves-location-field">
+            <span className="filter-label">Game folder</span>
+            <div className="folder-path-row">
+              <input
+                className="folder-path"
+                readOnly
+                value={info?.gameSavePath ?? ''}
+                placeholder={
+                  busy && !info
+                    ? 'Reading…'
+                    : 'Not installed — saves still live in AppData'
+                }
+                title={info?.gameSavePath || undefined}
+              />
+              {info?.gameSavePath && !info.gameSavePathExists ? (
+                <span className="muted saves-location-meta">Not created yet</span>
+              ) : null}
+              <button
+                className="ghost-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || !info?.gameSavePathExists}
+                onClick={() => openFolder('game')}
+              >
+                Open
+              </button>
+            </div>
+          </div>
+
+          <div className="folder-field saves-location-field">
+            <span className="filter-label">AppData backup</span>
+            <div className="folder-path-row">
+              <input
+                className="folder-path"
+                readOnly
+                value={info?.backupPath ?? ''}
+                placeholder={busy && !info ? 'Reading…' : 'No backup folder yet'}
+                title={info?.backupPath || undefined}
+              />
+              {info?.backupPath && (info.backupPathExists || saves.length) ? (
+                <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
+              ) : null}
+              <button
+                className="ghost-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || !info?.backupPath}
+                onClick={() => openFolder('backup')}
+              >
+                Open
+              </button>
+            </div>
+          </div>
+        </div>
 
         {busy && !info ? (
           <p className="muted">Syncing save folders…</p>

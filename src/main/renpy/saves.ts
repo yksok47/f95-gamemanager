@@ -1,17 +1,17 @@
 import { readdir, readFile, rename, rm, stat } from 'fs/promises'
-import { basename, dirname, join, resolve, sep } from 'path'
-import { app, shell } from 'electron'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { engineKind } from '@shared/engines'
 import type { RenpyInfo, RenpySaveFile, RenpySaveKind, RenpyToolId, UnRenAction } from '@shared/types'
-import { cleanThreadTitle } from '../f95/parse'
 import { getGameFile, setRenpySaveDirectory } from '../game-files-store'
 import { findRenpyGameRoot } from '../launch'
 import { folderBytes } from '../disk-usage'
-import { childPath, listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
+import { listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
 import { findNamedFiles, gameDirFromRoot, scanScripts } from './scan'
 import { EMPTY_OPTIONS, readRenpyOptions, setAllRenpyOptions, setRenpyOption } from './options'
 import { removeLegacyUnrenTools } from './tools'
 import { attachSaveMeta, invalidateSaveMeta } from './save-meta'
+import { matchRenpySaveFolder } from './save-folder-match'
 import { getLastUnRenRun, replayUnRenStatus, runUnRen } from './unren'
 
 export function renpySavesRoot(): string {
@@ -45,33 +45,39 @@ async function parseOptions(optionsPath: string): Promise<{ saveDirectory: strin
   }
 }
 
-function normalizeKey(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
-}
-
-function matchSaveFolder(title: string): string | null {
+function listRenpySaveFolderNames(): string[] {
   const root = renpySavesRoot()
-  if (!pathExists(root)) return null
-  const needle = normalizeKey(title)
-  if (needle.length < 4) return null
-  const matches = listDirents(root)
+  if (!pathExists(root)) return []
+  return listDirents(root)
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
-    .filter((name) => {
-      const key = normalizeKey(name)
-      return key.includes(needle.slice(0, 16)) || needle.includes(key.slice(0, 16))
-    })
-  if (matches.length === 1) return matches[0]
-  const withSaves = matches.filter((name) => {
-    const dir = childPath(root, name)
-    return listDirents(dir).some((entry) => entry.isFile())
-  })
-  return withSaves.length === 1 ? withSaves[0] : null
 }
 
 function fuzzySaveDirectory(title: string): string | null {
   if (!title.trim()) return null
-  return matchSaveFolder(title) ?? matchSaveFolder(cleanThreadTitle(title))
+  return matchRenpySaveFolder(title, listRenpySaveFolderNames())
+}
+
+function isInsidePath(target: string, root: string): boolean {
+  const resolved = resolve(target)
+  const base = resolve(root)
+  return resolved === base || resolved.startsWith(base + sep)
+}
+
+/** Persist either a RenPy-relative folder name, or an absolute path outside RenPy. */
+function normalizeChosenSaveDirectory(chosenPath: string): string {
+  const chosen = resolve(chosenPath)
+  if (!pathExists(chosen)) throw new Error('That folder does not exist.')
+  const root = resolve(renpySavesRoot())
+  if (chosen === root) throw new Error("Pick a save folder inside the Ren'Py saves directory, not the root.")
+  if (isInsidePath(chosen, root)) {
+    const rel = relative(root, chosen)
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+      throw new Error("Could not resolve that folder under the Ren'Py saves directory.")
+    }
+    return rel
+  }
+  return chosen
 }
 
 
@@ -230,7 +236,10 @@ async function listSaves(savePath: string): Promise<RenpySaveFile[]> {
 }
 
 function resolveSavePath(gameRoot: string | null, saveDirectory: string | null): string | null {
-  if (saveDirectory) return join(renpySavesRoot(), saveDirectory)
+  if (saveDirectory) {
+    if (isAbsolute(saveDirectory)) return saveDirectory
+    return join(renpySavesRoot(), saveDirectory)
+  }
   if (gameRoot) return join(gameDirFromRoot(gameRoot), 'saves')
   return null
 }
@@ -359,7 +368,7 @@ function saveMessage(
     return undefined
   }
   if (!gameRoot) {
-    return "No matching save folder was found in the Ren'Py saves directory."
+    return "No matching save folder was found in the Ren'Py saves directory. Use Set location to pick it manually."
   }
   if (scripts?.packed && !scripts.unpacked) {
     return 'Scripts are still packed in .rpa archives. Use the UnRen tab to extract them, then decompile if needed.'
@@ -367,7 +376,7 @@ function saveMessage(
   if (scripts?.compiled && !scripts.optionsRpy) {
     return 'options.rpy is still compiled. Use the UnRen tab to decompile scripts.'
   }
-  return 'Save folder is not known yet. Extract/decompile on the UnRen tab if options.rpy is packed.'
+  return "Save folder is not known yet. Use Set location, or extract/decompile on the UnRen tab if options.rpy is packed."
 }
 
 export async function getRenpyInfo(fileId: string, prepare = false, title = ''): Promise<RenpyInfo> {
@@ -432,6 +441,42 @@ export async function openRenpySaves(fileId: string, title = ''): Promise<void> 
   if (!pathExists(target)) throw new Error('The save folder does not exist yet.')
   const error = await shell.openPath(target)
   if (error) throw new Error(error)
+}
+
+export async function chooseRenpySaveDirectory(
+  fileId: string,
+  title = '',
+  parent?: BrowserWindow | null
+): Promise<RenpyInfo> {
+  const lookup = await loadSaveLookup(fileId, title)
+  if (!lookup.file) throw new Error('Add this game to your library before assigning a save folder.')
+
+  const current = lookup.file.renpySaveDirectory
+  const defaultPath =
+    current && resolveSavePath(lookup.gameRoot, current)
+      ? resolveSavePath(lookup.gameRoot, current)!
+      : renpySavesRoot()
+
+  const options: Electron.OpenDialogOptions = {
+    title: "Choose Ren'Py save folder",
+    defaultPath: pathExists(defaultPath) ? defaultPath : renpySavesRoot(),
+    properties: ['openDirectory']
+  }
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options)
+  if (result.canceled || !result.filePaths[0]) return getRenpyInfo(fileId, false, title)
+
+  const saveDirectory = normalizeChosenSaveDirectory(result.filePaths[0])
+  await setRenpySaveDirectory(lookup.file.id, saveDirectory)
+  return getRenpyInfo(fileId, false, title)
+}
+
+export async function clearRenpySaveDirectory(fileId: string, title = ''): Promise<RenpyInfo> {
+  const lookup = await loadSaveLookup(fileId, title)
+  if (!lookup.file) throw new Error('Add this game to your library before changing the save folder.')
+  await setRenpySaveDirectory(lookup.file.id, undefined)
+  return getRenpyInfo(fileId, false, title)
 }
 
 export async function showRenpySave(fileId: string, savePath: string, title = ''): Promise<void> {

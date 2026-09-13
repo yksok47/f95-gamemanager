@@ -50,6 +50,8 @@ import {
   showRpgMakerSave
 } from './rpgmaker/saves'
 import {
+  chooseRenpySaveDirectory,
+  clearRenpySaveDirectory,
   deleteRenpySave,
   deleteRenpySaves,
   getRenpyInfo,
@@ -537,6 +539,26 @@ export function registerIpc(): void {
   ipcMain.handle('renpy:openSaves', async (_event, id: string, title?: string) => {
     try {
       await openRenpySaves(String(id || ''), String(title || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('renpy:chooseSaveDirectory', async (event, id: string, title?: string) => {
+    try {
+      return await chooseRenpySaveDirectory(
+        String(id || ''),
+        String(title || ''),
+        BrowserWindow.fromWebContents(event.sender)
+      )
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('renpy:clearSaveDirectory', async (_event, id: string, title?: string) => {
+    try {
+      return await clearRenpySaveDirectory(String(id || ''), String(title || ''))
     } catch (error) {
       throw toIpcError(error)
     }
