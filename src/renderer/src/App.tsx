@@ -182,6 +182,10 @@ export default function App(): JSX.Element {
     setDownloads(await window.api.downloads.reject(id))
   }, [])
 
+  const handleFlagDownload = useCallback(async (id: string): Promise<void> => {
+    setDownloads(await window.api.downloads.flag(id))
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void window.api.p2p.progress().then((items) => {
@@ -418,6 +422,7 @@ export default function App(): JSX.Element {
           onOpenFolder={() => void window.api.downloads.openFolder()}
           onApproveDownload={(id, tags) => void handleApproveDownload(id, tags)}
           onRejectDownload={(id) => void handleRejectDownload(id)}
+          onFlagDownload={(id) => void handleFlagDownload(id)}
           onPauseP2p={(id) => void handlePauseP2p(id)}
           onResumeP2p={(id) => void handleResumeP2p(id)}
           onStopP2p={(id) => void handleStopP2p(id)}

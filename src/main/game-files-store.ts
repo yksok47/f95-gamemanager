@@ -3,15 +3,28 @@ import { basename, dirname, join, resolve, sep } from 'path'
 import type { BrowserWindow } from 'electron'
 import { shell } from 'electron'
 import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
-import type { GameFileContext, GameLibraryFile } from '@shared/types'
-import { asPackageTagHint, isInstallableLibraryPackage } from '@shared/types'
+import type { GameFileContext, GameLibraryFile, InstalledPatchRef } from '@shared/types'
+import {
+  asPackageTagHint,
+  gameHasInstalledPatch,
+  isInstallableLibraryPackage,
+  isRenpyUncensorPackage
+} from '@shared/types'
 import { folderBytes } from './disk-usage'
 import { extractArchive } from './extract'
-import { sanitizeSegment } from './fs-utils'
-import { detectEngineFromInstall, detectExecutable, launchExecutable, pickExecutable } from './launch'
+import { isArchivePath, sanitizeSegment } from './fs-utils'
+import {
+  detectEngineFromInstall,
+  detectExecutable,
+  findRenpyGameRoot,
+  launchExecutable,
+  pickExecutable
+} from './launch'
 import { getAppPaths } from './paths'
 import { startPlaySession, getPlaySession, stopPlaySession } from './play-sessions'
 import { listProcessExecutables, killProcessesUnder, pathIsInside } from './processes'
+import { gameDirFromRoot } from './renpy/scan'
+import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyScriptPath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
 import { getDownloadsDirSync, getLibraryDirSync } from './settings-store'
 import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { uniqueScreenUrls } from './f95/catalog'
@@ -19,7 +32,11 @@ import { lookupGame } from './f95/lookup'
 import { listSubscriptions, recordSubscriptionPlay } from './subscriptions-store'
 import { pathExists, resolveLongPath, toFsPath } from './win-path'
 import { sendToRenderer } from './windows'
-import { pauseTorrentsForArchive, teardownP2pForContentHash } from './p2p/webtorrent-service'
+import {
+  pauseTorrentsForArchive,
+  resumeTorrentsByIds,
+  teardownP2pForContentHash
+} from './p2p/webtorrent-service'
 import { removeTorrentMapEntry } from './p2p/torrent-map-store'
 
 type StoredGameFile = Omit<
@@ -348,6 +365,8 @@ function present(file: StoredGameFile): GameLibraryFile {
     timestamp: file.timestamp || 0,
     updatedAt: file.updatedAt || '',
     renpySaveDirectory: file.renpySaveDirectory,
+    installedPatches: Array.isArray(file.installedPatches) ? file.installedPatches : undefined,
+    uncensorInstallable: file.uncensorInstallable,
     screens: uniqueScreenUrls(file.screens),
     packageTags: asPackageTagHint(file.packageTags)
   }
@@ -375,6 +394,9 @@ async function readStore(): Promise<StoredGameFile[]> {
       timestamp: Number(file.timestamp) || 0,
       updatedAt: file.updatedAt || '',
       renpySaveDirectory: file.renpySaveDirectory,
+      installedPatches: normalizeInstalledPatches(file.installedPatches),
+      uncensorInstallable:
+        typeof file.uncensorInstallable === 'boolean' ? file.uncensorInstallable : undefined,
       screens: uniqueScreenUrls(file.screens),
       packageTags: asPackageTagHint(file.packageTags)
     }))
@@ -382,6 +404,23 @@ async function readStore(): Promise<StoredGameFile[]> {
     loaded = []
   }
   return loaded
+}
+
+function normalizeInstalledPatches(raw: unknown): InstalledPatchRef[] | undefined {
+  if (!Array.isArray(raw) || !raw.length) return undefined
+  const patches: InstalledPatchRef[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Partial<InstalledPatchRef>
+    const patchId = String(row.patchId || '')
+    const hash = String(row.hash || '')
+    const filename = String(row.filename || '')
+    const installedAt = Number(row.installedAt) || 0
+    const uninstallSlot = row.uninstallSlot ? String(row.uninstallSlot) : undefined
+    if (!patchId && !hash) continue
+    patches.push({ patchId, hash, filename, installedAt, uninstallSlot })
+  }
+  return patches.length ? patches : undefined
 }
 
 async function writeStore(files: StoredGameFile[]): Promise<void> {
@@ -428,6 +467,7 @@ export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[
   let changed = await hydrateLaunchInfo(files)
   if (propagateThreadMetadata(files)) changed = true
   if (await syncMetadataFromSubscriptions(files)) changed = true
+  if (await hydrateUncensorInstallableFlags(files)) changed = true
   if (changed) {
     await writeStore(files)
     broadcast()
@@ -440,6 +480,34 @@ export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[
   void hydrateSparseLibraryFiles(kept)
   const visible = threadId ? kept.filter((file) => file.threadId === threadId) : kept
   return visible.map(present).sort((a, b) => b.downloadedAt - a.downloadedAt)
+}
+
+async function hydrateUncensorInstallableFlags(files: StoredGameFile[]): Promise<boolean> {
+  let changed = false
+  for (const file of files) {
+    if (!isRenpyUncensorPackage(file.packageTags)) {
+      if (file.uncensorInstallable !== undefined) {
+        delete file.uncensorInstallable
+        changed = true
+      }
+      continue
+    }
+    if (!file.archivePath || !pathExists(file.archivePath)) {
+      if (file.uncensorInstallable !== false) {
+        file.uncensorInstallable = false
+        changed = true
+      }
+      continue
+    }
+    if (typeof file.uncensorInstallable === 'boolean') continue
+    try {
+      file.uncensorInstallable = await isUncensorPatchInstallable(file.archivePath)
+    } catch {
+      file.uncensorInstallable = false
+    }
+    changed = true
+  }
+  return changed
 }
 
 export async function gameDiskUsage(threadId: number): Promise<{ archiveBytes: number; installBytes: number }> {
@@ -472,9 +540,15 @@ export async function addGameFileFromDownload(
     existing.archivePath = archivePath
     existing.filename = basename(archivePath)
     existing.size = size
-    existing.version = context.version || existing.version
+    // Approved package tags win; otherwise keep prior version when context omits one.
+    if (packageTags) {
+      existing.packageTags = packageTags
+      existing.version = packageTags.version
+    } else if (context.version) {
+      existing.version = context.version
+    }
     existing.engine = normalizeEngine(context.engine) || existing.engine || ''
-    if (packageTags) existing.packageTags = packageTags
+    existing.uncensorInstallable = undefined
     applyMetaToFile(existing, meta)
     applyMetaToThread(files, meta)
     await writeStore(files)
@@ -486,7 +560,7 @@ export async function addGameFileFromDownload(
     id: nextId(),
     threadId: context.threadId,
     title: context.title || meta.title || 'Unknown',
-    version: context.version || 'Unknown',
+    version: packageTags ? packageTags.version : context.version || '',
     engine: normalizeEngine(context.engine) || normalizeEngine(meta.engine),
     filename: basename(archivePath),
     archivePath,
@@ -572,7 +646,7 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     throw new Error('That archive is already being installed.')
   }
 
-  await pauseTorrentsForArchive(file.archivePath, file.hash)
+  const pausedTorrentIds = await pauseTorrentsForArchive(file.archivePath, file.hash)
 
   const dest = installDest(file)
   installing.set(id, { percent: 0 })
@@ -590,6 +664,7 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     file.installPath = dest
     file.installedAt = Date.now()
     file.installError = undefined
+    file.installedPatches = undefined
     applyEngineHint(file, engineHint, dest)
     file.executablePath = detectExecutable(dest, file.engine)
     await writeStore(files)
@@ -604,6 +679,194 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     await writeStore(files)
     broadcast()
     throw new Error(message)
+  } finally {
+    await resumeTorrentsByIds(pausedTorrentIds)
+  }
+}
+
+function patchSourceReady(file: StoredGameFile): boolean {
+  return Boolean(file.archivePath && pathExists(file.archivePath))
+}
+
+function isRenpyInstalledGame(file: StoredGameFile): boolean {
+  if (!file.installPath || !pathExists(file.installPath)) return false
+  if (!isInstallableLibraryPackage(file.packageTags)) return false
+  if (engineKind(file.engine) === 'renpy') return true
+  return Boolean(findRenpyGameRoot(file.installPath))
+}
+
+/** Installed Ren'Py game versions on the same thread that do not already have this patch. */
+export function listUncensorPatchTargets(
+  files: GameLibraryFile[],
+  patch: GameLibraryFile
+): GameLibraryFile[] {
+  if (!isRenpyUncensorPackage(patch.packageTags)) return []
+  return files
+    .filter((file) => {
+      if (file.threadId !== patch.threadId) return false
+      if (!file.isInstalled || !isInstallableLibraryPackage(file.packageTags)) return false
+      const kind = engineKind(file.engine)
+      if (kind && kind !== 'renpy') return false
+      return !gameHasInstalledPatch(file, patch)
+    })
+    .sort((a, b) => {
+      const versions = compareGameVersions(a.version, b.version)
+      if (versions) return versions
+      return (a.installedAt || 0) - (b.installedAt || 0)
+    })
+}
+
+/**
+ * Best-effort apply a Ren'Py uncensor patch into an installed game's `/game` folder.
+ * Records the patch on the target game; cleared when that game is uninstalled.
+ */
+export async function installUncensorPatch(
+  patchId: string,
+  targetFileId: string
+): Promise<GameLibraryFile> {
+  const files = await readStore()
+  const patch = files.find((item) => item.id === patchId)
+  if (!patch) throw new Error('That uncensor patch is not in the library.')
+  if (!isRenpyUncensorPackage(patch.packageTags)) {
+    throw new Error('Only uncensor patches can be installed this way.')
+  }
+  if (!patchSourceReady(patch)) {
+    throw new Error('The uncensor patch file is missing from disk.')
+  }
+  const sourcePath = patch.archivePath
+  if (!isArchivePath(sourcePath) && !isRenpyScriptPath(sourcePath)) {
+    throw new Error('Uncensor patches must be a .rpy/.rpyc file or a zip/7z/rar archive.')
+  }
+  if (installing.has(patchId) || installing.has(targetFileId)) {
+    throw new Error('An install is already in progress for that file.')
+  }
+
+  const target = files.find((item) => item.id === targetFileId)
+  if (!target) throw new Error('That game version is not in the library.')
+  if (target.threadId !== patch.threadId) {
+    throw new Error('That uncensor patch belongs to a different game.')
+  }
+  if (!isRenpyInstalledGame(target)) {
+    throw new Error('Install a Ren\'Py game version first, then apply the uncensor patch.')
+  }
+  if (gameHasInstalledPatch(target, patch)) {
+    throw new Error('That uncensor patch is already installed on this game version.')
+  }
+
+  const gameRoot = findRenpyGameRoot(target.installPath || '')
+  if (!gameRoot) {
+    throw new Error('Could not find the Ren\'Py game folder for that install.')
+  }
+  const targetGameDir = gameDirFromRoot(gameRoot)
+  const tempParent = join(getLibraryDirSync(), '.tmp-patches')
+
+  const pausedTorrentIds = await pauseTorrentsForArchive(sourcePath, patch.hash)
+
+  installing.set(patchId, { percent: 0 })
+  broadcast()
+
+  try {
+    const installable = await isUncensorPatchInstallable(sourcePath)
+    if (!installable) {
+      throw new Error('That file is not a supported Ren\'Py uncensor patch layout.')
+    }
+    const meta = {
+      patchId: patch.id,
+      hash: patch.hash,
+      filename: patch.filename || basename(sourcePath)
+    }
+    const applied = await applyUncensorPatchToGameDir(
+      sourcePath,
+      targetGameDir,
+      tempParent,
+      meta,
+      (percent) => {
+        installing.set(patchId, { percent })
+        broadcast()
+      }
+    )
+
+    const entry: InstalledPatchRef = {
+      patchId: patch.id,
+      hash: patch.hash,
+      filename: patch.filename || basename(sourcePath),
+      installedAt: Date.now(),
+      uninstallSlot: applied.uninstallSlot || getUncensorUninstallSlot(meta)
+    }
+    const existing = target.installedPatches ?? []
+    target.installedPatches = [
+      ...existing.filter((item) => item.patchId !== entry.patchId && item.hash !== entry.hash),
+      entry
+    ]
+    if (!target.engine) target.engine = "Ren'Py"
+    patch.installError = undefined
+    patch.uncensorInstallable = true
+    await writeStore(files)
+    installing.delete(patchId)
+    broadcast()
+    return present(target)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not install that uncensor patch.'
+    installing.delete(patchId)
+    patch.installError = message
+    await writeStore(files)
+    broadcast()
+    throw new Error(message)
+  } finally {
+    await resumeTorrentsByIds(pausedTorrentIds)
+  }
+}
+
+/**
+ * Remove an applied uncensor patch from an installed game using on-disk `.uninstall` instructions.
+ * Works even if the original patch archive was removed from the library.
+ */
+export async function uninstallUncensorPatch(
+  gameFileId: string,
+  patchRef: { patchId?: string; hash?: string; uninstallSlot?: string }
+): Promise<GameLibraryFile> {
+  const { files, file: target } = await getFile(gameFileId)
+  if (!isRenpyInstalledGame(target)) {
+    throw new Error('That Ren\'Py game version is not installed.')
+  }
+  if (installing.has(gameFileId)) {
+    throw new Error('That game is busy with another install.')
+  }
+
+  const gameRoot = findRenpyGameRoot(target.installPath || '')
+  if (!gameRoot) {
+    throw new Error('Could not find the Ren\'Py game folder for that install.')
+  }
+  const targetGameDir = gameDirFromRoot(gameRoot)
+
+  const match = {
+    patchId: patchRef.patchId || '',
+    hash: patchRef.hash || '',
+    uninstallSlot: patchRef.uninstallSlot
+  }
+  if (!match.patchId && !match.hash && !match.uninstallSlot) {
+    throw new Error('Which uncensor patch should be removed?')
+  }
+
+  installing.set(gameFileId, { percent: 5 })
+  broadcast()
+  try {
+    await removeUncensorPatchFromGameDir(targetGameDir, match)
+    target.installedPatches = (target.installedPatches ?? []).filter((item) => {
+      if (match.uninstallSlot && item.uninstallSlot === match.uninstallSlot) return false
+      if (match.hash && item.hash && item.hash === match.hash) return false
+      if (match.patchId && item.patchId && item.patchId === match.patchId) return false
+      return true
+    })
+    if (!target.installedPatches.length) target.installedPatches = undefined
+    await writeStore(files)
+    installing.delete(gameFileId)
+    broadcast()
+    return present(target)
+  } catch (error) {
+    installing.delete(gameFileId)
+    broadcast()
+    throw error instanceof Error ? error : new Error(String(error))
   }
 }
 
@@ -805,6 +1068,7 @@ export async function uninstallGameFile(id: string): Promise<GameLibraryFile> {
   file.installedAt = null
   file.executablePath = null
   file.installError = undefined
+  file.installedPatches = undefined
   if (fileStillPresent(file)) await writeStore(files)
   else await writeStore(files.filter((item) => item.id !== id))
   broadcast()

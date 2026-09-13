@@ -14,6 +14,7 @@ import {
   approveDownload,
   cancelDownload,
   clearFinishedDownloads,
+  flagDownload,
   listDownloads,
   openDownload,
   openDownloadsFolder,
@@ -33,6 +34,8 @@ import {
   applyCatalogScreens as applyLibraryCatalogScreens,
   chooseGameExecutable,
   installGameFile,
+  installUncensorPatch,
+  uninstallUncensorPatch,
   listGameFiles,
   gameDiskUsage,
   metadataFromSubscription,
@@ -418,6 +421,14 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('downloads:flag', async (_event, id: string, note?: string) => {
+    try {
+      return await flagDownload(String(id || ''), note ? String(note) : undefined)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('library:list', async (_event, threadId?: number) => {
     try {
       return await listGameFiles(typeof threadId === 'number' ? threadId : undefined)
@@ -441,6 +452,29 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle('library:installUncensorPatch', async (_event, patchId: string, targetFileId: string) => {
+    try {
+      return await installUncensorPatch(String(patchId), String(targetFileId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'library:uninstallUncensorPatch',
+    async (
+      _event,
+      gameFileId: string,
+      patchRef: { patchId?: string; hash?: string; uninstallSlot?: string }
+    ) => {
+      try {
+        return await uninstallUncensorPatch(String(gameFileId), patchRef || {})
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
 
   ipcMain.handle('library:showArchive', async (_event, id: string) => {
     try {

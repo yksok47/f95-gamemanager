@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, statSync, unlink } from 'fs'
-import { extname, join } from 'path'
+import { copyFile, rename, unlink as unlinkAsync } from 'fs/promises'
+import { basename, dirname, extname, join } from 'path'
 import { session, shell } from 'electron'
 import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
 import type {
@@ -19,7 +20,11 @@ import { isArchivePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload } from './open-url'
-import { getDownloadsDirSync, getMetadataApiEnabledSync } from './settings-store'
+import {
+  getDownloadsDirSync,
+  getMetadataApiEnabledSync,
+  getUntrustedDownloadsDirSync
+} from './settings-store'
 import { sendToRenderer } from './windows'
 
 type TrackedDownload = {
@@ -98,8 +103,14 @@ function toRecord(entry: TrackedDownload): DownloadRecord {
   }
 }
 
+function downloadRecency(item: DownloadRecord): number {
+  return item.finishedAt ?? item.updatedAt ?? item.startedAt
+}
+
 function listRecords(): DownloadRecord[] {
-  return [...tracked.values()].map(toRecord).sort((a, b) => b.startedAt - a.startedAt)
+  return [...tracked.values()]
+    .map(toRecord)
+    .sort((a, b) => downloadRecency(b) - downloadRecency(a) || b.startedAt - a.startedAt)
 }
 
 function historyFingerprint(items: DownloadRecord[]): string {
@@ -113,7 +124,8 @@ function historyFingerprint(items: DownloadRecord[]): string {
         hash: item.hash,
         libraryStatus: item.libraryStatus,
         packageHint: item.packageHint,
-        updatedAt: item.updatedAt
+        updatedAt: item.updatedAt,
+        finishedAt: item.finishedAt
       }))
   )
 }
@@ -227,13 +239,36 @@ function nextId(): string {
 }
 
 export function applyConfiguredDownloadPath(): void {
-  const dir = getDownloadsDirSync()
+  // Match P2P: land in untrusted quarantine until Approve moves the file.
+  const dir = getUntrustedDownloadsDirSync()
   try {
     mkdirSync(dir, { recursive: true })
     session.defaultSession.setDownloadPath(dir)
   } catch (error) {
     console.warn('Could not set downloads folder', error)
   }
+}
+
+function pathsEqual(a: string, b: string): boolean {
+  return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
+}
+
+/** Move a reviewed file out of untrusted into the trusted downloads folder. */
+async function promoteFromUntrusted(src: string): Promise<string> {
+  const untrustedDir = getUntrustedDownloadsDirSync()
+  if (!pathsEqual(dirname(src), untrustedDir)) return src
+
+  const trustedDir = getDownloadsDirSync()
+  mkdirSync(trustedDir, { recursive: true })
+  const dest = uniquePath(trustedDir, basename(src))
+  try {
+    await rename(src, dest)
+  } catch {
+    // cross-device fallback (same pattern as P2P quarantine approve)
+    await copyFile(src, dest)
+    await unlinkAsync(src)
+  }
+  return dest
 }
 
 export function listDownloads(): DownloadRecord[] {
@@ -464,18 +499,23 @@ export async function approveDownload(
   if (!hash) throw new Error('Missing content hash — wait for hashing to finish.')
 
   const normalizedTags = normalizePackageInstallTags(tags)
+  // Library metadata must match the approval dialog exactly — no thread/game fallbacks.
   const nextContext: GameFileContext = {
     ...context,
-    version: normalizedTags.version || context.version,
+    version: normalizedTags.version,
     packageHint: {
       os: normalizedTags.os,
       contentKind: normalizedTags.contentKind,
       version: normalizedTags.version
     }
   }
-  const size = existsSync(entry.savePath) ? statSync(entry.savePath).size : entry.receivedBytes
 
-  await addGameFileFromDownload(nextContext, entry.savePath, hash, size)
+  const trustedPath = await promoteFromUntrusted(entry.savePath)
+  entry.savePath = trustedPath
+  entry.filename = basename(trustedPath)
+  const size = existsSync(trustedPath) ? statSync(trustedPath).size : entry.receivedBytes
+
+  await addGameFileFromDownload(nextContext, trustedPath, hash, size)
   entry.context = nextContext
   entry.libraryStatus = 'indexed'
   entry.updatedAt = Date.now()
@@ -484,7 +524,7 @@ export async function approveDownload(
   void import('./p2p/controller')
     .then(({ onLibraryPackageAdded }) =>
       onLibraryPackageAdded({
-        filePath: entry.savePath,
+        filePath: trustedPath,
         contentHash: hash,
         gameName: nextContext.title,
         gameVersion: normalizedTags.version,
@@ -520,17 +560,41 @@ export async function rejectDownload(id: string): Promise<DownloadRecord[]> {
   return listRecords()
 }
 
+/** Reject a pending HTTP download and report the content hash as harmful. */
+export async function flagDownload(
+  id: string,
+  note?: string
+): Promise<DownloadRecord[]> {
+  const entry = tracked.get(id)
+  if (!entry) return listRecords()
+  if (entry.status !== 'completed') throw new Error('That file is not finished yet.')
+  if (entry.libraryStatus !== 'pendingReview') {
+    throw new Error('That download is not waiting for approval.')
+  }
+  const contentHash = entry.hash?.trim().toLowerCase()
+  if (!contentHash) throw new Error('Missing content hash — wait for hashing to finish.')
+
+  const records = await rejectDownload(id)
+  try {
+    const { flagPackageAs } = await import('./p2p/controller')
+    await flagPackageAs(contentHash, 'harmful', note)
+  } catch (error) {
+    console.warn('[downloads] harmful flag after reject failed', error)
+  }
+  return records
+}
+
 export function registerDownloadHandler(): void {
   applyConfiguredDownloadPath()
   void restoreDownloadHistory().catch((error) => {
     console.warn('Could not restore download history', error)
   })
   session.defaultSession.on('will-download', (_event, item, webContents) => {
-    const dir = getDownloadsDirSync()
+    const dir = getUntrustedDownloadsDirSync()
     try {
       mkdirSync(dir, { recursive: true })
     } catch (error) {
-      console.warn('Could not create downloads folder', error)
+      console.warn('Could not create untrusted downloads folder', error)
     }
     const filename = item.getFilename() || 'download'
     item.setSavePath(uniquePath(dir, filename))

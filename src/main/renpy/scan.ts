@@ -5,7 +5,7 @@ import { childPath, listDirents, pathExists, resolveLongPath, toFsPath } from '.
 import { findGamePython } from './runtime'
 import { isRenpyToolScript } from './tools'
 
-const SKIP_DIRS = new Set(['lib', 'renpy', 'cache', '__pycache__', 'tmp', 'temp', 'decompiler', '.f95-unren', '.f95-unren-old'])
+const SKIP_DIRS = new Set(['lib', 'renpy', 'cache', '__pycache__', 'tmp', 'temp', 'decompiler', '.f95-unren', '.f95-unren-old', '.uninstall'])
 
 export function gameDirFromRoot(gameRoot: string): string {
   return childPath(gameRoot, 'game')

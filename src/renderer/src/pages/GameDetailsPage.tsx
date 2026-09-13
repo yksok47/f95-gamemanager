@@ -11,6 +11,7 @@ import type {
   GameLibraryFile,
   GameRarity,
   GameSummary,
+  InstalledPatchRef,
   PackageTagHint,
   ThreadDetails,
   ThreadReview
@@ -24,7 +25,9 @@ import {
   OS_KIND_IDS,
   OS_KIND_LABELS,
   TAG_TIER_RANK,
+  contentKindRequiresVersion,
   isInstallableLibraryPackage,
+  isRenpyUncensorPackage,
   type ContentKind,
   type ContentKindId
 } from '@shared/types'
@@ -40,6 +43,8 @@ import GameP2pSection from '../components/GameP2pSection'
 import P2pTransferRow from '../components/P2pTransferRow'
 import { confirm } from '../components/ConfirmDialog'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
+import UncensorInstallButton from '../components/UncensorInstallButton'
+import UncensorRemoveButton from '../components/UncensorRemoveButton'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
@@ -48,6 +53,7 @@ import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { favoriteTierByName, isHatedTagName } from '../lib/favorites'
 import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
+import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { RefreshIcon } from '../components/ToolbarIcons'
@@ -168,9 +174,13 @@ function countDownloadMirrors(sections: DownloadSection[]): number {
 function packageHintFromEntry(entry: DownloadEntry, fallbackVersion: string): PackageTagHint | undefined {
   const os = [...new Set(entry.systems.map((system) => OS_KIND_IDS[system]))].sort((a, b) => a - b)
   const contentKind = CONTENT_KIND_IDS[entry.contentType]
-  const version = (entry.version || fallbackVersion || '').trim()
   if (!Number.isFinite(contentKind)) return undefined
-  if (!os.length && !version) return undefined
+  // Only invent a version prefill when the kind requires one; optional kinds stay blank.
+  // Always keep contentKind even when OS/version are empty (e.g. uncensor with no metadata).
+  const fromEntry = (entry.version || '').trim()
+  const version =
+    fromEntry ||
+    (contentKindRequiresVersion(contentKind) ? (fallbackVersion || '').trim() : '')
   return { os, contentKind, version }
 }
 
@@ -1010,10 +1020,16 @@ export default function GameDetailsPage({
 
   async function openUrl(url: string, entry?: DownloadEntry): Promise<void> {
     const packageHint = entry ? packageHintFromEntry(entry, version) : undefined
+    const entryVersion = (entry?.version || '').trim()
+    const requiresVersion =
+      entry != null && contentKindRequiresVersion(CONTENT_KIND_IDS[entry.contentType])
+    const contextVersion = entry
+      ? entryVersion || (requiresVersion ? version : '')
+      : version
     await window.api.shell.open(url, {
       threadId: summary.threadId,
       title,
-      version: entry?.version || version,
+      version: contextVersion,
       engine,
       creator,
       coverUrl: coverUrl || summary.coverUrl,
@@ -1036,6 +1052,10 @@ export default function GameDetailsPage({
 
   async function rejectTransfer(id: string): Promise<void> {
     setTransfers(await window.api.downloads.reject(id))
+  }
+
+  async function flagTransfer(id: string): Promise<void> {
+    setTransfers(await window.api.downloads.flag(id))
   }
 
   async function pauseP2pTransfer(id: string): Promise<void> {
@@ -1078,6 +1098,28 @@ export default function GameDetailsPage({
       await window.api.library.install(id, engine)
     } catch (err) {
       setInstallError(err instanceof Error ? err.message : 'Could not install that archive.')
+    }
+  }
+
+  async function installUncensorPatch(patchId: string, targetFileId: string): Promise<void> {
+    setInstallError(null)
+    try {
+      await window.api.library.installUncensorPatch(patchId, targetFileId)
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : 'Could not install that uncensor patch.')
+    }
+  }
+
+  async function uninstallUncensorPatch(gameFileId: string, patch: InstalledPatchRef): Promise<void> {
+    setInstallError(null)
+    try {
+      await window.api.library.uninstallUncensorPatch(gameFileId, {
+        patchId: patch.patchId,
+        hash: patch.hash,
+        uninstallSlot: patch.uninstallSlot
+      })
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : 'Could not remove that uncensor patch.')
     }
   }
 
@@ -1512,6 +1554,7 @@ export default function GameDetailsPage({
                   onOpenFile={(id) => void window.api.downloads.openFile(id)}
                   onApprove={(id, tags) => void approveTransfer(id, tags)}
                   onReject={(id) => void rejectTransfer(id)}
+                  onFlag={(id) => void flagTransfer(id)}
                 />
               ))}
               {gameP2pTransfers.map((item) => (
@@ -1678,21 +1721,51 @@ export default function GameDetailsPage({
                     {section.items.map((file) => {
                       const canInstall =
                         file.hasArchive && isInstallableLibraryPackage(file.packageTags)
+                      const isUncensor = isRenpyUncensorPackage(file.packageTags)
+                      const canInstallUncensor =
+                        isUncensor && file.hasArchive && file.uncensorInstallable === true
+                      const uncensorTargets = canInstallUncensor
+                        ? listUncensorPatchTargets(files, file)
+                        : []
+                      const uncensorInstalledOn = isUncensor
+                        ? gamesWithPatchInstalled(files, file)
+                        : []
                       const tags = file.packageTags
+                      // Approved tags are authoritative; never fall back to thread/game version.
+                      const approvedVersion = tags
+                        ? tags.version.trim()
+                        : (file.version || '').trim()
                       return (
                         <article key={file.id} className="library-file">
                           <div className="library-file-main">
-                            <strong title={file.archivePath || file.filename}>{file.filename}</strong>
-                            <p className="muted library-file-meta">
-                              Version {file.version || 'Unknown'}
-                              {' · '}
-                              {file.engine || engine || 'Unknown engine'}
-                              {file.hash ? ` · ${file.hash.slice(0, 12)}` : ''}
-                              {file.lastPlayedAt
-                                ? ` · Last played ${formatRelativeTime(file.lastPlayedAt)}`
-                                : ''}
-                              {file.playtimeMs ? ` · ${formatPlaytime(file.playtimeMs)}` : ''}
-                            </p>
+                            <strong title={file.archivePath || file.filename}>
+                              {approvedVersion || file.filename}
+                            </strong>
+                            {approvedVersion ? (
+                              <p
+                                className="muted library-file-meta"
+                                title={file.archivePath || file.filename}
+                              >
+                                {file.filename}
+                              </p>
+                            ) : null}
+                            {file.lastPlayedAt || file.playtimeMs || file.isInstalled ? (
+                              <p className="muted library-file-meta">
+                                {[
+                                  file.lastPlayedAt
+                                    ? `Last played ${formatRelativeTime(file.lastPlayedAt)}`
+                                    : null,
+                                  file.playtimeMs ? formatPlaytime(file.playtimeMs) : null,
+                                  file.isInstalled
+                                    ? file.executablePath
+                                      ? `Launch: ${fileName(file.executablePath)}`
+                                      : 'No executable selected'
+                                    : null
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </p>
+                            ) : null}
                             {tags ? (
                               <PackageMetaTags
                                 consensus={{
@@ -1701,31 +1774,40 @@ export default function GameDetailsPage({
                                   version: tags.version,
                                   versionId: 0
                                 }}
-                                versionFallback={file.version}
                                 showKind={false}
                                 showVersion={false}
                               />
                             ) : null}
-                            {file.isInstalled ? (
+                            {file.installedPatches?.length ? (
                               <p className="muted library-file-meta">
-                                {file.executablePath
-                                  ? `Launch: ${fileName(file.executablePath)}`
-                                  : 'No executable selected'}
+                                Uncensor:{' '}
+                                {file.installedPatches
+                                  .map((patch) => patch.filename || patch.hash.slice(0, 8))
+                                  .join(', ')}
+                              </p>
+                            ) : null}
+                            {uncensorInstalledOn.length ? (
+                              <p className="muted library-file-meta">
+                                Installed on{' '}
+                                {uncensorInstalledOn
+                                  .map(
+                                    (game) =>
+                                      game.packageTags?.version?.trim() ||
+                                      game.version ||
+                                      'Unknown'
+                                  )
+                                  .join(', ')}
                               </p>
                             ) : null}
                             {(() => {
                               const session = sessionFor(file.id)
-                              if (!session && lastPlayedFile?.id !== file.id) return null
+                              if (!session) return null
                               return (
                                 <p className="library-file-flags">
-                                  {session ? (
-                                    <span className="file-flag file-flag-on">
-                                      Playing ·{' '}
-                                      {formatSessionTime(elapsedMs(session.startedAt, session.elapsedMs))}
-                                    </span>
-                                  ) : (
-                                    <span className="file-flag file-flag-on">Last played</span>
-                                  )}
+                                  <span className="file-flag file-flag-on">
+                                    Playing ·{' '}
+                                    {formatSessionTime(elapsedMs(session.startedAt, session.elapsedMs))}
+                                  </span>
                                 </p>
                               )
                             })()}
@@ -1773,6 +1855,27 @@ export default function GameDetailsPage({
                                     ? 'Reinstall'
                                     : 'Install'}
                               </button>
+                            ) : null}
+                            {canInstallUncensor ? (
+                              <UncensorInstallButton
+                                targets={uncensorTargets}
+                                disabled={file.installPercent != null}
+                                installingLabel={
+                                  file.installPercent != null
+                                    ? `Installing… ${file.installPercent}%`
+                                    : null
+                                }
+                                onInstall={(targetId) =>
+                                  void installUncensorPatch(file.id, targetId)
+                                }
+                              />
+                            ) : null}
+                            {file.isInstalled && file.installedPatches?.length ? (
+                              <UncensorRemoveButton
+                                patches={file.installedPatches}
+                                disabled={file.installPercent != null}
+                                onRemove={(patch) => void uninstallUncensorPatch(file.id, patch)}
+                              />
                             ) : null}
                             {file.isInstalled ? (
                               <SplitButton

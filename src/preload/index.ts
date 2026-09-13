@@ -102,6 +102,8 @@ const api = {
     approve: (id: string, tags: PackageInstallTags): Promise<DownloadRecord[]> =>
       ipcRenderer.invoke('downloads:approve', id, tags),
     reject: (id: string): Promise<DownloadRecord[]> => ipcRenderer.invoke('downloads:reject', id),
+    flag: (id: string, note?: string): Promise<DownloadRecord[]> =>
+      ipcRenderer.invoke('downloads:flag', id, note),
     onChange: (listener: (items: DownloadRecord[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: DownloadRecord[]): void => listener(items)
       ipcRenderer.on('downloads:changed', wrapped)
@@ -117,6 +119,13 @@ const api = {
       ipcRenderer.invoke('library:diskUsage', threadId),
     install: (id: string, engine?: string): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:install', id, engine),
+    installUncensorPatch: (patchId: string, targetFileId: string): Promise<GameLibraryFile> =>
+      ipcRenderer.invoke('library:installUncensorPatch', patchId, targetFileId),
+    uninstallUncensorPatch: (
+      gameFileId: string,
+      patchRef: { patchId?: string; hash?: string; uninstallSlot?: string }
+    ): Promise<GameLibraryFile> =>
+      ipcRenderer.invoke('library:uninstallUncensorPatch', gameFileId, patchRef),
     showArchive: (id: string): Promise<void> => ipcRenderer.invoke('library:showArchive', id),
     showInstall: (id: string): Promise<void> => ipcRenderer.invoke('library:showInstall', id),
     play: (id: string, engine?: string): Promise<GameLibraryFile> =>

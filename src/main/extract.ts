@@ -1,7 +1,7 @@
 import { mkdir, readdir, rename, rm } from 'fs/promises'
 import { join, sep } from 'path'
 import { createExtractorFromFile } from 'node-unrar-js'
-import { extractFull } from 'node-7z'
+import { extractFull, list as list7z } from 'node-7z'
 import { path7za } from '7zip-bin'
 import { archiveKind } from './fs-utils'
 import { pathExists, toFsPath } from './win-path'
@@ -92,6 +92,48 @@ async function extractRar(archivePath: string, destDir: string): Promise<void> {
   for (const _file of extracted.files) {
     void _file
   }
+}
+
+function listWith7z(archivePath: string): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const entries: string[] = []
+    const stream = list7z(toFsPath(archivePath), { $bin: sevenZipBin() })
+    stream.on('data', (data: { file?: string }) => {
+      if (data?.file) entries.push(String(data.file))
+    })
+    stream.on('end', () => resolve(entries))
+    stream.on('error', (error) => reject(error instanceof Error ? error : new Error(String(error))))
+  })
+}
+
+async function listRar(archivePath: string): Promise<string[]> {
+  const extractor = await createExtractorFromFile({
+    filepath: toFsPath(archivePath)
+  })
+  const listed = extractor.getFileList()
+  const headers = listed.fileHeaders
+  const entries: string[] = []
+  for (const header of headers) {
+    const name = String((header as { name?: string }).name || '')
+    if (name) entries.push(name)
+  }
+  return entries
+}
+
+/** List file paths inside a zip/7z/rar (forward-slash normalized). */
+export async function listArchiveEntries(archivePath: string): Promise<string[]> {
+  const kind = archiveKind(archivePath)
+  if (!kind) {
+    throw new Error('That file is not a zip, 7z, or rar archive.')
+  }
+  const raw = kind === 'rar' ? await listRar(archivePath) : await listWith7z(archivePath)
+  return raw
+    .map((entry) => entry.replace(/\\/g, '/').replace(/^\/+/, ''))
+    .filter((entry) => {
+      if (!entry || entry.endsWith('/')) return false
+      const base = entry.split('/').pop() || ''
+      return !isJunkName(base)
+    })
 }
 
 export async function extractArchive(

@@ -235,7 +235,7 @@ export function getDownloadsDirSync(): string {
   return loaded?.downloadsDir ?? getAppPaths().downloadsDir
 }
 
-/** Quarantine folder for P2P downloads awaiting Approve / Reject / Flag. */
+/** Quarantine folder for downloads awaiting Approve / Reject / Flag (HTTP + P2P). */
 export function getUntrustedDownloadsDirSync(): string {
   return join(getDownloadsDirSync(), 'untrusted')
 }

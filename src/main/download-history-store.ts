@@ -39,8 +39,8 @@ function asPackageHint(value: unknown): PackageTagHint | undefined {
   const os = Array.isArray(raw.os)
     ? [...new Set(raw.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b)
     : []
+  // Kind-only hints are valid (content type known, OS/version still to choose).
   if (!Number.isFinite(contentKind)) return undefined
-  if (!os.length && !version) return undefined
   return { os, contentKind, version }
 }
 

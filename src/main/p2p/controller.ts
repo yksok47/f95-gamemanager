@@ -523,7 +523,7 @@ export async function flagPackageAs(
   kind: PackageFlagKind,
   note?: string,
 ): Promise<PackageMetadata> {
-  await requireEnabled();
+  // Metadata-only — does not require torrenting to be enabled.
   const settings = await getSettings();
   if (settings.metadataApiEnabled === false) {
     throw new Error(
@@ -726,7 +726,7 @@ export async function approveQuarantinedDownload(
       hash: approved.contentHash,
       gameThreadId: approved.f95ThreadId,
       gameTitle: approved.gameName || before?.gameName,
-      gameVersion: normalizedTags.version || approved.gameVersion,
+      gameVersion: normalizedTags.version,
     });
   } catch (error) {
     console.warn("[p2p] could not add approved file to Downloads list", error);

@@ -395,7 +395,8 @@ async function promoteQuarantinedFile(
   if (threadId == null || !Number.isFinite(Number(threadId))) {
     throw new Error('Missing thread id — cannot add quarantined file to library.')
   }
-  const gameVersion = tags?.version || meta.gameVersion || 'Unknown'
+  // When tags are provided, copy them exactly (empty version stays empty).
+  const gameVersion = tags ? tags.version : meta.gameVersion || ''
   const st = await stat(trustedPath)
   await addGameFileFromDownload(
     {
@@ -407,7 +408,7 @@ async function promoteQuarantinedFile(
         ? {
             os: tags.os,
             contentKind: tags.contentKind,
-            version: tags.version || gameVersion
+            version: tags.version
           }
         : undefined
     },
@@ -489,7 +490,7 @@ export async function p2pApproveQuarantine(
   }
   await promoteQuarantinedFile(dest, { ...meta, contentHash: meta.contentHash }, tags)
   const st = await stat(dest)
-  const gameVersion = tags?.version || meta.gameVersion
+  const gameVersion = tags ? tags.version : meta.gameVersion
   return {
     dest,
     contentHash: meta.contentHash,
@@ -1252,15 +1253,17 @@ export async function p2pResume(id: string): Promise<P2pTransferProgress | null>
   }
   progressById.set(id, next)
   emit()
+  void flushP2pDownloadSession().catch((err) => {
+    console.warn('[p2p] persist after resume failed', err)
+  })
   return next
 }
 
 
-/** Pause any live torrent holding this archive so Windows can open/extract it. */
-export async function pauseTorrentsForArchive(
+function transferIdsForArchive(
   archivePath: string,
   contentHash?: string | null
-): Promise<void> {
+): string[] {
   const norm = archivePath.replace(/\\/g, '/').toLowerCase()
   const base = norm.split('/').pop() || norm
   const hash = contentHash?.trim().toLowerCase() || ''
@@ -1271,8 +1274,36 @@ export async function pauseTorrentsForArchive(
     const pathMatch = Boolean(p && (p === norm || p.endsWith('/' + base) || norm.endsWith(p)))
     if (hashMatch || pathMatch) ids.push(id)
   }
+  return ids
+}
+
+/**
+ * Pause any live torrent holding this archive so Windows can open/extract it.
+ * Returns ids that were newly paused (already-paused transfers are left alone).
+ */
+export async function pauseTorrentsForArchive(
+  archivePath: string,
+  contentHash?: string | null
+): Promise<string[]> {
+  const ids = transferIdsForArchive(archivePath, contentHash)
+  const pausedByUs: string[] = []
   for (const id of ids) {
+    const cur = progressById.get(id)
+    if (!cur || cur.state === 'paused' || pausedIds.has(id)) continue
     await p2pPause(id)
+    pausedByUs.push(id)
+  }
+  return pausedByUs
+}
+
+/** Resume torrents previously paused by {@link pauseTorrentsForArchive}. */
+export async function resumeTorrentsByIds(ids: string[]): Promise<void> {
+  for (const id of ids) {
+    try {
+      await p2pResume(id)
+    } catch (error) {
+      console.warn('[p2p] resume after archive use failed', id, error)
+    }
   }
 }
 

@@ -3370,6 +3370,15 @@ button.details-pill {
   box-shadow: var(--shadow);
 }
 
+.downloads-dock-collapsed {
+  width: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
 .downloads-dock-header {
   display: flex;
   justify-content: space-between;
@@ -3378,9 +3387,87 @@ button.details-pill {
   margin-bottom: 10px;
 }
 
+.downloads-dock-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.downloads-dock-collapse-btn {
+  color: var(--muted);
+}
+
 .downloads-dock-list {
   display: grid;
   gap: 8px;
+}
+
+.downloads-dock-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 64px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.downloads-dock-tile:hover {
+  border-color: var(--accent);
+}
+
+.downloads-dock-ring {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.downloads-dock-ring-inner {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--accent);
+}
+
+.downloads-dock-ring-inner svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.downloads-dock-count {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a1406;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+}
+
+.downloads-dock-pct {
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--muted);
+  line-height: 1;
 }
 
 .library-file-list {
@@ -3434,6 +3521,9 @@ button.details-pill {
 .library-file-meta {
   margin: 0;
   font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .library-file-flags {
@@ -3510,6 +3600,14 @@ button.details-pill {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.renpy-section-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
 }
 
 .renpy-actions {

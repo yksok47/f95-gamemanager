@@ -67,15 +67,15 @@ const KIND_DESCRIPTIONS: Record<ContentKind, string> = {
 }
 
 /** "Other" is listed last so it sits at the bottom of the picker. */
-const KIND_OPTIONS = (Object.keys(CONTENT_KIND_IDS) as ContentKind[])
-  .filter((key) => key !== 'other')
-  .concat('other')
-  .map((key) => ({
-    key,
-    id: CONTENT_KIND_IDS[key],
-    label: CONTENT_KIND_LABELS[key],
-    description: KIND_DESCRIPTIONS[key]
-  }))
+const KIND_OPTIONS = ([
+  ...(Object.keys(CONTENT_KIND_IDS) as ContentKind[]).filter((key) => key !== 'other'),
+  'other'
+] as ContentKind[]).map((key) => ({
+  key,
+  id: CONTENT_KIND_IDS[key],
+  label: CONTENT_KIND_LABELS[key],
+  description: KIND_DESCRIPTIONS[key]
+}))
 
 const RATCHET_ITEM_H = 30
 const RATCHET_VISIBLE = 5

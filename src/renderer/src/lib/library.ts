@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GameLibraryFile, PlaySessionStatus, Subscription } from '@shared/types'
-import { isInstallableLibraryPackage } from '@shared/types'
+import {
+  gameHasInstalledPatch,
+  isInstallableLibraryPackage,
+  isRenpyUncensorPackage
+} from '@shared/types'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
-import { compareGameVersions } from '@shared/engines'
+import { compareGameVersions, engineKind } from '@shared/engines'
 
 export type GameLibraryStatus = {
   hasArchive: boolean
@@ -64,6 +68,40 @@ export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibr
     }
   }
   return result
+}
+
+/** Installed Ren'Py game versions that can receive this uncensor patch. */
+export function listUncensorPatchTargets(
+  files: GameLibraryFile[],
+  patch: GameLibraryFile
+): GameLibraryFile[] {
+  if (!isRenpyUncensorPackage(patch.packageTags)) return []
+  return files
+    .filter((file) => {
+      if (file.threadId !== patch.threadId) return false
+      if (!file.isInstalled || !isInstallableLibraryPackage(file.packageTags)) return false
+      const kind = engineKind(file.engine)
+      if (kind && kind !== 'renpy') return false
+      return !gameHasInstalledPatch(file, patch)
+    })
+    .sort((a, b) => {
+      const versions = compareGameVersions(a.version, b.version)
+      if (versions) return versions
+      return (a.installedAt || 0) - (b.installedAt || 0)
+    })
+}
+
+export function gamesWithPatchInstalled(
+  files: GameLibraryFile[],
+  patch: GameLibraryFile
+): GameLibraryFile[] {
+  return files.filter(
+    (file) =>
+      file.threadId === patch.threadId &&
+      file.isInstalled &&
+      isInstallableLibraryPackage(file.packageTags) &&
+      gameHasInstalledPatch(file, patch)
+  )
 }
 
 export function useLibraryByThread(): Map<number, GameLibraryStatus> {

@@ -199,6 +199,15 @@ export type GameFileContext = {
   packageHint?: PackageTagHint
 }
 
+export type InstalledPatchRef = {
+  patchId: string
+  hash: string
+  filename: string
+  installedAt: number
+  /** Folder name under `game/.uninstall/` holding instructions + backups. */
+  uninstallSlot?: string
+}
+
 export type GameLibraryFile = {
   id: string
   threadId: number
@@ -232,6 +241,16 @@ export type GameLibraryFile = {
   updatedAt?: string
   /** Folder name under %APPDATA%/RenPy (or absolute path), or null when saves live in game/saves. */
   renpySaveDirectory?: string | null
+  /**
+   * Uncensor patches applied into this installed game version.
+   * Cleared when the game is uninstalled.
+   */
+  installedPatches?: InstalledPatchRef[]
+  /**
+   * Whether this uncensor package has a supported .rpy/.rpyc or game-folder layout.
+   * Undefined until probed; false hides Install.
+   */
+  uncensorInstallable?: boolean
   screens?: string[]
   /** OS / content kind / version chosen when the file was approved into the library. */
   packageTags?: PackageTagHint
@@ -585,6 +604,21 @@ export const LIBRARY_FILE_SECTION_ORDER: ContentKind[] = [
 export function isInstallableLibraryPackage(tags?: PackageTagHint | null): boolean {
   if (!tags || !Number.isFinite(tags.contentKind)) return true
   return tags.contentKind === CONTENT_KIND_IDS.game
+}
+
+/** Ren'Py uncensor overlays that can be applied into an installed game `/game` folder. */
+export function isRenpyUncensorPackage(tags?: PackageTagHint | null): boolean {
+  return Boolean(tags && tags.contentKind === CONTENT_KIND_IDS.uncensor)
+}
+
+/** Whether an installed game already has this uncensor patch applied (by hash or library id). */
+export function gameHasInstalledPatch(
+  game: { installedPatches?: InstalledPatchRef[] | null },
+  patch: { id: string; hash: string }
+): boolean {
+  const list = game.installedPatches
+  if (!list?.length) return false
+  return list.some((item) => item.patchId === patch.id || (patch.hash && item.hash === patch.hash))
 }
 
 /** Max length for version strings sent to / accepted by the metadata API. */

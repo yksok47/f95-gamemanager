@@ -76,7 +76,20 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
 
       <section className="renpy-section">
         <div className="renpy-section-head">
-          <h2>Game status</h2>
+          <div className="renpy-section-title">
+            <h2>Game status</h2>
+            {scripts ? (
+              <div className="library-file-flags">
+                <Flag on={scripts.alreadyUnpacked} warn={scripts.needsUnpack}>
+                  {scripts.needsUnpack ? 'Still compressed' : scripts.alreadyUnpacked ? 'Uncompressed' : 'No scripts'}
+                </Flag>
+                <Flag on={scripts.alreadyDecompiled} warn={scripts.needsDecompile}>
+                  {scripts.needsDecompile ? 'Still compiled' : scripts.alreadyDecompiled ? 'Decompiled' : 'No scripts'}
+                </Flag>
+                {!scripts.pythonPath ? <Flag on warn>Python missing</Flag> : null}
+              </div>
+            ) : null}
+          </div>
           <div className="renpy-actions">
             <button
               className="ghost-btn"
@@ -100,15 +113,6 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
         </div>
         {scripts ? (
           <>
-            <p className="library-file-flags">
-              <Flag on={scripts.alreadyUnpacked} warn={scripts.needsUnpack}>
-                {scripts.needsUnpack ? 'Still compressed' : scripts.alreadyUnpacked ? 'Uncompressed' : 'No scripts'}
-              </Flag>
-              <Flag on={scripts.alreadyDecompiled} warn={scripts.needsDecompile}>
-                {scripts.needsDecompile ? 'Still compiled' : scripts.alreadyDecompiled ? 'Decompiled' : 'No scripts'}
-              </Flag>
-              {!scripts.pythonPath ? <Flag on warn>Python missing</Flag> : null}
-            </p>
             <div className="renpy-stats">
               <div className="renpy-stat">
                 <strong>{scripts.rpaCount}</strong>

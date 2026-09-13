@@ -161,15 +161,13 @@ export default function P2pTransferRow({
             </button>
           ) : (
             <>
-              {!compact ? (
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  onClick={() => onRevealQuarantine?.(item.id)}
-                >
-                  View in folder
-                </button>
-              ) : null}
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => onRevealQuarantine?.(item.id)}
+              >
+                View in folder
+              </button>
               <button
                 className="primary-btn"
                 type="submit"
@@ -186,15 +184,13 @@ export default function P2pTransferRow({
               >
                 Reject
               </button>
-              {!compact ? (
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  onClick={() => onFlagQuarantine?.(item.id)}
-                >
-                  Flag malicious
-                </button>
-              ) : null}
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => onFlagQuarantine?.(item.id)}
+              >
+                Flag malicious
+              </button>
             </>
           )
         ) : (

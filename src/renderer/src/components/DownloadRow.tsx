@@ -24,18 +24,17 @@ type DownloadRowProps = {
   onOpenGame?: (threadId: number, title: string) => void
   onApprove?: (id: string, tags: PackageInstallTags) => void
   onReject?: (id: string) => void
+  onFlag?: (id: string) => void
 }
 
 function hintToConsensus(hint: PackageTagHint | undefined): PackageConsensus | null {
   if (!hint) return null
   if (!Number.isFinite(hint.contentKind)) return null
-  const version = hint.version.trim()
-  // Allow OS/kind-only hints; empty version still seeds the form fields we know.
-  if (!hint.os.length && !version) return null
+  // Kind-only hints are valid (e.g. uncensor with no OS/version on the F95 entry).
   return {
     os: [...hint.os].sort((a, b) => a - b),
     contentKind: hint.contentKind,
-    version,
+    version: hint.version.trim(),
     versionId: 0
   }
 }
@@ -51,7 +50,8 @@ export default function DownloadRow({
   onOpenFile,
   onOpenGame,
   onApprove,
-  onReject
+  onReject,
+  onFlag
 }: DownloadRowProps): JSX.Element {
   const [approveReady, setApproveReady] = useState(false)
   const percent = downloadPercent(item)
@@ -111,7 +111,7 @@ export default function DownloadRow({
         )}
         {needsReview ? (
           <p className="muted download-meta">
-            Review tags before adding this file to your library.
+            Saved to untrusted quarantine — review tags before opening or adding to your library.
           </p>
         ) : active ? (
           <div
@@ -135,11 +135,9 @@ export default function DownloadRow({
       <div className="download-row-actions">
         {needsReview ? (
           <>
-            {!compact ? (
-              <button className="ghost-btn" type="button" onClick={() => onShowInFolder(item.id)}>
-                Show in folder
-              </button>
-            ) : null}
+            <button className="ghost-btn" type="button" onClick={() => onShowInFolder(item.id)}>
+              View in folder
+            </button>
             <button
               className="primary-btn"
               type="submit"
@@ -156,6 +154,21 @@ export default function DownloadRow({
               disabled={!onReject}
             >
               Reject
+            </button>
+            <button
+              className="ghost-btn"
+              type="button"
+              onClick={() => onFlag?.(item.id)}
+              disabled={!onFlag || !item.hash}
+              title={
+                !item.hash
+                  ? 'Wait for hashing to finish before flagging'
+                  : !onFlag
+                    ? undefined
+                    : 'Reject and report this file as malicious'
+              }
+            >
+              Flag malicious
             </button>
           </>
         ) : (

@@ -39,13 +39,13 @@ const PLATFORM_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
 
 const FILE_TYPE_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: ALL, label: "All file types" },
-  ...(Object.keys(CONTENT_KIND_IDS) as ContentKind[])
-    .filter((key) => key !== "other")
-    .concat("other")
-    .map((key) => ({
-      value: String(CONTENT_KIND_IDS[key]),
-      label: CONTENT_KIND_LABELS[key],
-    })),
+  ...([
+    ...(Object.keys(CONTENT_KIND_IDS) as ContentKind[]).filter((key) => key !== "other"),
+    "other",
+  ] as ContentKind[]).map((key) => ({
+    value: String(CONTENT_KIND_IDS[key]),
+    label: CONTENT_KIND_LABELS[key],
+  })),
 ];
 
 type GameP2pSectionProps = {
