@@ -1,7 +1,14 @@
 import { existsSync, mkdirSync, statSync, unlink } from 'fs'
 import { extname, join } from 'path'
 import { session, shell } from 'electron'
-import type { DownloadRecord, DownloadStatus, GameFileContext } from '@shared/types'
+import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
+import type {
+  DownloadLibraryStatus,
+  DownloadRecord,
+  DownloadStatus,
+  GameFileContext,
+  PackageTagHint
+} from '@shared/types'
 import { getDownloadContext } from './download-context'
 import {
   isFinishedDownloadStatus,
@@ -12,7 +19,7 @@ import { isArchivePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload } from './open-url'
-import { getDownloadsDirSync } from './settings-store'
+import { getDownloadsDirSync, getMetadataApiEnabledSync } from './settings-store'
 import { sendToRenderer } from './windows'
 
 type TrackedDownload = {
@@ -30,11 +37,13 @@ type TrackedDownload = {
   error?: string
   startedAt: number
   updatedAt: number
+  finishedAt?: number
   lastSampleAt: number
   lastSampleBytes: number
   context?: GameFileContext
   hash?: string
-  libraryStatus?: 'hashing' | 'indexed' | 'error'
+  libraryStatus?: DownloadLibraryStatus
+  packageHint?: PackageTagHint
 }
 
 const tracked = new Map<string, TrackedDownload>()
@@ -79,11 +88,13 @@ function toRecord(entry: TrackedDownload): DownloadRecord {
     error: entry.error,
     startedAt: entry.startedAt,
     updatedAt: entry.updatedAt,
+    finishedAt: entry.finishedAt,
     gameThreadId: entry.context?.threadId,
     gameTitle: entry.context?.title,
     gameVersion: entry.context?.version,
     hash: entry.hash,
-    libraryStatus: entry.libraryStatus
+    libraryStatus: entry.libraryStatus,
+    packageHint: entry.packageHint || entry.context?.packageHint
   }
 }
 
@@ -101,6 +112,7 @@ function historyFingerprint(items: DownloadRecord[]): string {
         savePath: item.savePath,
         hash: item.hash,
         libraryStatus: item.libraryStatus,
+        packageHint: item.packageHint,
         updatedAt: item.updatedAt
       }))
   )
@@ -140,16 +152,19 @@ function recordToTracked(row: DownloadRecord): TrackedDownload {
     error: row.error,
     startedAt: row.startedAt,
     updatedAt: row.updatedAt,
+    finishedAt: row.finishedAt ?? (isFinishedDownloadStatus(row.status) ? row.updatedAt : undefined),
     lastSampleAt: row.updatedAt,
     lastSampleBytes: row.receivedBytes,
     hash: row.hash,
     libraryStatus: row.libraryStatus,
+    packageHint: row.packageHint,
     context:
       row.gameThreadId != null
         ? {
             threadId: row.gameThreadId,
             title: row.gameTitle || row.filename,
-            version: row.gameVersion || ''
+            version: row.gameVersion || '',
+            packageHint: row.packageHint
           }
         : undefined
   }
@@ -199,7 +214,11 @@ function syncFromItem(entry: TrackedDownload): void {
   entry.totalBytes = item.getTotalBytes()
   entry.paused = item.isPaused()
   entry.canResume = item.canResume()
-  entry.status = statusFromItem(item)
+  const nextStatus = statusFromItem(item)
+  if (isFinishedDownloadStatus(nextStatus) && !entry.finishedAt) {
+    entry.finishedAt = now
+  }
+  entry.status = nextStatus
   entry.updatedAt = now
 }
 
@@ -249,13 +268,15 @@ export function addCompletedDownload(opts: {
     existing.canResume = false
     existing.bytesPerSecond = 0
     existing.updatedAt = now
+    if (!existing.finishedAt) existing.finishedAt = now
     existing.hash = opts.hash || existing.hash
     existing.libraryStatus = opts.hash ? 'indexed' : existing.libraryStatus
     if (opts.gameThreadId != null) {
       existing.context = {
         threadId: Number(opts.gameThreadId),
         title: opts.gameTitle || existing.context?.title || opts.filename,
-        version: opts.gameVersion || existing.context?.version || ''
+        version: opts.gameVersion || existing.context?.version || '',
+        packageHint: existing.context?.packageHint || existing.packageHint
       }
     }
     broadcast()
@@ -274,6 +295,7 @@ export function addCompletedDownload(opts: {
     bytesPerSecond: 0,
     startedAt: now,
     updatedAt: now,
+    finishedAt: now,
     lastSampleAt: now,
     lastSampleBytes: size,
     hash: opts.hash,
@@ -353,9 +375,14 @@ export async function flushDownloadHistory(): Promise<void> {
   await persistDownloadHistory(items)
 }
 
+function isAwaitingLibraryReview(entry: TrackedDownload): boolean {
+  return entry.libraryStatus === 'pendingReview' || entry.libraryStatus === 'hashing'
+}
+
 export function clearFinishedDownloads(): DownloadRecord[] {
   for (const [id, entry] of tracked) {
     if (entry.status === 'completed' || entry.status === 'cancelled') {
+      if (isAwaitingLibraryReview(entry)) continue
       tracked.delete(id)
     }
   }
@@ -384,36 +411,113 @@ export async function openDownloadsFolder(): Promise<void> {
   if (error) throw new Error(error)
 }
 
-async function indexArchive(entry: TrackedDownload): Promise<void> {
+async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
+  if (!getMetadataApiEnabledSync()) return
+  const { buildInstallClaimMessage, reportPackageInstall } = await import('./p2p/metadata-client')
+  const { signMessageBytes } = await import('./p2p/identity')
+  const ts = Math.floor(Date.now() / 1000)
+  const msg = buildInstallClaimMessage(contentHash, ts, tags)
+  const { seederPubkey, signature } = await signMessageBytes(msg)
+  await reportPackageInstall(contentHash, {
+    seederPubkey,
+    ts,
+    signature,
+    tags
+  })
+}
+
+/** Hash complete archives and wait for tag approval before library insert. */
+async function prepareArchiveForReview(entry: TrackedDownload): Promise<void> {
   const context = entry.context
   if (!context || !entry.savePath || !isArchivePath(entry.savePath || entry.filename)) return
   entry.libraryStatus = 'hashing'
+  entry.packageHint = entry.packageHint || context.packageHint
   broadcast()
   try {
     const hash = await hashFile(entry.savePath)
-    const size = existsSync(entry.savePath) ? statSync(entry.savePath).size : entry.receivedBytes
-    await addGameFileFromDownload(context, entry.savePath, hash, size)
     entry.hash = hash
-    entry.libraryStatus = 'indexed'
-    void import('./p2p/controller')
-      .then(({ onLibraryPackageAdded }) =>
-        onLibraryPackageAdded({
-          filePath: entry.savePath,
-          contentHash: hash,
-          gameName: context.title,
-          gameVersion: context.version,
-          f95ThreadId: context.threadId,
-          f95ThreadUrl: context.threadUrl
-        })
-      )
-      .catch((error) => {
-        console.warn('[p2p] auto-seed after HTTP download failed', error)
-      })
+    entry.libraryStatus = 'pendingReview'
+    entry.updatedAt = Date.now()
   } catch (error) {
-    console.warn('Could not add archive to game files', error)
+    console.warn('Could not hash archive for review', error)
     entry.libraryStatus = 'error'
   }
   broadcast()
+}
+
+export async function approveDownload(
+  id: string,
+  tags: PackageInstallTags
+): Promise<DownloadRecord[]> {
+  const entry = tracked.get(id)
+  if (!entry) throw new Error('Download not found.')
+  if (entry.status !== 'completed') throw new Error('That file is not finished yet.')
+  if (entry.libraryStatus !== 'pendingReview') {
+    throw new Error('That download is not waiting for approval.')
+  }
+  const context = entry.context
+  if (!context) throw new Error('Missing game context — cannot add to library.')
+  if (!entry.savePath || !existsSync(entry.savePath)) {
+    throw new Error('Downloaded file is missing on disk.')
+  }
+  const hash = entry.hash?.trim().toLowerCase()
+  if (!hash) throw new Error('Missing content hash — wait for hashing to finish.')
+
+  const normalizedTags = normalizePackageInstallTags(tags)
+  const nextContext: GameFileContext = {
+    ...context,
+    version: normalizedTags.version || context.version,
+    packageHint: {
+      os: normalizedTags.os,
+      contentKind: normalizedTags.contentKind,
+      version: normalizedTags.version
+    }
+  }
+  const size = existsSync(entry.savePath) ? statSync(entry.savePath).size : entry.receivedBytes
+
+  await addGameFileFromDownload(nextContext, entry.savePath, hash, size)
+  entry.context = nextContext
+  entry.libraryStatus = 'indexed'
+  entry.updatedAt = Date.now()
+  broadcast()
+
+  void import('./p2p/controller')
+    .then(({ onLibraryPackageAdded }) =>
+      onLibraryPackageAdded({
+        filePath: entry.savePath,
+        contentHash: hash,
+        gameName: nextContext.title,
+        gameVersion: normalizedTags.version,
+        f95ThreadId: nextContext.threadId,
+        f95ThreadUrl: nextContext.threadUrl
+      })
+    )
+    .catch((error) => {
+      console.warn('[p2p] auto-seed after HTTP download approve failed', error)
+    })
+
+  void reportInstallTags(hash, normalizedTags).catch((error) => {
+    console.warn('[downloads] install report after approve failed', error)
+  })
+
+  return listRecords()
+}
+
+export async function rejectDownload(id: string): Promise<DownloadRecord[]> {
+  const entry = tracked.get(id)
+  if (!entry) return listRecords()
+  if (entry.libraryStatus !== 'pendingReview' && entry.libraryStatus !== 'hashing') {
+    throw new Error('That download is not waiting for approval.')
+  }
+  const savePath = entry.savePath
+  tracked.delete(id)
+  broadcast()
+  if (savePath && existsSync(savePath)) {
+    unlink(savePath, (error) => {
+      if (error) console.warn('Could not delete rejected download', error)
+    })
+  }
+  return listRecords()
 }
 
 export function registerDownloadHandler(): void {
@@ -432,6 +536,7 @@ export function registerDownloadHandler(): void {
     item.setSavePath(uniquePath(dir, filename))
 
     const now = Date.now()
+    const context = getDownloadContext(webContents)
     const entry: TrackedDownload = {
       id: nextId(),
       item,
@@ -448,7 +553,8 @@ export function registerDownloadHandler(): void {
       updatedAt: now,
       lastSampleAt: now,
       lastSampleBytes: item.getReceivedBytes(),
-      context: getDownloadContext(webContents)
+      context,
+      packageHint: context?.packageHint
     }
     tracked.set(entry.id, entry)
     broadcast()
@@ -466,6 +572,7 @@ export function registerDownloadHandler(): void {
       } else {
         entry.status = 'interrupted'
       }
+      if (!entry.finishedAt) entry.finishedAt = Date.now()
       entry.bytesPerSecond = 0
       entry.paused = false
       entry.canResume = item.canResume()
@@ -473,7 +580,7 @@ export function registerDownloadHandler(): void {
         unlink(entry.savePath, () => undefined)
       }
       broadcast()
-      if (state === 'completed') void indexArchive(entry)
+      if (state === 'completed') void prepareArchiveForReview(entry)
     })
   })
 }

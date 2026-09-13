@@ -14,7 +14,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "bun run typecheck:node && bun run typecheck:web",
-    "test:p2p": "bun test src/shared/content-address.test.ts src/shared/p2p.test.ts src/main/p2p/share-claim.test.ts",
+    "test:p2p": "bun test src/shared/content-address.test.ts src/shared/p2p.test.ts src/main/p2p/share-claim.test.ts src/main/p2p/tracker-swarm.test.ts",
     "parser:fetch": "bun src/main/f95/parser/fetch-samples.ts",
     "parser:fetch:add": "bun src/main/f95/parser/fetch-samples.ts --additive",
     "parser:fetch:reviews": "bun src/main/f95/parser/fetch-samples.ts reviews",

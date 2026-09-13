@@ -1,7 +1,26 @@
+import { isInFlightP2pState, type P2pTransferProgress } from '@shared/p2p'
 import type { DownloadRecord, DownloadStatus } from '@shared/types'
 
 export function isActiveDownload(item: DownloadRecord): boolean {
   return item.status === 'progressing' || item.status === 'paused' || item.status === 'interrupted'
+}
+
+/** In-progress P2P downloads for UI lists (excludes background seeds of mapped shares). */
+export function isActiveP2pDownload(
+  item: P2pTransferProgress,
+  sharedContentHashes?: ReadonlySet<string>
+): boolean {
+  if (!isInFlightP2pState(item.state)) return false
+  if (
+    item.id.startsWith('seed:') &&
+    item.contentHash &&
+    sharedContentHashes?.has(item.contentHash.toLowerCase()) &&
+    item.state !== 'paused' &&
+    item.state !== 'error'
+  ) {
+    return false
+  }
+  return true
 }
 
 export function formatBytes(bytes: number): string {
@@ -37,6 +56,7 @@ export function downloadPercent(item: DownloadRecord): number | null {
 
 export function downloadLibraryLabel(item: { libraryStatus?: DownloadRecord['libraryStatus'] }): string {
   if (item.libraryStatus === 'hashing') return 'Hashing…'
+  if (item.libraryStatus === 'pendingReview') return 'Needs review'
   if (item.libraryStatus === 'indexed') return 'Added to game files'
   if (item.libraryStatus === 'error') return 'Could not add to game files'
   return ''

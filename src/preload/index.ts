@@ -25,6 +25,7 @@ import type {
 } from '@shared/types'
 import type {
   PackageFlagKind,
+  PackageInstallTags,
   PackageListQuery,
   PackageListResponse,
   PackageMetadata,
@@ -98,6 +99,9 @@ const api = {
     showInFolder: (id: string): Promise<void> => ipcRenderer.invoke('downloads:showInFolder', id),
     openFile: (id: string): Promise<void> => ipcRenderer.invoke('downloads:openFile', id),
     openFolder: (): Promise<void> => ipcRenderer.invoke('downloads:openFolder'),
+    approve: (id: string, tags: PackageInstallTags): Promise<DownloadRecord[]> =>
+      ipcRenderer.invoke('downloads:approve', id, tags),
+    reject: (id: string): Promise<DownloadRecord[]> => ipcRenderer.invoke('downloads:reject', id),
     onChange: (listener: (items: DownloadRecord[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: DownloadRecord[]): void => listener(items)
       ipcRenderer.on('downloads:changed', wrapped)
@@ -213,12 +217,14 @@ const api = {
     seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
     listPackages: (query: PackageListQuery): Promise<PackageListResponse> =>
       ipcRenderer.invoke('p2p:listPackages', query),
+    getPackage: (contentHash: string): Promise<PackageMetadata | null> =>
+      ipcRenderer.invoke('p2p:getPackage', contentHash),
     downloadByHash: (contentHash: string): Promise<P2pTransferProgress> =>
       ipcRenderer.invoke('p2p:downloadByHash', contentHash),
     flag: (contentHash: string, kind: PackageFlagKind, note?: string): Promise<PackageMetadata> =>
       ipcRenderer.invoke('p2p:flag', contentHash, kind, note),
-    approveQuarantine: (id: string): Promise<void> =>
-      ipcRenderer.invoke('p2p:approveQuarantine', id),
+    approveQuarantine: (id: string, tags: PackageInstallTags): Promise<void> =>
+      ipcRenderer.invoke('p2p:approveQuarantine', id, tags),
     rejectQuarantine: (id: string): Promise<void> =>
       ipcRenderer.invoke('p2p:rejectQuarantine', id),
     revealQuarantine: (id: string): Promise<string> =>

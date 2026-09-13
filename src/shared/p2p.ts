@@ -9,6 +9,16 @@
  * Popularity = unique verified Ed25519 seeder pubkeys. Never send F95 credentials.
  */
 
+import {
+  CONTENT_KIND_BY_ID,
+  contentKindAllowsOs,
+  contentKindAllowsVersion,
+  contentKindRequiresOs,
+  contentKindRequiresVersion,
+  OS_KIND_BY_ID,
+  VERSION_NAME_MAX_LEN
+} from './types'
+
 export type PackageFlagKind = 'broken' | 'harmful'
 
 export type PackageFlag = {
@@ -28,6 +38,65 @@ export type P2pPeer = {
 export type PackageFlagCounts = {
   broken: number
   harmful: number
+}
+
+/** Consensus metadata from vote aggregation (numeric wire enums). */
+export type PackageConsensus = {
+  os: number[]
+  contentKind: number
+  version: string
+  versionId: number
+}
+
+export type PackageVersionWeight = {
+  id: number
+  name: string
+  weight: number
+  votes?: number
+}
+
+export type PackageInstallTags = {
+  os: number[]
+  contentKind: number
+  version: string
+}
+
+/** Validate and normalize install tags from the approve form (strips fields the kind forbids). */
+export function normalizePackageInstallTags(tags: PackageInstallTags): PackageInstallTags {
+  const contentKind = Number(tags.contentKind)
+  if (!Number.isFinite(contentKind) || !(contentKind in CONTENT_KIND_BY_ID)) {
+    throw new Error('contentKind is required')
+  }
+
+  let os: number[] = []
+  if (contentKindAllowsOs(contentKind)) {
+    os = [...new Set(tags.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort(
+      (a, b) => a - b
+    )
+    if (contentKindRequiresOs(contentKind) && os.length === 0) {
+      throw new Error('at least one OS is required')
+    }
+    for (const id of os) {
+      if (!(id in OS_KIND_BY_ID)) {
+        throw new Error(`invalid OS id: ${id}`)
+      }
+    }
+  }
+
+  let version = ''
+  if (contentKindAllowsVersion(contentKind)) {
+    version = String(tags.version || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+    if (contentKindRequiresVersion(contentKind) && !version) {
+      throw new Error('version is required')
+    }
+    if (version && [...version].length > VERSION_NAME_MAX_LEN) {
+      throw new Error(`version must be at most ${VERSION_NAME_MAX_LEN} characters`)
+    }
+  }
+
+  return { os, contentKind, version }
 }
 
 export type PackageMetadata = {
@@ -56,6 +125,10 @@ export type PackageMetadata = {
   updatedAt?: string
   /** Reachable seeder endpoints (LAN/Tailscale) from metadata; dial these under hairpin NAT. */
   listenAddrs?: string[]
+  /** Most-voted tags for this file (from metadata API). */
+  consensus?: PackageConsensus | null
+  /** Thread-scoped version list (present on GET one / list responses). */
+  versions?: PackageVersionWeight[]
 }
 
 export type PackageStats = {
@@ -143,6 +216,8 @@ export type P2pTransferProgress = {
   f95ThreadId?: number | null
   f95ThreadUrl?: string | null
   normalizedName?: string
+  /** Consensus tags from metadata (when known for this transfer). */
+  consensus?: PackageConsensus | null
 }
 
 export type P2pIdentityPublic = {
@@ -180,15 +255,16 @@ export type PackageListQuery = {
 
 export type PackageListResponse = {
   items: PackageMetadata[]
+  versions: PackageVersionWeight[]
   limit: number
   offset: number
   total: number
 }
 
 /**
- * Env keys (production Oracle defaults; override in Settings → P2P or process.env):
- *   TRACKER_WEBRTC_URL=wss://130.61.67.157:6969
- *   METADATA_BASE_URL=https://130.61.67.157:6767
+ * Env keys (production Oracle defaults; override in Settings or process.env):
+ *   TRACKER_WEBRTC_URL=wss://130.61.67.157:6969  (Settings → P2P)
+ *   METADATA_BASE_URL=https://130.61.67.157:6767 (Settings → General)
  */
 export const P2P_ENV_KEYS = {
   METADATA_BASE_URL: 'METADATA_BASE_URL',

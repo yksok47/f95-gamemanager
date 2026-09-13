@@ -3,7 +3,7 @@ import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
 
-export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'settings'
+export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'uploads' | 'settings'
 
 type AppNavProps = {
   view: AppView
@@ -12,6 +12,8 @@ type AppNavProps = {
   followedCount: number
   libraryCount: number
   downloadCount: number
+  uploadCount?: number
+  showUploads?: boolean
   onViewChange: (view: AppView) => void
   onLogout: () => void
 }
@@ -38,6 +40,8 @@ export default function AppNav({
   followedCount,
   libraryCount,
   downloadCount,
+  uploadCount = 0,
+  showUploads = false,
   onViewChange,
   onLogout
 }: AppNavProps): JSX.Element {
@@ -77,6 +81,15 @@ export default function AppNav({
         >
           Downloads{downloadCount ? ` (${downloadCount})` : ''}
         </button>
+        {showUploads ? (
+          <button
+            className={view === 'uploads' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+            type="button"
+            onClick={() => onViewChange('uploads')}
+          >
+            Uploads{uploadCount ? ` (${uploadCount})` : ''}
+          </button>
+        ) : null}
       </div>
       <ToolbarSlot />
       <div className="app-nav-user">

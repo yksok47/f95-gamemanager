@@ -58,9 +58,10 @@ ts=<unixSeconds>
 
 ## Settings / local seed path
 - `p2pEnabled` default **false**. When on → sync game-files `archivePath` (+ downloadsDir archives) into torrent map, then seed-all (best-effort).
+- `metadataApiEnabled` default **true** (Settings → General). Independent of P2P. When off → no catalog/share-claim/flags/install reports; swarm seeding/downloading via known infoHash still works when `p2pEnabled`.
 - `p2pUploadLimitKBps` default **0** (unlimited). Caps WebTorrent upload; change applies immediately while P2P is on.
 - Unhashed downloads are skipped until hashed/seeded individually.
-- Discovery/download UI is separate from F95 link rows; toggle only gates swarm + share-claim work.
+- Discovery/download UI is separate from F95 link rows; `p2pEnabled` gates swarm work, `metadataApiEnabled` gates metadata REST.
 
 ## Direct internet connections
 

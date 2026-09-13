@@ -18,15 +18,37 @@
  */
 
 import { normalizeInfoHash } from '@shared/content-address'
-import type { FlagPackagePayload, MetadataHealth, PackageFlag, PackageListQuery, PackageListResponse, PackageMetadata, PackageStats } from '@shared/p2p'
+import type {
+  FlagPackagePayload,
+  MetadataHealth,
+  PackageFlag,
+  PackageInstallTags,
+  PackageListQuery,
+  PackageListResponse,
+  PackageMetadata,
+  PackageStats,
+  PackageVersionWeight
+} from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
 import { metadataFetch } from './metadata-tls-fetch'
 import { appendFile } from 'fs/promises'
 import { join } from 'path'
 import { getAppPaths } from '../paths'
+import { getMetadataApiEnabledSync } from '../settings-store'
 
 const API_PREFIX = '/api/v1'
+
+export class MetadataApiDisabledError extends Error {
+  constructor() {
+    super('Metadata API is disabled. Enable it in Settings → General.')
+    this.name = 'MetadataApiDisabledError'
+  }
+}
+
+export function isMetadataApiEnabled(): boolean {
+  return getMetadataApiEnabledSync()
+}
 
 type ApiFlags = { broken?: boolean; harmful?: boolean }
 
@@ -50,7 +72,16 @@ type ApiPackage = {
   sizeBytes?: number
   updatedAt?: string
   createdAt?: string
+  consensus?: {
+    os?: number[]
+    contentKind?: number
+    version?: string
+    versionId?: number
+  } | null
+  versions?: Array<{ id?: number; name?: string; weight?: number }>
 }
+
+type ApiVersionWeight = { id?: number; name?: string; weight?: number; votes?: number }
 
 function joinUrl(base: string, path: string): string {
   return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
@@ -97,9 +128,40 @@ function flagCountsFromApi(pkg: ApiPackage, flags: PackageFlag[]): { broken: num
   return { broken, harmful }
 }
 
-function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
+function parseVersions(raw: unknown): PackageVersionWeight[] {
+  if (!Array.isArray(raw)) return []
+  const out: PackageVersionWeight[] = []
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as ApiVersionWeight
+    const id = Number(r.id)
+    const name = String(r.name || '').trim()
+    const weight = Math.max(1, Math.min(10, Math.round(Number(r.weight) || 1)))
+    const votesRaw = Number(r.votes)
+    const votes = Number.isFinite(votesRaw) && votesRaw >= 0 ? Math.floor(votesRaw) : undefined
+    if (!Number.isFinite(id) || !name) continue
+    out.push(votes == null ? { id, name, weight } : { id, name, weight, votes })
+  }
+  return out
+}
+
+function parseConsensus(raw: ApiPackage['consensus']): PackageMetadata['consensus'] {
+  if (!raw || typeof raw !== 'object') return null
+  const contentKind = Number(raw.contentKind)
+  if (!Number.isFinite(contentKind)) return null
+  const version = String(raw.version || '').trim()
+  const versionIdRaw = Number(raw.versionId)
+  const versionId = Number.isFinite(versionIdRaw) ? versionIdRaw : 0
+  const os = Array.isArray(raw.os)
+    ? [...new Set(raw.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort((a, b) => a - b)
+    : []
+  return { os, contentKind, version, versionId }
+}
+
+function toPackageMetadata(pkg: ApiPackage, versions?: PackageVersionWeight[]): PackageMetadata {
   const flags = flagsFromApi(pkg.flags, String(pkg.contentHash || ''))
   const installRaw = pkg.installCount ?? pkg.completed
+  const fromPkg = parseVersions(pkg.versions)
   return {
     contentHash: String(pkg.contentHash || '').toLowerCase(),
     infoHash: normalizeInfoHash(pkg.infoHash),
@@ -120,7 +182,9 @@ function toPackageMetadata(pkg: ApiPackage): PackageMetadata {
     updatedAt: pkg.updatedAt || pkg.createdAt,
     listenAddrs: Array.isArray(pkg.listenAddrs)
       ? pkg.listenAddrs.map((a) => String(a)).filter(Boolean).slice(0, 8)
-      : undefined
+      : undefined,
+    consensus: parseConsensus(pkg.consensus),
+    versions: versions ?? (fromPkg.length ? fromPkg : undefined)
   }
 }
 
@@ -157,6 +221,9 @@ async function appendDiscoveryLog(line: string): Promise<void> {
 
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (!getMetadataApiEnabledSync()) {
+    throw new MetadataApiDisabledError()
+  }
   const { metadataBaseUrl } = getP2pEnv()
   const url = joinUrl(metadataBaseUrl, path)
   const init: RequestInit = {
@@ -183,6 +250,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export async function metadataHealth(): Promise<MetadataHealth> {
+  if (!getMetadataApiEnabledSync()) {
+    return { ok: false, message: 'metadata API disabled' }
+  }
   try {
     return await request<MetadataHealth>('GET', '/health')
   } catch (error) {
@@ -202,7 +272,7 @@ export async function getPackage(contentHash: string): Promise<PackageMetadata |
       'GET',
       `${API_PREFIX}/packages/${encodeURIComponent(contentHash)}`
     )
-    return toPackageMetadata(pkg)
+    return toPackageMetadata(pkg, parseVersions(pkg.versions))
   } catch {
     return null
   }
@@ -258,20 +328,21 @@ export async function listPackages(query: PackageListQuery): Promise<PackageList
   void appendDiscoveryLog(`GET ${path} base=${getP2pEnv().metadataBaseUrl}`)
   const raw = await request<
     | PackageListResponse
-    | { items?: ApiPackage[]; limit?: number; offset?: number; total?: number }
+    | { items?: ApiPackage[]; versions?: ApiVersionWeight[]; limit?: number; offset?: number; total?: number }
     | ApiPackage[]
   >('GET', path)
   if (Array.isArray(raw)) {
-    const items = raw.map(toPackageMetadata)
-    return { items, limit: items.length, offset: 0, total: items.length }
+    const items = raw.map((p) => toPackageMetadata(p))
+    return { items, versions: [], limit: items.length, offset: 0, total: items.length }
   }
-  const items = Array.isArray(raw.items) ? raw.items.map(toPackageMetadata) : []
+  const versions = parseVersions(raw.versions)
+  const items = Array.isArray(raw.items) ? raw.items.map((p) => toPackageMetadata(p, versions)) : []
   const limit = typeof raw.limit === 'number' ? raw.limit : query.limit ?? items.length
   const offset = typeof raw.offset === 'number' ? raw.offset : query.offset ?? 0
   const total = typeof raw.total === 'number' ? raw.total : items.length
   console.info('[p2p-metadata] listPackages thread=%s items=%s total=%s', f95ThreadId, items.length, total)
   void appendDiscoveryLog(`listPackages thread=${f95ThreadId} items=${items.length} total=${total}`)
-  return { items, limit, offset, total }
+  return { items, versions, limit, offset, total }
 }
 
 /** Stats endpoint is not on metadata-api v1 yet — derive from package row when present. */
@@ -317,20 +388,56 @@ export async function upsertPackageSeeder(
   await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/seeders`, body)
 }
 
+/** Build the exact UTF-8 install claim clients sign (with or without tags). */
+export function buildInstallClaimMessage(
+  contentHash: string,
+  ts: number,
+  tags?: PackageInstallTags | null
+): string {
+  const hash = contentHash.trim().toLowerCase()
+  if (tags) {
+    const os = [...new Set(tags.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))]
+      .sort((a, b) => a - b)
+      .join(',')
+    const version = String(tags.version || '').trim().replace(/\s+/g, ' ')
+    return [
+      'f95-gm:install:v1',
+      `contentHash=${hash}`,
+      `os=${os}`,
+      `contentKind=${Number(tags.contentKind)}`,
+      `version=${version}`,
+      `ts=${ts}`
+    ].join('\n')
+  }
+  return ['f95-gm:install:v1', `contentHash=${hash}`, `ts=${ts}`].join('\n')
+}
+
 /** Best-effort install signal after Approve. Soft-fails if Tracker has no endpoint yet. */
-export async function reportPackageInstall(contentHash: string, payload: {
-  seederPubkey: string
-  ts: number
-  signature: string
-}): Promise<void> {
+export async function reportPackageInstall(
+  contentHash: string,
+  payload: {
+    seederPubkey: string
+    ts: number
+    signature: string
+    tags?: PackageInstallTags | null
+  }
+): Promise<void> {
   const hash = contentHash.trim().toLowerCase()
   if (!hash) return
   try {
-    await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/installs`, {
+    const body: Record<string, unknown> = {
       seederPubkey: payload.seederPubkey,
       ts: payload.ts,
       signature: payload.signature
-    })
+    }
+    if (payload.tags) {
+      body.os = [...new Set(payload.tags.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort(
+        (a, b) => a - b
+      )
+      body.contentKind = Number(payload.tags.contentKind)
+      body.version = String(payload.tags.version || '').trim().replace(/\s+/g, ' ')
+    }
+    await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/installs`, body)
   } catch (error) {
     console.warn('[p2p-metadata] install report failed (Tracker may not support it yet)', error)
   }

@@ -12,7 +12,12 @@ import { basename, dirname, join } from 'path'
  * Fallback note (not built): aria2 RPC may later help multi-GB hashing performance.
  */
 
-import { isInFlightP2pState, type P2pTransferProgress } from '@shared/p2p'
+import {
+  isInFlightP2pState,
+  type PackageConsensus,
+  type PackageInstallTags,
+  type P2pTransferProgress
+} from '@shared/p2p'
 import { mkdir, rename, stat, unlink } from 'fs/promises'
 import { addGameFileFromDownload } from '../game-files-store'
 import {
@@ -113,6 +118,7 @@ type TrackMeta = {
   f95ThreadUrl?: string | null
   normalizedName?: string
   savePath?: string
+  consensus?: PackageConsensus | null
 }
 
 const listeners = new Set<(items: P2pTransferProgress[]) => void>()
@@ -381,20 +387,29 @@ async function promoteQuarantinedFile(
     f95ThreadId?: number | null
     f95ThreadUrl?: string | null
     normalizedName?: string
-  }
+  },
+  tags?: PackageInstallTags
 ): Promise<void> {
   const contentHash = meta.contentHash.trim().toLowerCase()
   const threadId = meta.f95ThreadId
   if (threadId == null || !Number.isFinite(Number(threadId))) {
     throw new Error('Missing thread id — cannot add quarantined file to library.')
   }
+  const gameVersion = tags?.version || meta.gameVersion || 'Unknown'
   const st = await stat(trustedPath)
   await addGameFileFromDownload(
     {
       threadId: Number(threadId),
       title: meta.gameName || meta.normalizedName || basename(trustedPath),
-      version: meta.gameVersion || 'Unknown',
-      threadUrl: meta.f95ThreadUrl || undefined
+      version: gameVersion,
+      threadUrl: meta.f95ThreadUrl || undefined,
+      packageHint: tags
+        ? {
+            os: tags.os,
+            contentKind: tags.contentKind,
+            version: tags.version || gameVersion
+          }
+        : undefined
     },
     trustedPath,
     contentHash,
@@ -408,7 +423,7 @@ async function promoteQuarantinedFile(
     normalizedName: normalizePackageFilename(meta.normalizedName || basename(trustedPath)),
     sizeBytes: st.size,
     gameName: meta.gameName || undefined,
-    gameVersion: meta.gameVersion || null,
+    gameVersion,
     f95ThreadId: Number(threadId),
     f95ThreadUrl: meta.f95ThreadUrl || null
   })
@@ -438,7 +453,10 @@ export async function p2pRevealQuarantine(id: string): Promise<string> {
   return filePath
 }
 
-export async function p2pApproveQuarantine(id: string): Promise<{
+export async function p2pApproveQuarantine(
+  id: string,
+  tags?: PackageInstallTags
+): Promise<{
   dest: string
   contentHash: string
   sizeBytes: number
@@ -469,14 +487,15 @@ export async function p2pApproveQuarantine(id: string): Promise<{
     await copyFile(src, dest)
     await unlink(src)
   }
-  await promoteQuarantinedFile(dest, { ...meta, contentHash: meta.contentHash })
+  await promoteQuarantinedFile(dest, { ...meta, contentHash: meta.contentHash }, tags)
   const st = await stat(dest)
+  const gameVersion = tags?.version || meta.gameVersion
   return {
     dest,
     contentHash: meta.contentHash,
     sizeBytes: st.size,
     gameName: meta.gameName,
-    gameVersion: meta.gameVersion,
+    gameVersion,
     f95ThreadId: meta.f95ThreadId,
     normalizedName: meta.normalizedName
   }
@@ -591,7 +610,8 @@ function trackTorrent(id: string, torrent: TorrentLike, meta?: TrackMeta): void 
       gameVersion: stored?.gameVersion ?? prev?.gameVersion,
       f95ThreadId: stored?.f95ThreadId ?? prev?.f95ThreadId,
       f95ThreadUrl: stored?.f95ThreadUrl ?? prev?.f95ThreadUrl,
-      normalizedName: stored?.normalizedName ?? torrent.name ?? prev?.normalizedName
+      normalizedName: stored?.normalizedName ?? torrent.name ?? prev?.normalizedName,
+      consensus: stored?.consensus ?? prev?.consensus
     })
     if (!silent) emit()
   }
@@ -886,6 +906,7 @@ export async function p2pAddMagnet(
     f95ThreadUrl?: string | null
     gameVersion?: string | null
     normalizedName?: string
+    consensus?: PackageConsensus | null
     startPaused?: boolean
     snapshot?: {
       downloaded?: number
@@ -946,6 +967,7 @@ export async function p2pAddMagnet(
       f95ThreadId: opts?.f95ThreadId,
       f95ThreadUrl: opts?.f95ThreadUrl,
       normalizedName: opts?.normalizedName,
+      consensus: opts?.consensus,
       savePath: downloadPath
     })
     if (existingTorrent.done) {
@@ -971,6 +993,7 @@ export async function p2pAddMagnet(
     f95ThreadId: opts?.f95ThreadId,
     f95ThreadUrl: opts?.f95ThreadUrl,
     normalizedName: opts?.normalizedName,
+    consensus: opts?.consensus,
     savePath: downloadPath
   }
   if (opts?.startPaused) pausedIds.add(id)
@@ -997,7 +1020,8 @@ export async function p2pAddMagnet(
       gameVersion: opts.gameVersion,
       f95ThreadId: opts.f95ThreadId,
       f95ThreadUrl: opts.f95ThreadUrl,
-      normalizedName: opts.normalizedName
+      normalizedName: opts.normalizedName,
+      consensus: opts.consensus
     })
   }
 

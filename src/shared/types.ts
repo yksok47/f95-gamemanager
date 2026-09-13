@@ -114,6 +114,11 @@ export type AppSettings = {
   libraryDir: string
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */
   p2pEnabled: boolean
+  /**
+   * ON by default. When off, skip metadata REST (catalog, share-claim, flags, install reports).
+   * P2P swarm / tracker still work when p2pEnabled.
+   */
+  metadataApiEnabled: boolean
   /** Metadata REST base (no trailing slash). Prefer https:// — client trusts resources/certs/metadata-ca.crt */
   metadataBaseUrl: string
   /** WebSocket tracker (wss:// preferred; ws:// for local plain). Peer list + ICE signaling. */
@@ -123,6 +128,31 @@ export type AppSettings = {
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
+
+/** Prefill for approve-tags from a parsed F95 download entry (numeric wire enums). */
+export type PackageTagHint = {
+  os: number[]
+  contentKind: number
+  version: string
+}
+
+/** Normalize a stored / wire package-tag payload; returns undefined when contentKind is missing. */
+export function asPackageTagHint(value: unknown): PackageTagHint | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Partial<PackageTagHint>
+  const contentKind = Number(raw.contentKind)
+  if (!Number.isFinite(contentKind)) return undefined
+  const os = Array.isArray(raw.os)
+    ? raw.os.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+    : []
+  return {
+    os,
+    contentKind,
+    version: typeof raw.version === 'string' ? raw.version : ''
+  }
+}
+
+export type DownloadLibraryStatus = 'hashing' | 'pendingReview' | 'indexed' | 'error'
 
 export type DownloadRecord = {
   id: string
@@ -138,11 +168,15 @@ export type DownloadRecord = {
   error?: string
   startedAt: number
   updatedAt: number
+  /** When the transfer reached a finished status (completed / cancelled / interrupted). */
+  finishedAt?: number
   gameThreadId?: number
   gameTitle?: string
   gameVersion?: string
   hash?: string
-  libraryStatus?: 'hashing' | 'indexed' | 'error'
+  libraryStatus?: DownloadLibraryStatus
+  /** From the F95 download link that started this transfer — used when metadata API has nothing. */
+  packageHint?: PackageTagHint
 }
 
 export type GameFileContext = {
@@ -161,6 +195,8 @@ export type GameFileContext = {
   timestamp?: number
   updatedAt?: string
   screens?: string[]
+  /** OS / content kind / version inferred from the clicked download entry. */
+  packageHint?: PackageTagHint
 }
 
 export type GameLibraryFile = {
@@ -197,6 +233,8 @@ export type GameLibraryFile = {
   /** Folder name under %APPDATA%/RenPy (or absolute path), or null when saves live in game/saves. */
   renpySaveDirectory?: string | null
   screens?: string[]
+  /** OS / content kind / version chosen when the file was approved into the library. */
+  packageTags?: PackageTagHint
 }
 
 export type PlaySessionStatus = {
@@ -403,7 +441,8 @@ export type RelatedGame = {
   url: string
 }
 
-export type DownloadSystem =
+/** OS keys shared by F95 downloads UI and P2P metadata votes. */
+export type OsKind =
   | 'win'
   | 'linux'
   | 'mac'
@@ -413,20 +452,176 @@ export type DownloadSystem =
   | 'html'
   | 'joiplay'
 
-export type DownloadContentType =
+/** @deprecated Prefer OsKind — same values. */
+export type DownloadSystem = OsKind
+
+export const OS_KIND_IDS = {
+  win: 0,
+  linux: 1,
+  mac: 2,
+  android: 3,
+  ios: 4,
+  web: 5,
+  html: 6,
+  joiplay: 7
+} as const satisfies Record<OsKind, number>
+
+export type OsKindId = (typeof OS_KIND_IDS)[OsKind]
+
+export const OS_KIND_BY_ID: Record<OsKindId, OsKind> = {
+  0: 'win',
+  1: 'linux',
+  2: 'mac',
+  3: 'android',
+  4: 'ios',
+  5: 'web',
+  6: 'html',
+  7: 'joiplay'
+}
+
+export const OS_KIND_LABELS: Record<OsKind, string> = {
+  win: 'Windows',
+  linux: 'Linux',
+  mac: 'Mac',
+  android: 'Android',
+  ios: 'iOS',
+  web: 'Web',
+  html: 'HTML',
+  joiplay: 'JoiPlay'
+}
+
+/** Content kind keys shared by F95 downloads UI and P2P metadata votes. */
+export type ContentKind =
+  | 'other'
   | 'game'
-  | 'fix'
+  | 'update'
   | 'patch'
+  | 'uncensor'
   | 'mod'
+  | 'translation'
   | 'walkthrough'
   | 'cheat'
-  | 'translation'
+  | 'crack'
   | 'save'
-  | 'guide'
   | 'dlc'
-  | 'compressed'
   | 'extra'
-  | 'other'
+
+/** @deprecated Prefer ContentKind — same values. */
+export type DownloadContentType = ContentKind
+
+export const CONTENT_KIND_IDS = {
+  other: 0,
+  game: 1,
+  update: 2,
+  patch: 3,
+  uncensor: 4,
+  mod: 5,
+  translation: 6,
+  walkthrough: 7,
+  cheat: 8,
+  crack: 9,
+  save: 10,
+  dlc: 11,
+  extra: 12
+} as const satisfies Record<ContentKind, number>
+
+export type ContentKindId = (typeof CONTENT_KIND_IDS)[ContentKind]
+
+export const CONTENT_KIND_BY_ID: Record<ContentKindId, ContentKind> = {
+  0: 'other',
+  1: 'game',
+  2: 'update',
+  3: 'patch',
+  4: 'uncensor',
+  5: 'mod',
+  6: 'translation',
+  7: 'walkthrough',
+  8: 'cheat',
+  9: 'crack',
+  10: 'save',
+  11: 'dlc',
+  12: 'extra'
+}
+
+export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
+  other: 'Other',
+  game: 'Game',
+  update: 'Update',
+  patch: 'Patch',
+  uncensor: 'Uncensor patch',
+  mod: 'Mod',
+  translation: 'Translation',
+  walkthrough: 'Walkthrough',
+  cheat: 'Cheat',
+  crack: 'Crack',
+  save: 'Save',
+  dlc: 'DLC',
+  extra: 'Extra'
+}
+
+/**
+ * Display order for file-library sections. "Other" is last; untagged legacy rows map to Game.
+ */
+export const LIBRARY_FILE_SECTION_ORDER: ContentKind[] = [
+  'game',
+  'update',
+  'patch',
+  'uncensor',
+  'mod',
+  'translation',
+  'walkthrough',
+  'cheat',
+  'crack',
+  'save',
+  'dlc',
+  'extra',
+  'other'
+]
+
+/**
+ * Full game packages are installable. Untagged legacy library rows stay installable.
+ * Mods / patches / extras / etc. are kept in the library but not extracted as installs.
+ */
+export function isInstallableLibraryPackage(tags?: PackageTagHint | null): boolean {
+  if (!tags || !Number.isFinite(tags.contentKind)) return true
+  return tags.contentKind === CONTENT_KIND_IDS.game
+}
+
+/** Max length for version strings sent to / accepted by the metadata API. */
+export const VERSION_NAME_MAX_LEN = 64
+
+/** Extra / other packages are not tied to an OS. */
+export function contentKindAllowsOs(contentKind: number): boolean {
+  return contentKind !== CONTENT_KIND_IDS.other && contentKind !== CONTENT_KIND_IDS.extra
+}
+
+/** Extra / other packages are not tied to a game version. */
+export function contentKindAllowsVersion(contentKind: number): boolean {
+  return contentKind !== CONTENT_KIND_IDS.other && contentKind !== CONTENT_KIND_IDS.extra
+}
+
+/** OS is required whenever the content kind allows it. */
+export function contentKindRequiresOs(contentKind: number): boolean {
+  return contentKindAllowsOs(contentKind)
+}
+
+/**
+ * Version is optional for patch-like add-ons (any known version may be chosen).
+ * Base packages (game, update, …) still require a version when allowed.
+ */
+export function contentKindRequiresVersion(contentKind: number): boolean {
+  if (!contentKindAllowsVersion(contentKind)) return false
+  switch (contentKind) {
+    case CONTENT_KIND_IDS.patch:
+    case CONTENT_KIND_IDS.uncensor:
+    case CONTENT_KIND_IDS.mod:
+    case CONTENT_KIND_IDS.cheat:
+    case CONTENT_KIND_IDS.crack:
+      return false
+    default:
+      return true
+  }
+}
 
 export type DownloadSectionKind =
   | 'current'
@@ -450,8 +645,8 @@ export type DownloadPart = {
 }
 
 export type DownloadEntry = {
-  contentType: DownloadContentType
-  systems: DownloadSystem[]
+  contentType: ContentKind
+  systems: OsKind[]
   variants: string[]
   version: string | null
   title: string | null

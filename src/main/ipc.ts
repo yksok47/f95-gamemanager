@@ -11,12 +11,14 @@ import type {
 } from '@shared/types'
 import {
   applyConfiguredDownloadPath,
+  approveDownload,
   cancelDownload,
   clearFinishedDownloads,
   listDownloads,
   openDownload,
   openDownloadsFolder,
   pauseDownload,
+  rejectDownload,
   removeDownload,
   resumeDownload,
   showDownloadInFolder
@@ -77,10 +79,11 @@ import {
 } from './subscriptions-store'
 import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed } from './follow-sync'
 import { openInAppWindow } from './open-url'
-import type { PackageFlagKind, PackageListQuery } from '@shared/p2p'
+import type { PackageFlagKind, PackageInstallTags, PackageListQuery } from '@shared/p2p'
 import {
   flagPackageAs,
   listPackagesForDiscovery,
+  lookupPackageMeta,
   p2pAdd,
   p2pDownloadByContentHash,
   flagQuarantinedDownload,
@@ -394,6 +397,22 @@ export function registerIpc(): void {
   ipcMain.handle('downloads:openFolder', async () => {
     try {
       await openDownloadsFolder()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('downloads:approve', async (_event, id: string, tags: unknown) => {
+    try {
+      return await approveDownload(String(id || ''), tags as PackageInstallTags)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('downloads:reject', async (_event, id: string) => {
+    try {
+      return await rejectDownload(String(id || ''))
     } catch (error) {
       throw toIpcError(error)
     }
@@ -760,6 +779,13 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+  ipcMain.handle('p2p:getPackage', async (_event, contentHash: string) => {
+    try {
+      return await lookupPackageMeta(String(contentHash || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
   ipcMain.handle('p2p:downloadByHash', async (_event, contentHash: string) => {
     try {
       return await p2pDownloadByContentHash(String(contentHash || ''))
@@ -779,9 +805,9 @@ export function registerIpc(): void {
   )
 
 
-  ipcMain.handle('p2p:approveQuarantine', async (_event, id: string) => {
+  ipcMain.handle('p2p:approveQuarantine', async (_event, id: string, tags: unknown) => {
     try {
-      await approveQuarantinedDownload(String(id || ''))
+      await approveQuarantinedDownload(String(id || ''), tags as PackageInstallTags)
     } catch (error) {
       throw toIpcError(error)
     }

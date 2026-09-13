@@ -415,13 +415,16 @@ function defaultContentTypeForSection(kind: DownloadSectionKind): DownloadConten
 function contentTypeFromLabel(raw: string, fallback: DownloadContentType): DownloadContentType {
   const text = labelText(raw).toLowerCase()
   if (!text) return fallback
-  if (/^compressed\b|compress(?:ed)?\s+version/.test(text)) return 'compressed'
+  if (/^compressed\b|compress(?:ed)?\s+version/.test(text)) return 'game'
+  if (/\buncensor|\bincest\b/.test(text)) return 'uncensor'
+  if (/\bcrack\b|\bcracked\b/.test(text)) return 'crack'
   if (/\bwalkthrough|\bguide\b|\bfaq\b/.test(text)) return 'walkthrough'
   if (/\bcheat/.test(text)) return 'cheat'
   if (/\btranslati|\btl\b|\blanguage pack/.test(text)) return 'translation'
   if (/\bsave\b|\bsaves\b/.test(text)) return 'save'
   if (/\bdlc\b/.test(text)) return 'dlc'
-  if (/\bfix\b|\bhotfix\b/.test(text)) return 'fix'
+  if (/\bupdate\b|\bhotfix\b/.test(text)) return 'update'
+  if (/\bfix\b/.test(text)) return 'patch'
   if (/\bpatch\b/.test(text)) return 'patch'
   if (/\bmod\b|\bunlocker|\benhancement|\brandomizer|\btweaker/.test(text)) return 'mod'
   if (/\bgallery\b|\bfan\s*sigs?|\bwallpaper|\bcg\b|\bwiki\b|\boff\s*topic/.test(text)) return 'extra'
@@ -645,10 +648,11 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
     if (blocked) return
     started = true
     const linkSystems = systemsFromLinkLabel(mirror.label)
+    const compressed = /^compressed\b|compress(?:ed)?\s+version/i.test(labelText(mirror.label))
     const entry = emptyEntry(
       type,
       linkSystems,
-      type === 'compressed' ? ['compressed'] : [],
+      compressed ? ['compressed'] : [],
       null,
       mirror.label
     )
@@ -875,25 +879,28 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       if (!isRelatedUrl(url) && !isMirrorUrl(url)) return
       // Platform builds still prefer hoster mirrors; related labels become own entries.
       if (
-        (type !== 'game' && type !== 'compressed' && !isHosterLabel(cleanLabel)) ||
+        (type !== 'game' && !isHosterLabel(cleanLabel)) ||
         allowRelated ||
         active.kind === 'extras' ||
         active.kind === 'patches' ||
         active.kind === 'other'
       ) {
-        if (type === 'compressed') {
+        if (/^compressed\b|compress(?:ed)?\s+version/i.test(cleanLabel)) {
           // Compressed builds stay navigable under the current release context.
           const previousType = contentType
-          contentType = 'compressed'
+          contentType = 'game'
           const previousSystems = systems
           systems = systems.length ? systems : []
           const previousTitle = entryTitle
+          const previousVariants = variants
           entryTitle = cleanLabel
+          variants = [...new Set([...variants, 'compressed'])]
           flushEntry()
           addMirror({ label: cleanLabel, url }, unofficial)
           contentType = previousType
           systems = previousSystems
           entryTitle = previousTitle
+          variants = previousVariants
           flushEntry()
           return
         }

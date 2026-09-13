@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GameLibraryFile, PlaySessionStatus, Subscription } from '@shared/types'
+import { isInstallableLibraryPackage } from '@shared/types'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
 import { compareGameVersions } from '@shared/engines'
 
@@ -42,19 +43,25 @@ export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibr
 
   const result = new Map<number, GameLibraryStatus>()
   for (const [threadId, items] of byThread) {
-    const installed = items.filter((file) => file.isInstalled)
+    const installed = items.filter(
+      (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
+    )
     const latest = [...installed].sort((a, b) => {
       const versions = compareGameVersions(a.version, b.version)
       if (versions) return versions
       return (a.installedAt || 0) - (b.installedAt || 0)
     }).at(-1)
     const status: GameLibraryStatus = {
-      hasArchive: items.some((file) => file.hasArchive),
+      hasArchive: items.some(
+        (file) => file.hasArchive && isInstallableLibraryPackage(file.packageTags)
+      ),
       isInstalled: installed.length > 0,
       installedVersion: latest?.version || null,
       engine: items.find((file) => file.engine)?.engine || null
     }
-    if (status.hasArchive || status.isInstalled) result.set(threadId, status)
+    if (status.hasArchive || status.isInstalled || items.some((file) => file.hasArchive || file.isInstalled)) {
+      result.set(threadId, status)
+    }
   }
   return result
 }
@@ -111,7 +118,9 @@ export function groupLibraryGames(
   const games: LibraryGame[] = []
   for (const [threadId, items] of byThread) {
     const sub = followed.get(threadId)
-    const installed = [...items.filter((file) => file.isInstalled)].sort((a, b) => {
+    const installed = [
+      ...items.filter((file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags))
+    ].sort((a, b) => {
       const versions = compareGameVersions(a.version, b.version)
       if (versions) return versions
       return (a.installedAt || 0) - (b.installedAt || 0)

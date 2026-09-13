@@ -1,16 +1,22 @@
-import type { JSX } from 'react'
-import type { P2pTransferProgress } from '@shared/p2p'
+import { useState, type JSX } from 'react'
+import type { PackageInstallTags, PackageVersionWeight, P2pTransferProgress } from '@shared/p2p'
 import { formatBytes, formatSpeed } from '../lib/downloads'
+import P2pApproveTagsForm from './P2pApproveTagsForm'
+import PackageMetaTags from './PackageMetaTags'
 
 type P2pTransferRowProps = {
   item: P2pTransferProgress
+  compact?: boolean
+  versions?: PackageVersionWeight[]
   onPause: (id: string) => void
   onResume: (id: string) => void
   onStop: (id: string) => void
   onRevealQuarantine?: (id: string) => void
-  onApproveQuarantine?: (id: string) => void
+  onApproveQuarantine?: (id: string, tags: PackageInstallTags) => void
   onRejectQuarantine?: (id: string) => void
   onFlagQuarantine?: (id: string) => void
+  /** When set with compact, quarantine rows link here instead of showing Approve/Reject. */
+  onOpenDownloads?: () => void
   onOpenGame?: (threadId: number, title: string) => void
 }
 
@@ -40,6 +46,8 @@ function statusClass(state: P2pTransferProgress['state']): string {
 
 export default function P2pTransferRow({
   item,
+  compact = false,
+  versions,
   onPause,
   onResume,
   onStop,
@@ -47,10 +55,14 @@ export default function P2pTransferRow({
   onApproveQuarantine,
   onRejectQuarantine,
   onFlagQuarantine,
+  onOpenDownloads,
   onOpenGame
 }: P2pTransferRowProps): JSX.Element {
+  const [approveReady, setApproveReady] = useState(false)
   const percent = Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))
   const isQuarantined = item.state === 'quarantined'
+  const deferReviewToDownloads = Boolean(compact && onOpenDownloads)
+  const approveFormId = `p2p-approve-${item.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
   const canPause =
     item.state === 'connecting' || item.state === 'downloading' || item.state === 'checking'
   const canResume = item.state === 'paused' || item.state === 'error'
@@ -73,30 +85,40 @@ export default function P2pTransferRow({
     (item.f95ThreadId != null ? `Thread ${item.f95ThreadId}` : 'Unknown game')
   const packageLabel =
     item.normalizedName || shortHash(item.contentHash) || shortHash(item.infoHash) || item.id
+  const titleLabel = compact ? packageLabel : gameLabel
+  const canOpenGame = !compact && Boolean(onOpenGame && item.f95ThreadId != null)
 
   return (
-    <article className="download-row">
+    <article
+      className={
+        compact
+          ? `download-row download-row-compact${isQuarantined ? ' download-row-quarantine' : ''}`
+          : `download-row${isQuarantined ? ' download-row-quarantine' : ''}`
+      }
+    >
       <div className="download-row-main">
         <div className="download-row-title">
-          {onOpenGame && item.f95ThreadId != null ? (
+          {canOpenGame ? (
             <button
               className="download-game-link"
               type="button"
               title={`Open ${gameLabel}`}
-              onClick={() => onOpenGame(item.f95ThreadId!, gameLabel)}
+              onClick={() => onOpenGame!(item.f95ThreadId!, gameLabel)}
             >
               {gameLabel}
             </button>
           ) : (
-            <strong title={gameLabel}>{gameLabel}</strong>
+            <strong title={titleLabel}>{titleLabel}</strong>
           )}
           <span className={`download-status download-status-${statusClass(item.state)}`}>
             {statusLabel(item.state)}
           </span>
         </div>
-        <p className="muted download-url" title={item.path || packageLabel}>
-          {packageLabel}
-        </p>
+        {compact ? null : (
+          <p className="muted download-url" title={item.path || packageLabel}>
+            {packageLabel}
+          </p>
+        )}
         {isQuarantined ? (
           <p className="muted download-meta">
             Saved to untrusted quarantine — review before opening or installing.
@@ -127,39 +149,54 @@ export default function P2pTransferRow({
                 `${percent}%`
               ].join(' · ')}
         </p>
+        {isQuarantined || compact ? null : (
+          <PackageMetaTags consensus={item.consensus} versionFallback={item.gameVersion} />
+        )}
       </div>
       <div className="download-row-actions">
         {isQuarantined ? (
-          <>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => onRevealQuarantine?.(item.id)}
-            >
-              View in folder
+          deferReviewToDownloads ? (
+            <button className="primary-btn" type="button" onClick={onOpenDownloads}>
+              Review on Downloads
             </button>
-            <button
-              className="primary-btn"
-              type="button"
-              onClick={() => onApproveQuarantine?.(item.id)}
-            >
-              Approve
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => onRejectQuarantine?.(item.id)}
-            >
-              Reject
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => onFlagQuarantine?.(item.id)}
-            >
-              Flag malicious
-            </button>
-          </>
+          ) : (
+            <>
+              {!compact ? (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => onRevealQuarantine?.(item.id)}
+                >
+                  View in folder
+                </button>
+              ) : null}
+              <button
+                className="primary-btn"
+                type="submit"
+                form={approveFormId}
+                disabled={!approveReady}
+                title={approveReady ? undefined : 'Set content type, OS, and version first'}
+              >
+                Approve
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => onRejectQuarantine?.(item.id)}
+              >
+                Reject
+              </button>
+              {!compact ? (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  onClick={() => onFlagQuarantine?.(item.id)}
+                >
+                  Flag malicious
+                </button>
+              ) : null}
+            </>
+          )
         ) : (
           <>
             {canPause ? (
@@ -180,6 +217,16 @@ export default function P2pTransferRow({
           </>
         )}
       </div>
+      {isQuarantined && !deferReviewToDownloads ? (
+        <P2pApproveTagsForm
+          formId={approveFormId}
+          contentHash={item.contentHash}
+          consensus={item.consensus}
+          versions={versions}
+          onReadyChange={setApproveReady}
+          onSubmit={(tags) => onApproveQuarantine?.(item.id, tags)}
+        />
+      ) : null}
     </article>
   )
 }

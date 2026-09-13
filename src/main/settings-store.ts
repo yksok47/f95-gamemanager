@@ -168,6 +168,7 @@ function emptySettings(): AppSettings {
     favoriteTags: [],
     hatedTags: [],
     p2pEnabled: false,
+    metadataApiEnabled: true,
     metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
     trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
     p2pUploadLimitKBps: 0,
@@ -187,6 +188,8 @@ function normalizeSettings(value: unknown): AppSettings {
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
     p2pEnabled: Boolean(raw.p2pEnabled),
+    metadataApiEnabled:
+      typeof raw.metadataApiEnabled === 'boolean' ? raw.metadataApiEnabled : true,
     metadataBaseUrl: migrateMetadataHttps(
       normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL'))
     ),
@@ -243,6 +246,10 @@ export function getLibraryDirSync(): string {
 
 export function getMetadataBaseUrlSync(): string {
   return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
+}
+
+export function getMetadataApiEnabledSync(): boolean {
+  return loaded?.metadataApiEnabled ?? true
 }
 
 export function getTrackerWebRtcUrlSync(): string {

@@ -1,23 +1,34 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type {
   CatalogGame,
-  DownloadContentType,
   DownloadEntry,
   DownloadMirror,
   DownloadRecord,
   DownloadSection,
   DownloadSectionKind,
-  DownloadSystem,
   FavoriteTag,
   HatedTag,
   GameLibraryFile,
   GameRarity,
   GameSummary,
+  PackageTagHint,
   ThreadDetails,
   ThreadReview
 } from '@shared/types'
 import { pickLikeCount, pickViewCount } from '@shared/counts'
-import { TAG_TIER_RANK } from '@shared/types'
+import {
+  CONTENT_KIND_BY_ID,
+  CONTENT_KIND_IDS,
+  CONTENT_KIND_LABELS,
+  LIBRARY_FILE_SECTION_ORDER,
+  OS_KIND_IDS,
+  OS_KIND_LABELS,
+  TAG_TIER_RANK,
+  isInstallableLibraryPackage,
+  type ContentKind,
+  type ContentKindId
+} from '@shared/types'
+import type { PackageInstallTags, P2pTransferProgress } from '@shared/p2p'
 import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
 import { gameStatusFlags } from '@shared/prefixes'
 import { formatPlaytime, formatRelativeTime, formatSessionTime, formatUpdateDate, gameUpdateState, isRelativeDate } from '@shared/updates'
@@ -26,6 +37,7 @@ import FollowButton from '../components/FollowButton'
 import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
 import GameP2pSection from '../components/GameP2pSection'
+import P2pTransferRow from '../components/P2pTransferRow'
 import { confirm } from '../components/ConfirmDialog'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import RenpySavesPanel from '../components/RenpySavesPanel'
@@ -34,9 +46,10 @@ import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { favoriteTierByName, isHatedTagName } from '../lib/favorites'
-import { formatBytes, isActiveDownload } from '../lib/downloads'
+import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import ReviewCard from '../components/ReviewCard'
+import PackageMetaTags from '../components/PackageMetaTags'
 import { RefreshIcon } from '../components/ToolbarIcons'
 import { usePlaySessions } from '../lib/library'
 
@@ -103,32 +116,9 @@ function linkLabel(link: DownloadMirror): string {
   return label
 }
 
-const SYSTEM_LABELS: Record<DownloadSystem, string> = {
-  win: 'Windows',
-  linux: 'Linux',
-  mac: 'Mac',
-  android: 'Android',
-  ios: 'iOS',
-  web: 'Web',
-  html: 'HTML',
-  joiplay: 'JoiPlay'
-}
+const SYSTEM_LABELS = OS_KIND_LABELS
 
-const CONTENT_TYPE_LABELS: Record<DownloadContentType, string> = {
-  game: 'Game',
-  fix: 'Fix',
-  compressed: 'Compressed',
-  patch: 'Patch',
-  mod: 'Mod',
-  walkthrough: 'Walkthrough',
-  cheat: 'Cheat',
-  translation: 'Translation',
-  save: 'Save',
-  guide: 'Guide',
-  dlc: 'DLC',
-  extra: 'Extra',
-  other: 'Other'
-}
+const CONTENT_TYPE_LABELS = CONTENT_KIND_LABELS
 
 const SECTION_KIND_LABELS: Record<DownloadSectionKind, string> = {
   current: 'Current',
@@ -175,6 +165,23 @@ function countDownloadMirrors(sections: DownloadSection[]): number {
   return total
 }
 
+function packageHintFromEntry(entry: DownloadEntry, fallbackVersion: string): PackageTagHint | undefined {
+  const os = [...new Set(entry.systems.map((system) => OS_KIND_IDS[system]))].sort((a, b) => a - b)
+  const contentKind = CONTENT_KIND_IDS[entry.contentType]
+  const version = (entry.version || fallbackVersion || '').trim()
+  if (!Number.isFinite(contentKind)) return undefined
+  if (!os.length && !version) return undefined
+  return { os, contentKind, version }
+}
+
+function libraryFileContentKind(file: GameLibraryFile): ContentKind {
+  const id = file.packageTags?.contentKind
+  if (id != null && Number.isFinite(id) && id in CONTENT_KIND_BY_ID) {
+    return CONTENT_KIND_BY_ID[id as ContentKindId]
+  }
+  return 'game'
+}
+
 function MirrorButtons({
   mirrors,
   onOpen
@@ -205,7 +212,7 @@ function DownloadEntryView({
   onOpen
 }: {
   entry: DownloadEntry
-  onOpen: (url: string) => void
+  onOpen: (url: string, entry: DownloadEntry) => void
 }): JSX.Element {
   const heading = entryHeading(entry)
   const typeLabel = CONTENT_TYPE_LABELS[entry.contentType]
@@ -223,12 +230,12 @@ function DownloadEntryView({
           {entry.parts.map((part) => (
             <div key={`${part.index}-${part.label}`} className="download-part">
               <span className="download-part-label">{part.label || `Part ${part.index}`}</span>
-              <MirrorButtons mirrors={part.mirrors} onOpen={onOpen} />
+              <MirrorButtons mirrors={part.mirrors} onOpen={(url) => onOpen(url, entry)} />
             </div>
           ))}
         </div>
       ) : (
-        <MirrorButtons mirrors={entry.mirrors} onOpen={onOpen} />
+        <MirrorButtons mirrors={entry.mirrors} onOpen={(url) => onOpen(url, entry)} />
       )}
     </section>
   )
@@ -240,7 +247,7 @@ function DownloadSectionView({
   nested = false
 }: {
   section: DownloadSection
-  onOpen: (url: string) => void
+  onOpen: (url: string, entry: DownloadEntry) => void
   nested?: boolean
 }): JSX.Element {
   const heading = sectionHeading(section)
@@ -352,6 +359,7 @@ export default function GameDetailsPage({
   const [filesReady, setFilesReady] = useState(false)
   const [installBytes, setInstallBytes] = useState<number | null>(null)
   const [transfers, setTransfers] = useState<DownloadRecord[]>([])
+  const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [threadIdCopied, setThreadIdCopied] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
@@ -485,10 +493,17 @@ export default function GameDetailsPage({
     void window.api.downloads.list().then((items) => {
       if (!cancelled) setTransfers(items)
     })
+    void window.api.p2p.progress().then((items) => {
+      if (!cancelled) setP2pTransfers(items)
+    })
+    const stopP2p = window.api.p2p.onProgress((items) => {
+      if (!cancelled) setP2pTransfers(items)
+    })
     return () => {
       cancelled = true
       stopLibrary()
       stopDownloads()
+      stopP2p()
     }
   }, [summary.threadId])
 
@@ -783,6 +798,15 @@ export default function GameDetailsPage({
     const image = (): HTMLImageElement | null => stage.querySelector('img')
     const SWIPE_THRESHOLD = 56
     const LOCK_THRESHOLD = 10
+    const WHEEL_COOLDOWN_MS = 280
+    const WHEEL_THRESHOLD = 12
+    let lastWheelAt = 0
+
+    const stepLightbox = (delta: number): void => {
+      setLightbox((index) =>
+        index == null ? index : (index + delta + gallery.length) % gallery.length
+      )
+    }
 
     const resetTransform = (): void => {
       const img = image()
@@ -839,10 +863,7 @@ export default function GameDetailsPage({
           img.style.transition = 'none'
           img.style.transform = ''
         }
-        const delta = dx < 0 ? 1 : -1
-        setLightbox((index) =>
-          index == null ? index : (index + delta + gallery.length) % gallery.length
-        )
+        stepLightbox(dx < 0 ? 1 : -1)
         return
       }
       resetTransform()
@@ -855,22 +876,36 @@ export default function GameDetailsPage({
       swipe.moved = false
     }
 
+    function onWheel(event: WheelEvent): void {
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (Math.abs(delta) < WHEEL_THRESHOLD) return
+      event.preventDefault()
+      const now = performance.now()
+      if (now - lastWheelAt < WHEEL_COOLDOWN_MS) return
+      lastWheelAt = now
+      stepLightbox(delta > 0 ? 1 : -1)
+    }
+
     stage.addEventListener('pointerdown', onPointerDown)
     stage.addEventListener('pointermove', onPointerMove)
     stage.addEventListener('pointerup', endSwipe)
     stage.addEventListener('pointercancel', endSwipe)
     stage.addEventListener('click', onClickCapture, true)
+    stage.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       stage.removeEventListener('pointerdown', onPointerDown)
       stage.removeEventListener('pointermove', onPointerMove)
       stage.removeEventListener('pointerup', endSwipe)
       stage.removeEventListener('pointercancel', endSwipe)
       stage.removeEventListener('click', onClickCapture, true)
+      stage.removeEventListener('wheel', onWheel)
     }
   }, [lightbox, gallery.length])
 
   const latestInstalled = useMemo(() => {
-    const installed = files.filter((file) => file.isInstalled)
+    const installed = files.filter(
+      (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
+    )
     if (!installed.length) return null
     return [...installed].sort((a, b) => {
       const versions = compareGameVersions(a.version, b.version)
@@ -903,7 +938,12 @@ export default function GameDetailsPage({
 
   const pendingInstall = useMemo(() => {
     if (latestInstalled) return null
-    const candidates = files.filter((file) => file.hasArchive && !file.isInstalled)
+    const candidates = files.filter(
+      (file) =>
+        file.hasArchive &&
+        !file.isInstalled &&
+        isInstallableLibraryPackage(file.packageTags)
+    )
     if (!candidates.length) return null
     return (
       [...candidates]
@@ -915,6 +955,21 @@ export default function GameDetailsPage({
         .at(-1) ?? null
     )
   }, [files, latestInstalled])
+
+  const libraryFileSections = useMemo(() => {
+    const buckets = new Map<ContentKind, GameLibraryFile[]>()
+    for (const file of files) {
+      const kind = libraryFileContentKind(file)
+      const list = buckets.get(kind)
+      if (list) list.push(file)
+      else buckets.set(kind, [file])
+    }
+    return LIBRARY_FILE_SECTION_ORDER.flatMap((kind) => {
+      const items = buckets.get(kind)
+      if (!items?.length) return []
+      return [{ kind, label: CONTENT_KIND_LABELS[kind], items }]
+    })
+  }, [files])
 
   const installingFile = useMemo(
     () => files.find((file) => file.installPercent != null) ?? null,
@@ -933,17 +988,32 @@ export default function GameDetailsPage({
           item.gameThreadId === summary.threadId &&
           (isActiveDownload(item) ||
             item.libraryStatus === 'hashing' ||
+            item.libraryStatus === 'pendingReview' ||
             item.libraryStatus === 'error' ||
             (item.status === 'completed' && item.libraryStatus !== 'indexed'))
       ),
     [transfers, summary.threadId]
   )
 
-  async function openUrl(url: string): Promise<void> {
+  const gameP2pTransfers = useMemo(
+    () =>
+      p2pEnabled
+        ? p2pTransfers.filter(
+            (item) =>
+              isActiveP2pDownload(item) &&
+              (item.f95ThreadId === summary.threadId ||
+                (item.gameName != null && item.gameName === title))
+          )
+        : [],
+    [p2pEnabled, p2pTransfers, summary.threadId, title]
+  )
+
+  async function openUrl(url: string, entry?: DownloadEntry): Promise<void> {
+    const packageHint = entry ? packageHintFromEntry(entry, version) : undefined
     await window.api.shell.open(url, {
       threadId: summary.threadId,
       title,
-      version,
+      version: entry?.version || version,
       engine,
       creator,
       coverUrl: coverUrl || summary.coverUrl,
@@ -955,8 +1025,46 @@ export default function GameDetailsPage({
       tags: summary.tags,
       timestamp: summary.timestamp,
       updatedAt: details?.updatedAt || summary.updatedAt,
-      screens: summary.screens
+      screens: summary.screens,
+      packageHint
     })
+  }
+
+  async function approveTransfer(id: string, tags: PackageInstallTags): Promise<void> {
+    setTransfers(await window.api.downloads.approve(id, tags))
+  }
+
+  async function rejectTransfer(id: string): Promise<void> {
+    setTransfers(await window.api.downloads.reject(id))
+  }
+
+  async function pauseP2pTransfer(id: string): Promise<void> {
+    await window.api.p2p.pause(id)
+  }
+
+  async function resumeP2pTransfer(id: string): Promise<void> {
+    await window.api.p2p.resume(id)
+  }
+
+  async function stopP2pTransfer(id: string): Promise<void> {
+    await window.api.p2p.remove(id, true)
+  }
+
+  async function revealP2pQuarantine(id: string): Promise<void> {
+    await window.api.p2p.revealQuarantine(id)
+  }
+
+  async function approveP2pQuarantine(id: string, tags: PackageInstallTags): Promise<void> {
+    await window.api.p2p.approveQuarantine(id, tags)
+    setTransfers(await window.api.downloads.list())
+  }
+
+  async function rejectP2pQuarantine(id: string): Promise<void> {
+    await window.api.p2p.rejectQuarantine(id)
+  }
+
+  async function flagP2pQuarantine(id: string): Promise<void> {
+    await window.api.p2p.flagQuarantine(id)
   }
 
   function openDownloadsTab(): void {
@@ -1051,18 +1159,8 @@ export default function GameDetailsPage({
     }
   }
 
-  async function removeArchive(id: string): Promise<void> {
-    if (!(await confirm({ title: 'Delete archive', message: 'Delete the archive for this version? The install folder is kept.', confirmLabel: 'Delete archive', danger: true }))) return
-    setInstallError(null)
-    try {
-      await window.api.library.removeArchive(id)
-    } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not remove that archive.')
-    }
-  }
-
   async function removeVersion(id: string): Promise<void> {
-    if (!(await confirm({ title: 'Remove version', message: 'Remove this version? The archive and the extracted folder will both be deleted.', confirmLabel: 'Remove', danger: true }))) {
+    if (!(await confirm({ title: 'Remove', message: 'Remove this version? The archive and the extracted folder will both be deleted.', confirmLabel: 'Remove', danger: true }))) {
       return
     }
     setInstallError(null)
@@ -1071,23 +1169,6 @@ export default function GameDetailsPage({
     } catch (err) {
       setInstallError(err instanceof Error ? err.message : 'Could not remove that version.')
     }
-  }
-
-  function removeMenuItems(file: GameLibraryFile): MenuItem[] {
-    const items: MenuItem[] = []
-    if (file.hasArchive) {
-      items.push({
-        id: 'remove-archive',
-        label: 'Remove archive',
-        onClick: () => void removeArchive(file.id)
-      })
-    }
-    items.push({
-      id: 'remove-version',
-      label: 'Remove version',
-      onClick: () => void removeVersion(file.id)
-    })
-    return items
   }
 
   function moreMenuItems(file: GameLibraryFile): MenuItem[] {
@@ -1416,7 +1497,7 @@ export default function GameDetailsPage({
               {installError ? <p className="error-text">{installError}</p> : null}
             </div>
           </div>
-          {gameTransfers.length ? (
+          {gameTransfers.length || gameP2pTransfers.length ? (
             <div className="details-transfers">
               {gameTransfers.map((item) => (
                 <DownloadRow
@@ -1429,6 +1510,22 @@ export default function GameDetailsPage({
                   onRemove={(id) => void window.api.downloads.remove(id)}
                   onShowInFolder={(id) => void window.api.downloads.showInFolder(id)}
                   onOpenFile={(id) => void window.api.downloads.openFile(id)}
+                  onApprove={(id, tags) => void approveTransfer(id, tags)}
+                  onReject={(id) => void rejectTransfer(id)}
+                />
+              ))}
+              {gameP2pTransfers.map((item) => (
+                <P2pTransferRow
+                  key={`p2p-${item.id}`}
+                  item={item}
+                  compact
+                  onPause={(id) => void pauseP2pTransfer(id)}
+                  onResume={(id) => void resumeP2pTransfer(id)}
+                  onStop={(id) => void stopP2pTransfer(id)}
+                  onRevealQuarantine={(id) => void revealP2pQuarantine(id)}
+                  onApproveQuarantine={(id, tags) => void approveP2pQuarantine(id, tags)}
+                  onRejectQuarantine={(id) => void rejectP2pQuarantine(id)}
+                  onFlagQuarantine={(id) => void flagP2pQuarantine(id)}
                 />
               ))}
             </div>
@@ -1551,7 +1648,7 @@ export default function GameDetailsPage({
                 <DownloadSectionView
                   key={`${section.kind}-${section.title ?? 'current'}-${index}`}
                   section={section}
-                  onOpen={(url) => void openUrl(url)}
+                  onOpen={(url, entry) => void openUrl(url, entry)}
                 />
               ))
             ) : (
@@ -1574,118 +1671,143 @@ export default function GameDetailsPage({
           files.length ? (
             <div className="library-file-list">
               {installError ? <p className="error-text">{installError}</p> : null}
-              {files.map((file) => (
-                <article key={file.id} className="library-file">
-                  <div className="library-file-main">
-                    <strong title={file.archivePath || file.filename}>{file.filename}</strong>
-                    <p className="muted library-file-meta">
-                      Version {file.version || 'Unknown'}
-                      {' · '}
-                      {file.engine || engine || 'Unknown engine'}
-                      {file.hash ? ` · ${file.hash.slice(0, 12)}` : ''}
-                      {file.lastPlayedAt
-                        ? ` · Last played ${formatRelativeTime(file.lastPlayedAt)}`
-                        : ''}
-                      {file.playtimeMs
-                        ? ` · ${formatPlaytime(file.playtimeMs)}`
-                        : ''}
-                    </p>
-                    {file.isInstalled ? (
-                      <p className="muted library-file-meta">
-                        {file.executablePath
-                          ? `Launch: ${fileName(file.executablePath)}`
-                          : 'No executable selected'}
-                      </p>
-                    ) : null}
-                    <p className="library-file-flags">
-                      <span className={file.hasArchive ? 'file-flag file-flag-on' : 'file-flag'}>
-                        Archive {file.hasArchive ? 'yes' : 'no'}
-                      </span>
-                      <span className={file.isInstalled ? 'file-flag file-flag-on' : 'file-flag'}>
-                        Installed {file.isInstalled ? 'yes' : 'no'}
-                      </span>
-                      {(() => {
-                        const session = sessionFor(file.id)
-                        return session ? (
-                          <span className="file-flag file-flag-on">
-                            Playing · {formatSessionTime(elapsedMs(session.startedAt, session.elapsedMs))}
-                          </span>
-                        ) : lastPlayedFile?.id === file.id ? (
-                          <span className="file-flag file-flag-on">Last played</span>
-                        ) : null
-                      })()}
-                    </p>
-                    {file.installPercent != null ? (
-                      <div className="download-progress" role="progressbar" aria-valuenow={file.installPercent}>
-                        <span style={{ width: `${file.installPercent}%` }} />
-                      </div>
-                    ) : null}
-                    {file.installError ? <p className="error-text">{file.installError}</p> : null}
+              {libraryFileSections.map((section) => (
+                <section key={section.kind} className="library-file-section">
+                  <h3 className="library-file-section-title">{section.label}</h3>
+                  <div className="library-file-section-list">
+                    {section.items.map((file) => {
+                      const canInstall =
+                        file.hasArchive && isInstallableLibraryPackage(file.packageTags)
+                      const tags = file.packageTags
+                      return (
+                        <article key={file.id} className="library-file">
+                          <div className="library-file-main">
+                            <strong title={file.archivePath || file.filename}>{file.filename}</strong>
+                            <p className="muted library-file-meta">
+                              Version {file.version || 'Unknown'}
+                              {' · '}
+                              {file.engine || engine || 'Unknown engine'}
+                              {file.hash ? ` · ${file.hash.slice(0, 12)}` : ''}
+                              {file.lastPlayedAt
+                                ? ` · Last played ${formatRelativeTime(file.lastPlayedAt)}`
+                                : ''}
+                              {file.playtimeMs ? ` · ${formatPlaytime(file.playtimeMs)}` : ''}
+                            </p>
+                            {tags ? (
+                              <PackageMetaTags
+                                consensus={{
+                                  os: tags.os,
+                                  contentKind: tags.contentKind,
+                                  version: tags.version,
+                                  versionId: 0
+                                }}
+                                versionFallback={file.version}
+                                showKind={false}
+                                showVersion={false}
+                              />
+                            ) : null}
+                            {file.isInstalled ? (
+                              <p className="muted library-file-meta">
+                                {file.executablePath
+                                  ? `Launch: ${fileName(file.executablePath)}`
+                                  : 'No executable selected'}
+                              </p>
+                            ) : null}
+                            {(() => {
+                              const session = sessionFor(file.id)
+                              if (!session && lastPlayedFile?.id !== file.id) return null
+                              return (
+                                <p className="library-file-flags">
+                                  {session ? (
+                                    <span className="file-flag file-flag-on">
+                                      Playing ·{' '}
+                                      {formatSessionTime(elapsedMs(session.startedAt, session.elapsedMs))}
+                                    </span>
+                                  ) : (
+                                    <span className="file-flag file-flag-on">Last played</span>
+                                  )}
+                                </p>
+                              )
+                            })()}
+                            {file.installPercent != null ? (
+                              <div
+                                className="download-progress"
+                                role="progressbar"
+                                aria-valuenow={file.installPercent}
+                              >
+                                <span style={{ width: `${file.installPercent}%` }} />
+                              </div>
+                            ) : null}
+                            {file.installError ? <p className="error-text">{file.installError}</p> : null}
+                          </div>
+                          <div className="library-file-actions">
+                            {file.isInstalled ? (
+                              sessionFor(file.id) ? (
+                                <button
+                                  className="stop-btn"
+                                  type="button"
+                                  onClick={() => void stopFile(file.id)}
+                                >
+                                  Stop
+                                </button>
+                              ) : file.installPercent == null ? (
+                                <button
+                                  className="primary-btn"
+                                  type="button"
+                                  onClick={() => void playFile(file.id)}
+                                >
+                                  Play
+                                </button>
+                              ) : null
+                            ) : null}
+                            {canInstall ? (
+                              <button
+                                className="primary-btn"
+                                type="button"
+                                disabled={file.installPercent != null}
+                                onClick={() => void installFile(file.id)}
+                              >
+                                {file.installPercent != null
+                                  ? `Installing… ${file.installPercent}%`
+                                  : file.isInstalled
+                                    ? 'Reinstall'
+                                    : 'Install'}
+                              </button>
+                            ) : null}
+                            {file.isInstalled ? (
+                              <SplitButton
+                                label="Uninstall"
+                                variant="ghost"
+                                disabled={file.installPercent != null}
+                                onClick={() => void uninstallFile(file.id)}
+                                items={[
+                                  {
+                                    id: 'remove',
+                                    label: 'Remove',
+                                    onClick: () => void removeVersion(file.id)
+                                  }
+                                ]}
+                              />
+                            ) : (
+                              <button
+                                className="ghost-btn"
+                                type="button"
+                                disabled={file.installPercent != null}
+                                onClick={() => void removeVersion(file.id)}
+                              >
+                                Remove
+                              </button>
+                            )}
+                            <MoreMenu
+                              disabled={file.installPercent != null}
+                              items={moreMenuItems(file)}
+                            />
+                          </div>
+                        </article>
+                      )
+                    })}
                   </div>
-                  <div className="library-file-actions">
-                    {file.isInstalled ? (
-                      sessionFor(file.id) ? (
-                        <button className="stop-btn" type="button" onClick={() => void stopFile(file.id)}>
-                          Stop
-                        </button>
-                      ) : file.installPercent == null ? (
-                        <button className="primary-btn" type="button" onClick={() => void playFile(file.id)}>
-                          Play
-                        </button>
-                      ) : null
-                    ) : null}
-                    {file.hasArchive ? (
-                      <button
-                        className="primary-btn"
-                        type="button"
-                        disabled={file.installPercent != null}
-                        onClick={() => void installFile(file.id)}
-                      >
-                        {file.installPercent != null
-                          ? `Installing… ${file.installPercent}%`
-                          : file.isInstalled
-                            ? 'Reinstall'
-                            : 'Install'}
-                      </button>
-                    ) : null}
-                    {file.isInstalled ? (
-                      <SplitButton
-                        label="Uninstall"
-                        variant="ghost"
-                        disabled={file.installPercent != null}
-                        onClick={() => void uninstallFile(file.id)}
-                        items={removeMenuItems(file)}
-                      />
-                    ) : file.hasArchive ? (
-                      <SplitButton
-                        label="Remove archive"
-                        variant="ghost"
-                        disabled={file.installPercent != null}
-                        onClick={() => void removeArchive(file.id)}
-                        items={[
-                          {
-                            id: 'remove-version',
-                            label: 'Remove version',
-                            onClick: () => void removeVersion(file.id)
-                          }
-                        ]}
-                      />
-                    ) : (
-                      <button
-                        className="ghost-btn"
-                        type="button"
-                        disabled={file.installPercent != null}
-                        onClick={() => void removeVersion(file.id)}
-                      >
-                        Remove version
-                      </button>
-                    )}
-                    <MoreMenu
-                      disabled={file.installPercent != null}
-                      items={moreMenuItems(file)}
-                    />
-                  </div>
-                </article>
+                </section>
               ))}
             </div>
           ) : (

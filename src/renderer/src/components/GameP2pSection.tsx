@@ -1,15 +1,52 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from "react";
-import { isContentHash, normalizeInfoHash } from "@shared/content-address";
+import { normalizeInfoHash } from "@shared/content-address";
 import {
   isInFlightP2pState,
   type PackageListQuery,
   type PackageListSort,
   type PackageMetadata,
+  type PackageVersionWeight,
   type P2pTransferProgress,
 } from "@shared/p2p";
-import { formatBytes, formatSpeed } from "../lib/downloads";
+import {
+  CONTENT_KIND_BY_ID,
+  CONTENT_KIND_IDS,
+  CONTENT_KIND_LABELS,
+  OS_KIND_BY_ID,
+  OS_KIND_IDS,
+  OS_KIND_LABELS,
+  type ContentKind,
+  type OsKind,
+} from "@shared/types";
+import { formatBytes } from "../lib/downloads";
 import { confirm } from "./ConfirmDialog";
+import {
+  formatConsensusKind,
+  formatConsensusOs,
+} from "./PackageMetaTags";
 import SelectMenu from "./SelectMenu";
+import { KindIcon, OsIcon } from "./TagIcons";
+
+const ALL = "all" as const;
+
+const PLATFORM_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: ALL, label: "All platforms" },
+  ...(Object.keys(OS_KIND_IDS) as OsKind[]).map((key) => ({
+    value: String(OS_KIND_IDS[key]),
+    label: OS_KIND_LABELS[key],
+  })),
+];
+
+const FILE_TYPE_FILTER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: ALL, label: "All file types" },
+  ...(Object.keys(CONTENT_KIND_IDS) as ContentKind[])
+    .filter((key) => key !== "other")
+    .concat("other")
+    .map((key) => ({
+      value: String(CONTENT_KIND_IDS[key]),
+      label: CONTENT_KIND_LABELS[key],
+    })),
+];
 
 type GameP2pSectionProps = {
   threadId: number;
@@ -114,11 +151,6 @@ function availabilityMeta(pkg: PackageMetadata): string {
   return `${n} peer${n === 1 ? "" : "s"} seeding`;
 }
 
-function shortHash(value: string | null | undefined): string {
-  if (!value) return "—";
-  return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
-}
-
 function transferMatchesPackage(
   t: P2pTransferProgress,
   pkg: PackageMetadata,
@@ -135,26 +167,19 @@ function isInFlightDownload(t: P2pTransferProgress): boolean {
   return isInFlightP2pState(t.state);
 }
 
-function activeDownloadLabel(state: P2pTransferProgress["state"]): string {
-  if (state === "error") return "Error";
-  if (state === "paused") return "Paused";
-  if (state === "quarantined") return "Needs review";
-  if (state === "seeding") return "Downloaded";
-  if (state === "connecting") return "Connecting";
-  if (state === "checking") return "Checking";
-  return "Downloading";
-}
-
 export default function GameP2pSection({
   threadId,
-  gameName,
+  gameName: _gameName,
   onOpenFiles,
 }: GameP2pSectionProps): JSX.Element {
   const [p2pEnabled, setP2pEnabled] = useState(false);
-  const [q, setQ] = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  const [metadataApiEnabled, setMetadataApiEnabled] = useState(true);
+  const [filterPlatform, setFilterPlatform] = useState<string>(ALL);
+  const [filterFileType, setFilterFileType] = useState<string>(ALL);
+  const [filterVersion, setFilterVersion] = useState<string>(ALL);
   const [sort, setSort] = useState<PackageListSort>("popularity");
   const [items, setItems] = useState<PackageMetadata[]>([]);
+  const [versions, setVersions] = useState<PackageVersionWeight[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
@@ -167,23 +192,57 @@ export default function GameP2pSection({
     () => new Set(),
   );
 
-  const gameDownloads = useMemo(
-    () =>
-      transfers.filter(
-        (t) =>
-          isInFlightDownload(t) &&
-          (t.f95ThreadId === threadId ||
-            (t.gameName != null && t.gameName === gameName)),
-      ),
-    [transfers, threadId, gameName],
-  );
+  const versionFilterOptions = useMemo(() => {
+    const opts: Array<{ value: string; label: string }> = [
+      { value: ALL, label: "All versions" },
+    ];
+    const seen = new Set<string>();
+    for (const v of versions) {
+      const name = v.name?.trim();
+      if (!name || seen.has(name)) continue;
+      seen.add(name);
+      opts.push({ value: name, label: name });
+    }
+    if (filterVersion !== ALL && !seen.has(filterVersion)) {
+      opts.push({ value: filterVersion, label: filterVersion });
+    }
+    return opts;
+  }, [versions, filterVersion]);
+
+  const filteredItems = useMemo(() => {
+    const osId = filterPlatform === ALL ? null : Number(filterPlatform);
+    const kindId = filterFileType === ALL ? null : Number(filterFileType);
+    const ver = filterVersion === ALL ? null : filterVersion;
+    return items.filter((pkg) => {
+      const c = pkg.consensus;
+      if (osId != null) {
+        if (!c?.os?.includes(osId)) return false;
+      }
+      if (kindId != null) {
+        if (c?.contentKind !== kindId) return false;
+      }
+      if (ver != null) {
+        const pkgVer = (c?.version?.trim() || pkg.gameVersion?.trim() || "");
+        if (pkgVer !== ver) return false;
+      }
+      return true;
+    });
+  }, [items, filterPlatform, filterFileType, filterVersion]);
+
+  const filtersActive =
+    filterPlatform !== ALL || filterFileType !== ALL || filterVersion !== ALL;
 
   const loadStatus = useCallback(async (): Promise<void> => {
     try {
-      const status = (await window.api.p2p.status()) as { enabled?: boolean };
+      const status = (await window.api.p2p.status()) as {
+        enabled?: boolean;
+        metadataApiEnabled?: boolean;
+      };
       setP2pEnabled(Boolean(status?.enabled));
+      setMetadataApiEnabled(status?.metadataApiEnabled !== false);
     } catch {
       setP2pEnabled(false);
+      setMetadataApiEnabled(true);
     }
   }, []);
 
@@ -191,7 +250,19 @@ export default function GameP2pSection({
     setBusy(true);
     setError(null);
     try {
-      const raw = q.trim();
+      const status = (await window.api.p2p.status()) as {
+        enabled?: boolean;
+        metadataApiEnabled?: boolean;
+      };
+      setP2pEnabled(Boolean(status?.enabled));
+      const metaOn = status?.metadataApiEnabled !== false;
+      setMetadataApiEnabled(metaOn);
+      if (!metaOn) {
+        setItems([]);
+        setVersions([]);
+        setTotal(0);
+        return;
+      }
       const query: PackageListQuery = {
         f95ThreadId: threadId,
         sort,
@@ -199,19 +270,13 @@ export default function GameP2pSection({
         limit,
         offset,
       };
-      const info = normalizeInfoHash(raw);
-      if (isContentHash(raw)) {
-        query.contentHash = raw.toLowerCase();
-      } else if (info) {
-        query.infoHash = info;
-      } else if (raw) {
-        query.q = raw;
-      }
       const page = await window.api.p2p.listPackages(query);
       setItems(page.items);
+      setVersions(page.versions ?? []);
       setTotal(page.total);
     } catch (err) {
       setItems([]);
+      setVersions([]);
       setTotal(0);
       setError(
         err instanceof Error
@@ -221,7 +286,7 @@ export default function GameP2pSection({
     } finally {
       setBusy(false);
     }
-  }, [threadId, q, sort, limit, offset]);
+  }, [threadId, sort, limit, offset]);
 
   useEffect(() => {
     void loadStatus();
@@ -241,14 +306,6 @@ export default function GameP2pSection({
       window.clearInterval(poll);
     };
   }, [load]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setOffset(0);
-      setQ(searchInput.trim());
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
 
   useEffect(() => {
     let cancelled = false;
@@ -354,206 +411,49 @@ export default function GameP2pSection({
     }
   }
 
-  async function pauseTransfer(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.pause(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not pause P2P download",
-      );
-    }
-  }
-
-  async function resumeTransfer(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.resume(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not resume P2P download",
-      );
-    }
-  }
-
-  async function stopTransfer(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.remove(id, true);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not stop P2P download",
-      );
-    }
-  }
-
-  async function revealQuarantine(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.revealQuarantine(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not open quarantine folder",
-      );
-    }
-  }
-
-  async function approveQuarantine(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.approveQuarantine(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not approve download",
-      );
-    }
-  }
-
-  async function rejectQuarantine(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.rejectQuarantine(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not reject download",
-      );
-    }
-  }
-
-  async function flagQuarantine(id: string): Promise<void> {
-    setActionError(null);
-    try {
-      await window.api.p2p.flagQuarantine(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "Could not flag package",
-      );
-    }
-  }
-
   const pageStart = total === 0 ? 0 : offset + 1;
   const pageEnd = Math.min(offset + items.length, total);
 
   return (
     <section className="download-section game-p2p-section">
-      <h2>P2P downloads</h2>
-
-      {gameDownloads.length ? (
-        <div className="downloads-page-list game-p2p-active">
-          {gameDownloads.map((t) => {
-            const pct = Math.round((t.progress || 0) * 100);
-            const down =
-              t.downloadSpeed > 0 ? formatSpeed(t.downloadSpeed) : "";
-            return (
-              <article key={t.id} className="download-row download-row-compact">
-                <div className="download-row-main">
-                  <div className="download-row-title">
-                    <strong title={t.normalizedName || t.contentHash}>
-                      {t.normalizedName || shortHash(t.contentHash) || t.id}
-                    </strong>
-                    <span className="download-status download-status-progressing">
-                      {activeDownloadLabel(t.state)}
-                    </span>
-                  </div>
-                  <div
-                    className="download-progress"
-                    role="progressbar"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={pct}
-                  >
-                    <span style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="muted download-meta">
-                    {t.state === "quarantined"
-                      ? "Saved to untrusted quarantine — review before opening or installing."
-                      : [
-                          `${pct}%`,
-                          t.length > 0
-                            ? `${formatBytes(t.downloaded)} / ${formatBytes(t.length)}`
-                            : formatBytes(t.downloaded),
-                          down,
-                          t.state === "connecting"
-                            ? "finding peers"
-                            : `${t.numActivePeers ?? 0} active / ${t.numPeers} connected`,
-                          t.error,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                  </p>
-                </div>
-                <div className="download-row-actions">
-                  {t.state === "quarantined" ? (
-                    <>
-                      <button
-                        className="ghost-btn"
-                        type="button"
-                        onClick={() => void revealQuarantine(t.id)}
-                      >
-                        View in folder
-                      </button>
-                      <button
-                        className="primary-btn"
-                        type="button"
-                        onClick={() => void approveQuarantine(t.id)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        className="ghost-btn"
-                        type="button"
-                        onClick={() => void rejectQuarantine(t.id)}
-                      >
-                        Reject
-                      </button>
-                      <button
-                        className="ghost-btn"
-                        type="button"
-                        onClick={() => void flagQuarantine(t.id)}
-                      >
-                        Flag malicious
-                      </button>
-                    </>
-                  ) : t.state === "paused" || t.state === "error" ? (
-                    <button
-                      className="ghost-btn"
-                      type="button"
-                      onClick={() => void resumeTransfer(t.id)}
-                    >
-                      Resume
-                    </button>
-                  ) : (
-                    <button
-                      className="ghost-btn"
-                      type="button"
-                      onClick={() => void pauseTransfer(t.id)}
-                    >
-                      Pause
-                    </button>
-                  )}
-                  {t.state === "quarantined" ? null : (
-                    <button
-                      className="ghost-btn"
-                      type="button"
-                      onClick={() => void stopTransfer(t.id)}
-                    >
-                      Stop
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
+      {busy ? (
+        <div
+          className="game-p2p-spinner"
+          role="status"
+          aria-label="Loading shared packages"
+        >
+          <span />
         </div>
       ) : null}
+      <h2>P2P downloads</h2>
 
       <div className="filter-row game-p2p-controls">
-        <input
-          className="tag-search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Name or hash"
-          aria-label="Search P2P packages for this game"
+        <SelectMenu
+          value={filterPlatform}
+          ariaLabel="Filter by platform"
+          options={PLATFORM_FILTER_OPTIONS}
+          onChange={(next) => {
+            setOffset(0);
+            setFilterPlatform(next);
+          }}
+        />
+        <SelectMenu
+          value={filterFileType}
+          ariaLabel="Filter by file type"
+          options={FILE_TYPE_FILTER_OPTIONS}
+          onChange={(next) => {
+            setOffset(0);
+            setFilterFileType(next);
+          }}
+        />
+        <SelectMenu
+          value={filterVersion}
+          ariaLabel="Filter by version"
+          options={versionFilterOptions}
+          onChange={(next) => {
+            setOffset(0);
+            setFilterVersion(next);
+          }}
         />
         <SelectMenu
           value={sort}
@@ -577,15 +477,20 @@ export default function GameP2pSection({
         </button>
       </div>
 
-      {busy ? <p className="muted">Loading shared packages…</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
       {actionError ? <p className="error-text">{actionError}</p> : null}
-      {!busy && items.length === 0 && !error ? (
-        <p className="muted">No shared packages for this game yet.</p>
+      {!busy && filteredItems.length === 0 && !error ? (
+        <p className="muted">
+          {metadataApiEnabled
+            ? filtersActive
+              ? "No packages match these filters."
+              : "No shared packages for this game yet."
+            : "Metadata API is disabled. Enable it in Settings → General to browse the catalog."}
+        </p>
       ) : null}
 
       <ul className="p2p-discovery-list">
-        {items.map((pkg) => {
+        {filteredItems.map((pkg) => {
           const trust = trustSignal(pkg);
           const warn = trustNote(pkg, trust);
           const active = pendingHash === pkg.contentHash;
@@ -629,31 +534,82 @@ export default function GameP2pSection({
                   : noSharers
                     ? "No sharers reported — download may stall"
                     : "Download via P2P";
+          const kindKey =
+            pkg.consensus != null
+              ? (CONTENT_KIND_BY_ID[
+                  pkg.consensus.contentKind as keyof typeof CONTENT_KIND_BY_ID
+                ] ?? null)
+              : null;
+          const kindLabel =
+            pkg.consensus != null
+              ? formatConsensusKind(pkg.consensus.contentKind)
+              : "Untagged";
+          const version =
+            pkg.consensus?.version?.trim() ||
+            pkg.gameVersion?.trim() ||
+            "Unknown version";
+          const osIds = pkg.consensus?.os ?? [];
           return (
             <li key={pkg.contentHash} className="p2p-discovery-item">
               <div className="p2p-discovery-main">
-                <div>
-                  <div className="p2p-discovery-title-row">
-                    <strong>
-                      {pkg.normalizedName || pkg.gameName || "Untitled package"}
-                      {pkg.gameVersion ? ` · ${pkg.gameVersion}` : ""}
-                    </strong>
-                    <span
-                      className={`p2p-trust-badge p2p-trust-${trust.level}`}
-                      title="Installs vs flags (unique reports)"
-                    >
-                      {trust.label}
+                <div className="p2p-discovery-body">
+                  <aside
+                    className="p2p-discovery-kind"
+                    title={kindLabel}
+                    aria-label={kindLabel}
+                  >
+                    <span className="p2p-discovery-kind-icon">
+                      <KindIcon kind={kindKey ?? "other"} />
                     </span>
+                    <span className="p2p-discovery-kind-label">{kindLabel}</span>
+                  </aside>
+                  <div className="p2p-discovery-content">
+                    <div className="p2p-discovery-title-row">
+                      <strong className="p2p-discovery-version">{version}</strong>
+                      {osIds.length ? (
+                        <span
+                          className="p2p-discovery-platforms"
+                          aria-label={formatConsensusOs(osIds)}
+                        >
+                          {osIds.map((id) => {
+                            const key =
+                              OS_KIND_BY_ID[id as keyof typeof OS_KIND_BY_ID];
+                            if (!key) return null;
+                            return (
+                              <span
+                                key={id}
+                                className="p2p-discovery-platform"
+                                title={OS_KIND_LABELS[key]}
+                              >
+                                <OsIcon os={key} />
+                                <span className="p2p-discovery-platform-label">
+                                  {OS_KIND_LABELS[key]}
+                                </span>
+                              </span>
+                            );
+                          })}
+                        </span>
+                      ) : null}
+                      <span
+                        className={`p2p-trust-badge p2p-trust-${trust.level}`}
+                        title="Installs vs flags (unique reports)"
+                      >
+                        {trust.label}
+                      </span>
+                    </div>
+                    <p className="p2p-discovery-filename">
+                      {pkg.normalizedName || pkg.gameName || "Untitled package"}
+                    </p>
+                    <p className="muted download-meta">
+                      {[
+                        availabilityMeta(pkg),
+                        size,
+                        formatUploadedAt(pkg.createdAt),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
                   </div>
-                  <p className="muted download-meta">
-                    {[
-                      availabilityMeta(pkg),
-                      size,
-                      formatUploadedAt(pkg.createdAt),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
                 </div>
                 {owned ? (
                   <button
@@ -690,7 +646,9 @@ export default function GameP2pSection({
       {total > 0 ? (
         <div className="filter-row game-p2p-pager">
           <span className="muted">
-            {pageStart}–{pageEnd} of {total}
+            {filtersActive
+              ? `${filteredItems.length} match${filteredItems.length === 1 ? "" : "es"} on this page · ${pageStart}–${pageEnd} of ${total}`
+              : `${pageStart}–${pageEnd} of ${total}`}
           </span>
           <button
             className="ghost-btn"

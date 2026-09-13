@@ -4,6 +4,7 @@ import type { BrowserWindow } from 'electron'
 import { shell } from 'electron'
 import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
 import type { GameFileContext, GameLibraryFile } from '@shared/types'
+import { asPackageTagHint, isInstallableLibraryPackage } from '@shared/types'
 import { folderBytes } from './disk-usage'
 import { extractArchive } from './extract'
 import { sanitizeSegment } from './fs-utils'
@@ -347,7 +348,8 @@ function present(file: StoredGameFile): GameLibraryFile {
     timestamp: file.timestamp || 0,
     updatedAt: file.updatedAt || '',
     renpySaveDirectory: file.renpySaveDirectory,
-    screens: uniqueScreenUrls(file.screens)
+    screens: uniqueScreenUrls(file.screens),
+    packageTags: asPackageTagHint(file.packageTags)
   }
 }
 
@@ -373,7 +375,8 @@ async function readStore(): Promise<StoredGameFile[]> {
       timestamp: Number(file.timestamp) || 0,
       updatedAt: file.updatedAt || '',
       renpySaveDirectory: file.renpySaveDirectory,
-      screens: uniqueScreenUrls(file.screens)
+      screens: uniqueScreenUrls(file.screens),
+      packageTags: asPackageTagHint(file.packageTags)
     }))
   } catch {
     loaded = []
@@ -464,12 +467,14 @@ export async function addGameFileFromDownload(
   const siblings = files.filter((file) => file.threadId === context.threadId)
   const meta = mergeThreadMeta(...siblings, context)
   const existing = files.find((file) => file.threadId === context.threadId && file.hash === hash)
+  const packageTags = asPackageTagHint(context.packageHint)
   if (existing) {
     existing.archivePath = archivePath
     existing.filename = basename(archivePath)
     existing.size = size
     existing.version = context.version || existing.version
     existing.engine = normalizeEngine(context.engine) || existing.engine || ''
+    if (packageTags) existing.packageTags = packageTags
     applyMetaToFile(existing, meta)
     applyMetaToThread(files, meta)
     await writeStore(files)
@@ -505,7 +510,8 @@ export async function addGameFileFromDownload(
     updatedAt: context.updatedAt || meta.updatedAt || '',
     screens: uniqueScreenUrls(context.screens).length
       ? uniqueScreenUrls(context.screens)
-      : uniqueScreenUrls(meta.screens)
+      : uniqueScreenUrls(meta.screens),
+    packageTags
   }
   files.push(entry)
   applyMetaToThread(files, mergeThreadMeta(meta, entry))
@@ -556,6 +562,9 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
   const files = await readStore()
   const file = files.find((item) => item.id === id)
   if (!file) throw new Error('That file is not in the library.')
+  if (!isInstallableLibraryPackage(file.packageTags)) {
+    throw new Error('Only full game packages can be installed.')
+  }
   if (!file.archivePath || !pathExists(file.archivePath)) {
     throw new Error('The archive is missing from disk.')
   }
@@ -660,7 +669,9 @@ async function resolvePlayableExe(
 }
 
 export function latestInstalledFile(files: GameLibraryFile[]): GameLibraryFile | null {
-  const installed = files.filter((file) => file.isInstalled)
+  const installed = files.filter(
+    (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
+  )
   if (!installed.length) return null
   return [...installed].sort((a, b) => {
     const versions = compareGameVersions(a.version, b.version)

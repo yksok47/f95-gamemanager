@@ -1,10 +1,14 @@
 ﻿/**
  * Live swarm probe against the WebSocket tracker (scrape).
  * Used when opening the game P2P downloads tab — not via metadata-api.
+ *
+ * bittorrent-tracker WS scrape expects 20-byte binary info_hash strings
+ * (same as announce), not 40-char hex.
  */
 import { getP2pEnv } from './env'
 import { normalizeInfoHash } from '@shared/content-address'
 import type { PackageMetadata } from '@shared/p2p'
+import { hexInfoHashToBinary, scrapeCounts, toHexInfoHash } from './tracker-swarm-parse'
 
 const TIMEOUT_MS = 2500
 
@@ -19,31 +23,6 @@ type ScrapeFile = {
   incomplete?: number
 }
 
-function toHexInfoHash(key: unknown): string | null {
-  if (typeof key === 'string') {
-    const hex = normalizeInfoHash(key)
-    if (hex) return hex
-    if (key.length === 20) return Buffer.from(key, 'latin1').toString('hex')
-    return null
-  }
-  if (Buffer.isBuffer(key) || key instanceof Uint8Array) {
-    return Buffer.from(key).toString('hex')
-  }
-  return null
-}
-
-function scrapeCounts(files: Record<string, ScrapeFile> | undefined): Map<string, number> {
-  const out = new Map<string, number>()
-  if (!files) return out
-  for (const [key, file] of Object.entries(files)) {
-    const hash = toHexInfoHash(key)
-    if (!hash) continue
-    const n = Number(file?.complete)
-    out.set(hash, Number.isFinite(n) ? Math.max(0, n) : 0)
-  }
-  return out
-}
-
 async function loadWs(): Promise<new (url: string, opts?: object) => TrackerSocket> {
   const mod = (await import('ws')) as {
     default?: new (url: string, opts?: object) => TrackerSocket
@@ -52,9 +31,14 @@ async function loadWs(): Promise<new (url: string, opts?: object) => TrackerSock
   return mod.default ?? mod.WebSocket ?? (mod as unknown as new (url: string, opts?: object) => TrackerSocket)
 }
 
-async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>> {
+async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number> | null> {
   const url = getP2pEnv().trackerWebRtcUrl?.trim()
-  if (!url || !infoHashes.length) return new Map()
+  if (!url || !infoHashes.length) return null
+
+  const binaryHashes = infoHashes
+    .map((hex) => hexInfoHashToBinary(hex))
+    .filter((h): h is string => Boolean(h))
+  if (!binaryHashes.length) return null
 
   const WebSocket = await loadWs()
   const { getP2pHttpsAgent } = await import('./p2p-tls')
@@ -62,7 +46,7 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>>
 
   return new Promise((resolve) => {
     let settled = false
-    const finish = (counts: Map<string, number>) => {
+    const finish = (counts: Map<string, number> | null) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
@@ -77,14 +61,15 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>>
     const socket = new WebSocket(url, socketOpts)
     const timer = setTimeout(() => {
       console.warn('[p2p] tracker scrape timeout')
-      finish(new Map())
+      finish(null)
     }, TIMEOUT_MS)
 
     socket.on('open', () => {
       socket.send(
         JSON.stringify({
           action: 'scrape',
-          info_hash: infoHashes.length === 1 ? infoHashes[0] : infoHashes
+          // Tracker parse-websocket requires length === 20 binary strings.
+          info_hash: binaryHashes.length === 1 ? binaryHashes[0] : binaryHashes
         })
       )
     })
@@ -96,26 +81,36 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number>>
           files?: Record<string, ScrapeFile>
           complete?: number
           info_hash?: unknown
+          'failure reason'?: string
+        }
+        if (msg['failure reason']) {
+          console.warn('[p2p] tracker scrape failed', msg['failure reason'])
+          finish(null)
+          return
         }
         if (msg.action === 'announce' && msg.info_hash != null) {
           const hash = toHexInfoHash(msg.info_hash)
           const n = Number(msg.complete)
-          finish(hash && Number.isFinite(n) ? new Map([[hash, Math.max(0, n)]]) : new Map())
+          finish(hash && Number.isFinite(n) ? new Map([[hash, Math.max(0, n)]]) : null)
           return
         }
         if (msg.action && msg.action !== 'scrape') return
+        if (!msg.files) {
+          finish(null)
+          return
+        }
         finish(scrapeCounts(msg.files))
       } catch (error) {
         console.warn('[p2p] tracker scrape parse', error)
-        finish(new Map())
+        finish(null)
       }
     })
     socket.on('error', (err: unknown) => {
       const message = err instanceof Error ? err.message : String(err)
       console.warn('[p2p] tracker scrape error', message)
-      finish(new Map())
+      finish(null)
     })
-    socket.on('close', () => finish(new Map()))
+    socket.on('close', () => finish(null))
   })
 }
 
@@ -131,12 +126,15 @@ export async function enrichPackagesWithLiveSwarm(
         .filter((hash): hash is string => Boolean(hash))
     )
   ]
-  let counts = new Map<string, number>()
+  let counts: Map<string, number> | null = null
   try {
     counts = await scrapeTracker(hashes)
   } catch (error) {
     console.warn('[p2p] live swarm probe failed', error)
   }
+  // Failed scrape must not wipe counts to 0 (would show "0 peers seeding" while peers are up).
+  if (!counts) return items
+
   return items.map((pkg) => {
     const hash = normalizeInfoHash(pkg.infoHash)
     const n = hash ? (counts.get(hash) ?? 0) : 0
