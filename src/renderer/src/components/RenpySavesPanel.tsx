@@ -209,7 +209,10 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
   })
   const saves = info?.saves ?? []
   const detectedSlots = useMemo(() => detectedSlotCount(saves), [saves])
-  const slotsPerPage = Math.max(detectedSlots, slotsInput ?? detectedSlots)
+  const slotsMin = detectedSlots
+  const slotsMax = Math.max(slotsMin + 12, 24)
+  const slotsPerPage = Math.min(Math.max(slotsMin, slotsInput ?? slotsMin), slotsMax)
+  const slotsAtDefault = slotsPerPage === slotsMin
   const boards = useMemo(() => buildBoards(saves, slotsPerPage), [saves, slotsPerPage])
   const leftovers = useMemo(
     () => saves.filter((save) => save.kind === 'persistent' || save.kind === 'other'),
@@ -548,29 +551,63 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
           </div>
 
           {info?.savePath ? (
-            <label className="saves-slots-field">
-              <span className="filter-label">Slots per page</span>
-              <div className="saves-slots-control">
-                <input
-                  className="save-place-input"
-                  type="number"
-                  min={detectedSlots}
-                  step={1}
-                  value={slotsPerPage}
-                  disabled={busy || running}
-                  aria-describedby="saves-slots-hint"
-                  onChange={(event) => {
-                    const next = Number(event.target.value)
-                    if (!Number.isInteger(next) || next < 1) return
-                    setSlotsInput(Math.max(detectedSlots, next))
-                  }}
-                  onMouseDown={(event) => event.stopPropagation()}
-                />
-                <span className="muted" id="saves-slots-hint">
-                  At least {detectedSlots} from existing saves
+            <div className="saves-slots-field">
+              <div className="saves-slots-head">
+                <span className="filter-label" id="saves-slots-label">
+                  Slots per page
+                </span>
+                <span className="saves-slots-value" aria-live="polite">
+                  {slotsPerPage}
+                  {slotsAtDefault ? <span className="muted"> · default</span> : null}
                 </span>
               </div>
-            </label>
+              {slotsMax > slotsMin ? (
+                <div className="saves-slots-control">
+                  <input
+                    className="saves-slots-slider"
+                    type="range"
+                    min={slotsMin}
+                    max={slotsMax}
+                    step={1}
+                    value={slotsPerPage}
+                    disabled={busy || running}
+                    aria-labelledby="saves-slots-label"
+                    aria-valuemin={slotsMin}
+                    aria-valuemax={slotsMax}
+                    aria-valuenow={slotsPerPage}
+                    aria-valuetext={
+                      slotsAtDefault ? `${slotsPerPage} (default)` : String(slotsPerPage)
+                    }
+                    onChange={(event) => {
+                      const next = Number(event.target.value)
+                      if (!Number.isInteger(next)) return
+                      setSlotsInput(next <= slotsMin ? null : next)
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  />
+                  <div className="saves-slots-scale" aria-hidden="true">
+                    <button
+                      type="button"
+                      className={
+                        slotsAtDefault
+                          ? 'saves-slots-mark is-default is-active'
+                          : 'saves-slots-mark is-default'
+                      }
+                      disabled={busy || running || slotsAtDefault}
+                      title={`Reset to default (${slotsMin})`}
+                      onClick={() => setSlotsInput(null)}
+                    >
+                      Default · {slotsMin}
+                    </button>
+                    <span className="saves-slots-mark is-max">{slotsMax}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="muted saves-slots-hint">
+                  {slotsPerPage} slots from existing saves
+                </p>
+              )}
+            </div>
           ) : null}
         </div>
 
