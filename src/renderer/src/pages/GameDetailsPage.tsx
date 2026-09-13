@@ -642,7 +642,7 @@ export default function GameDetailsPage({
     const modal = modalScrollRef.current
     if (!modal) return
 
-    function syncRailMetrics(): void {
+    const syncRailMetrics = (): void => {
       const scrollHeight = modal.scrollHeight
       const needsRail = scrollHeight > modal.clientHeight + 1
       setModalRailHeight(scrollHeight)
@@ -784,14 +784,14 @@ export default function GameDetailsPage({
     const SWIPE_THRESHOLD = 56
     const LOCK_THRESHOLD = 10
 
-    function resetTransform(): void {
+    const resetTransform = (): void => {
       const img = image()
       if (!img) return
       img.style.transition = 'transform 160ms ease'
       img.style.transform = ''
     }
 
-    function onPointerDown(event: PointerEvent): void {
+    const onPointerDown = (event: PointerEvent): void => {
       if (event.button !== 0) return
       if ((event.target as HTMLElement | null)?.closest?.('.lightbox-nav')) return
       swipe.active = true
@@ -804,7 +804,7 @@ export default function GameDetailsPage({
       if (img) img.style.transition = 'none'
     }
 
-    function onPointerMove(event: PointerEvent): void {
+    const onPointerMove = (event: PointerEvent): void => {
       if (!swipe.active || event.pointerId !== swipe.pointerId) return
       const dx = event.clientX - swipe.startX
       const dy = event.clientY - swipe.startY
@@ -822,7 +822,7 @@ export default function GameDetailsPage({
       if (img) img.style.transform = `translateX(${dx}px)`
     }
 
-    function endSwipe(event: PointerEvent): void {
+    const endSwipe = (event: PointerEvent): void => {
       if (!swipe.active || event.pointerId !== swipe.pointerId) return
       const dx = swipe.dx
       const moved = swipe.moved
