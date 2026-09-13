@@ -92,9 +92,23 @@ function classifySection(raw: string): 'description' | 'changelog' | 'downloads'
 
 function isMetaFieldLabel(raw: string): boolean {
   const text = labelText(raw).toLowerCase()
-  return /^(thread updated|thread update|updated|last updated|last update|update date|release date|released|publication date|published|first release|developer|developers|creator|author|developer\/publisher|publisher|modder|mod version|original game|prequel|sequel|version|release version|engine|status|censored|censorship|os|platform|language|languages|genre|installation|install|other games|related games|more games|also (?:try|check|play)|store|website|socials|resolution|voices|translation)$/.test(
+  return /^(thread updated|thread update|updated|last updated|last update|update date|release date|released|publication date|published|first release|developer|developers|creator|author|developer\/publisher|publisher|modder|mod version|original game|prequel|sequel|version|release version|engine|status|censored|censorship|os|platform|language|languages|genre|other games|related games|more games|also (?:try|check|play)|store|website|socials|resolution|voices|translation)$/.test(
     text
   )
+}
+
+function isNotesLabel(raw: string): boolean {
+  const text = labelText(raw).toLowerCase()
+  if (!text || text.length > 72) return false
+  if (/^patch notes?$/.test(text)) return false
+  if (/^(?:dev(?:eloper)?(?:'?s)?\s+)?notes?(?:\s*\/\s*faq)?$/.test(text)) return true
+  if (/^(?:android|ios|pc|windows?|mac|linux|win)\s+notes?$/.test(text)) return true
+  if (/^compatibility\s+notes?$/.test(text)) return true
+  if (/^(?:installation|install(?:ation)?(?:\s+instructions?)?)$/.test(text)) return true
+  if (/^instructions?(?:\s+for\s+.+)?$/.test(text)) return true
+  if (/^(?:tutorial|howto|how\s*to)(?:\s*\/\s*help)?$/.test(text)) return true
+  if (/^(?:faq|help|troubleshooting)$/.test(text)) return true
+  return false
 }
 
 function isDateField(label: string): boolean {
@@ -125,12 +139,10 @@ function isChangelogLabel(raw: string): boolean {
 function isStopLabel(raw: string): boolean {
   const text = labelText(raw)
   if (!text) return false
-  if (isChangelogLabel(text) || isDownloadsMarker(text)) return true
+  if (isChangelogLabel(text) || isDownloadsMarker(text) || isNotesLabel(text)) return true
   const section = classifySection(text)
   if (section === 'changelog' || section === 'downloads' || section === 'gallery') return true
-  return /dev(eloper)?'?s? notes?|fan ?(art|signatures?)|^signatures?$|credits?|special thanks/i.test(
-    text
-  )
+  return /fan ?(art|signatures?)|^signatures?$|credits?|special thanks/i.test(text)
 }
 
 function isCreatorHost(url: string): boolean {

@@ -131,7 +131,7 @@ function isMetaFieldLabel(raw: string): boolean {
 }
 
 function isDecorationLabel(text: string): boolean {
-  return /dev(eloper)?'?s? notes?|fan ?(art|signatures?)|^signatures?$|banners?|wallpapers?|fun stuff|credits?|special thanks|disclaimer|content warning|support (us|me)|donat|patreon/i.test(
+  return /dev(eloper)?'?s? notes?|(?:android|ios|pc|windows?|mac|linux|win)\s+notes?|^notes?$|compatibility\s+notes?|^installation$|^install$|instructions?(?:\s+for\s+.+)?|^(?:tutorial|faq|help|troubleshooting)$|fan ?(art|signatures?)|^signatures?$|banners?|wallpapers?|fun stuff|credits?|special thanks|disclaimer|content warning|support (us|me)|donat|patreon/i.test(
     text
   )
 }

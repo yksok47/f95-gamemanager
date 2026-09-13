@@ -403,14 +403,68 @@ export type RelatedGame = {
   url: string
 }
 
-export type ThreadDownloadLink = {
+export type DownloadSystem =
+  | 'win'
+  | 'linux'
+  | 'mac'
+  | 'android'
+  | 'ios'
+  | 'web'
+  | 'html'
+  | 'joiplay'
+
+export type DownloadContentType =
+  | 'game'
+  | 'fix'
+  | 'patch'
+  | 'mod'
+  | 'walkthrough'
+  | 'cheat'
+  | 'translation'
+  | 'save'
+  | 'guide'
+  | 'dlc'
+  | 'compressed'
+  | 'extra'
+  | 'other'
+
+export type DownloadSectionKind =
+  | 'current'
+  | 'split'
+  | 'archive'
+  | 'edition'
+  | 'patches'
+  | 'extras'
+  | 'other'
+
+export type DownloadMirror = {
   label: string
   url: string
 }
 
-export type ThreadDownloadGroup = {
-  title: string
-  links: ThreadDownloadLink[]
+export type DownloadPart = {
+  index: number
+  total: number | null
+  label: string
+  mirrors: DownloadMirror[]
+}
+
+export type DownloadEntry = {
+  contentType: DownloadContentType
+  systems: DownloadSystem[]
+  variants: string[]
+  version: string | null
+  title: string | null
+  unofficial: boolean
+  mirrors: DownloadMirror[]
+  parts: DownloadPart[]
+}
+
+export type DownloadSection = {
+  title: string | null
+  kind: DownloadSectionKind
+  sections: DownloadSection[]
+  entries: DownloadEntry[]
 }
 
 export type ThreadReview = {
@@ -431,6 +485,11 @@ export type ThreadReviewsPage = {
 
 export type ChangelogEntry = {
   version: string
+  text: string
+}
+
+export type NoteSection = {
+  title: string
   html: string
 }
 
@@ -448,9 +507,10 @@ export type ThreadDetails = {
   releaseDate: string
   updatedAt: string
   descriptionHtml: string
+  notes: NoteSection[]
   changelog: ChangelogEntry[]
   gallery: string[]
-  downloads: ThreadDownloadGroup[]
+  downloads: DownloadSection[]
   reviews: ThreadReview[]
   reviewsTotal: number
   reviewsTotalPages: number

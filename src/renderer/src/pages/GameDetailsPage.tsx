@@ -1,14 +1,19 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type {
   CatalogGame,
+  DownloadContentType,
+  DownloadEntry,
+  DownloadMirror,
   DownloadRecord,
+  DownloadSection,
+  DownloadSectionKind,
+  DownloadSystem,
   FavoriteTag,
   HatedTag,
   GameLibraryFile,
   GameRarity,
   GameSummary,
   ThreadDetails,
-  ThreadDownloadGroup,
   ThreadReview
 } from '@shared/types'
 import { pickLikeCount, pickViewCount } from '@shared/counts'
@@ -33,6 +38,7 @@ import { usePlaySessions } from '../lib/library'
 type DetailsTab =
   | 'overview'
   | 'description'
+  | 'notes'
   | 'gallery'
   | 'changelog'
   | 'downloads'
@@ -89,30 +95,182 @@ function hostLabel(url: string): string {
   }
 }
 
-type DownloadSection = { key: string; title: string; groups: ThreadDownloadGroup[] }
-
-/**
- * Group titles carry their section as a `Chapter 1 (v25) · Win/Linux` prefix.
- * Consecutive groups sharing one are nested under a single heading instead.
- */
-function downloadSectionsOf(groups: ThreadDownloadGroup[]): DownloadSection[] {
-  const sections: DownloadSection[] = []
-  for (const group of groups) {
-    const parts = group.title.split(' · ')
-    const title = parts.slice(0, -1).join(' · ')
-    const entry = { title: parts[parts.length - 1], links: group.links }
-    const last = sections[sections.length - 1]
-    if (last && last.title === title) last.groups.push(entry)
-    else sections.push({ key: group.title, title, groups: [entry] })
-  }
-  return sections
-}
-
 /** Mirror buttons show the link text, falling back to the host when it is a bare URL. */
-function linkLabel(link: { label: string; url: string }): string {
+function linkLabel(link: DownloadMirror): string {
   const label = link.label.trim().replace(/[*\s]+$/, '')
   if (!label || /^https?:\/\//i.test(label)) return hostLabel(link.url)
   return label
+}
+
+const SYSTEM_LABELS: Record<DownloadSystem, string> = {
+  win: 'Windows',
+  linux: 'Linux',
+  mac: 'Mac',
+  android: 'Android',
+  ios: 'iOS',
+  web: 'Web',
+  html: 'HTML',
+  joiplay: 'JoiPlay'
+}
+
+const CONTENT_TYPE_LABELS: Record<DownloadContentType, string> = {
+  game: 'Game',
+  fix: 'Fix',
+  compressed: 'Compressed',
+  patch: 'Patch',
+  mod: 'Mod',
+  walkthrough: 'Walkthrough',
+  cheat: 'Cheat',
+  translation: 'Translation',
+  save: 'Save',
+  guide: 'Guide',
+  dlc: 'DLC',
+  extra: 'Extra',
+  other: 'Other'
+}
+
+const SECTION_KIND_LABELS: Record<DownloadSectionKind, string> = {
+  current: 'Current',
+  split: 'Split',
+  archive: 'Archive',
+  edition: 'Edition',
+  patches: 'Patches',
+  extras: 'Extras',
+  other: 'Other'
+}
+
+function prettyVariant(value: string): string {
+  const key = value.trim().toLowerCase()
+  if (!key) return ''
+  if (/^(hq|lq|hd|sd|4k|1080p|720p)$/i.test(key)) return key.toUpperCase()
+  return key.charAt(0).toUpperCase() + key.slice(1)
+}
+
+function sectionHeading(section: DownloadSection): string | null {
+  if (section.title?.trim()) return section.title.trim()
+  if (section.kind === 'current') return null
+  return SECTION_KIND_LABELS[section.kind]
+}
+
+function entryHeading(entry: DownloadEntry): string {
+  const parts: string[] = []
+  if (entry.variants.length) parts.push(entry.variants.map(prettyVariant).filter(Boolean).join(' '))
+  if (entry.systems.length) parts.push(entry.systems.map((system) => SYSTEM_LABELS[system]).join(' / '))
+  if (entry.title?.trim()) parts.push(entry.title.trim())
+  else if (entry.contentType !== 'game') parts.push(CONTENT_TYPE_LABELS[entry.contentType])
+  if (entry.version?.trim()) parts.push(entry.version.trim())
+  return parts.filter(Boolean).join(' · ') || CONTENT_TYPE_LABELS[entry.contentType]
+}
+
+function countDownloadMirrors(sections: DownloadSection[]): number {
+  let total = 0
+  for (const section of sections) {
+    total += countDownloadMirrors(section.sections)
+    for (const entry of section.entries) {
+      total += entry.mirrors.length
+      for (const part of entry.parts) total += part.mirrors.length
+    }
+  }
+  return total
+}
+
+function MirrorButtons({
+  mirrors,
+  onOpen
+}: {
+  mirrors: DownloadMirror[]
+  onOpen: (url: string) => void
+}): JSX.Element {
+  return (
+    <ul>
+      {mirrors.map((link) => (
+        <li key={link.url}>
+          <button
+            className="download-link"
+            type="button"
+            title={`${link.label} · ${hostLabel(link.url)}`}
+            onClick={() => onOpen(link.url)}
+          >
+            {linkLabel(link)}
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function DownloadEntryView({
+  entry,
+  onOpen
+}: {
+  entry: DownloadEntry
+  onOpen: (url: string) => void
+}): JSX.Element {
+  const heading = entryHeading(entry)
+  const typeLabel = CONTENT_TYPE_LABELS[entry.contentType]
+  const showType = entry.contentType !== 'game' && Boolean(entry.title?.trim())
+
+  return (
+    <section className="download-group">
+      <div className="download-entry-heading">
+        <h3>{heading}</h3>
+        {showType ? <span className="download-meta">{typeLabel}</span> : null}
+        {entry.unofficial ? <span className="download-meta">Unofficial</span> : null}
+      </div>
+      {entry.parts.length ? (
+        <div className="download-parts">
+          {entry.parts.map((part) => (
+            <div key={`${part.index}-${part.label}`} className="download-part">
+              <span className="download-part-label">{part.label || `Part ${part.index}`}</span>
+              <MirrorButtons mirrors={part.mirrors} onOpen={onOpen} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <MirrorButtons mirrors={entry.mirrors} onOpen={onOpen} />
+      )}
+    </section>
+  )
+}
+
+function DownloadSectionView({
+  section,
+  onOpen,
+  nested = false
+}: {
+  section: DownloadSection
+  onOpen: (url: string) => void
+  nested?: boolean
+}): JSX.Element {
+  const heading = sectionHeading(section)
+  const body = (
+    <>
+      {section.entries.map((entry, index) => (
+        <DownloadEntryView
+          key={`${entryHeading(entry)}-${index}`}
+          entry={entry}
+          onOpen={onOpen}
+        />
+      ))}
+      {section.sections.map((child, index) => (
+        <DownloadSectionView
+          key={`${child.kind}-${child.title ?? 'section'}-${index}`}
+          section={child}
+          onOpen={onOpen}
+          nested
+        />
+      ))}
+    </>
+  )
+
+  if (!heading) return <>{body}</>
+
+  return (
+    <section className={nested ? 'download-section download-section-nested' : 'download-section'}>
+      <h2>{heading}</h2>
+      {body}
+    </section>
+  )
 }
 
 /** Catalog tiles use the preview CDN; the same path on attachments is the full file. */
@@ -353,7 +511,9 @@ export default function GameDetailsPage({
         (field) =>
           !/thread updated|thread update|^updated$|last updated|release date|^released$|publication date/i.test(
             field.label
-          ) && !/other games|related games|more games|also (?:try|check|play)/i.test(field.label)
+          ) &&
+          !/other games|related games|more games|also (?:try|check|play)/i.test(field.label) &&
+          !/^genre$/i.test(field.label)
       ),
     [details]
   )
@@ -392,9 +552,9 @@ export default function GameDetailsPage({
   const views = pickViewCount(summary.views, details?.views)
   const gallery = details?.gallery ?? []
   const downloads = details?.downloads ?? []
-  const downloadCount = downloads.reduce((sum, group) => sum + group.links.length, 0)
-  const downloadSections = useMemo(() => downloadSectionsOf(downloads), [downloads])
+  const downloadCount = useMemo(() => countDownloadMirrors(downloads), [downloads])
   const changelog = details?.changelog ?? []
+  const notes = details?.notes ?? []
   const updatedLabel =
     formatUpdateDate(summary.timestamp) || formatDate(details?.updatedAt || '') || formatDate(summary.updatedAt || '')
   const releaseDate = details?.releaseDate || ''
@@ -403,6 +563,7 @@ export default function GameDetailsPage({
     const settled = !busy
     const items: Array<{ id: DetailsTab; label: string; count?: number; hidden?: boolean }> = [
       { id: 'description', label: 'Description', hidden: settled && !details?.descriptionHtml },
+      { id: 'notes', label: 'Notes', count: notes.length, hidden: settled && !notes.length },
       { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
       { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
       { id: 'downloads', label: 'Downloads', count: downloadCount || undefined },
@@ -419,7 +580,7 @@ export default function GameDetailsPage({
       { id: 'overview', label: 'Overview' }
     ]
     return items.filter((item) => !item.hidden)
-  }, [busy, details, gallery.length, downloadCount, changelog.length, files, isRenpy, isRpgMaker])
+  }, [busy, details, gallery.length, downloadCount, changelog.length, notes.length, files, isRenpy, isRpgMaker])
 
   useEffect(() => {
     if (!tabs.some((item) => item.id === tab)) setTab(tabs[0]?.id ?? 'overview')
@@ -796,6 +957,13 @@ export default function GameDetailsPage({
   }
 
   function onProseClick(event: MouseEvent<HTMLDivElement>): void {
+    const spoilerButton = (event.target as HTMLElement).closest('.bbCodeSpoiler-button')
+    if (spoilerButton) {
+      event.preventDefault()
+      const spoiler = spoilerButton.closest('.bbCodeSpoiler')
+      spoiler?.classList.toggle('is-active')
+      return
+    }
     const target = (event.target as HTMLElement).closest('a')
     if (!target) return
     const href = target.getAttribute('href')
@@ -1081,6 +1249,25 @@ export default function GameDetailsPage({
           )
         ) : null}
 
+        {tab === 'notes' ? (
+          notes.length ? (
+            <div className="notes-list">
+              {notes.map((section, index) => (
+                <section key={`${section.title}-${index}`} className="notes-section">
+                  <h3 className="notes-title">{section.title}</h3>
+                  <div
+                    className="thread-prose"
+                    onClick={onProseClick}
+                    dangerouslySetInnerHTML={{ __html: section.html }}
+                  />
+                </section>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">{busy ? 'Loading notes…' : 'No notes were found in the first post.'}</p>
+          )
+        ) : null}
+
         {tab === 'gallery' ? (
           gallery.length ? (
             <div className="gallery-grid">
@@ -1117,11 +1304,9 @@ export default function GameDetailsPage({
                       <span className="muted">{open ? 'Hide' : 'Show'}</span>
                     </button>
                     {open ? (
-                      <div
-                        className="thread-prose"
-                        onClick={onProseClick}
-                        dangerouslySetInnerHTML={{ __html: entry.html }}
-                      />
+                      <div className="changelog-body" onClick={onProseClick}>
+                        {entry.text}
+                      </div>
                     ) : null}
                   </section>
                 )
@@ -1135,34 +1320,13 @@ export default function GameDetailsPage({
         {tab === 'downloads' ? (
           <div className="download-list">
             {downloadCount ? (
-              downloadSections.map((section) => {
-                const rows = section.groups.map((group) => (
-                  <section key={group.title} className="download-group">
-                    <h3>{group.title}</h3>
-                    <ul>
-                      {group.links.map((link) => (
-                        <li key={link.url}>
-                          <button
-                            className="download-link"
-                            type="button"
-                            title={`${link.label} · ${hostLabel(link.url)}`}
-                            onClick={() => void openUrl(link.url)}
-                          >
-                            {linkLabel(link)}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ))
-                if (!section.title) return <Fragment key={section.key}>{rows}</Fragment>
-                return (
-                  <section key={section.key} className="download-section">
-                    <h2>{section.title}</h2>
-                    {rows}
-                  </section>
-                )
-              })
+              downloads.map((section, index) => (
+                <DownloadSectionView
+                  key={`${section.kind}-${section.title ?? 'current'}-${index}`}
+                  section={section}
+                  onOpen={(url) => void openUrl(url)}
+                />
+              ))
             ) : (
               <p className="muted">
                 {busy ? 'Loading download links…' : 'No F95 download links were found in the first post.'}

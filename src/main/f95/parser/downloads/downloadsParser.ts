@@ -1,5 +1,23 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio'
 import type { AnyNode, Element } from 'domhandler'
+import type {
+  DownloadContentType,
+  DownloadEntry,
+  DownloadMirror,
+  DownloadSection,
+  DownloadSectionKind,
+  DownloadSystem
+} from '@shared/types'
+
+export type {
+  DownloadContentType,
+  DownloadEntry,
+  DownloadMirror,
+  DownloadPart,
+  DownloadSection,
+  DownloadSectionKind,
+  DownloadSystem
+} from '@shared/types'
 
 const HOST = 'https://f95zone.to'
 const LABEL_SELECTOR = 'b, strong, u, h1, h2, h3, h4'
@@ -87,71 +105,6 @@ const SYSTEM_ALIASES: Record<string, DownloadSystem> = {
   joiplay: 'joiplay'
 }
 
-export type DownloadSystem =
-  | 'win'
-  | 'linux'
-  | 'mac'
-  | 'android'
-  | 'ios'
-  | 'web'
-  | 'html'
-  | 'joiplay'
-
-export type DownloadContentType =
-  | 'game'
-  | 'fix'
-  | 'patch'
-  | 'mod'
-  | 'walkthrough'
-  | 'cheat'
-  | 'translation'
-  | 'save'
-  | 'guide'
-  | 'dlc'
-  | 'compressed'
-  | 'extra'
-  | 'other'
-
-export type DownloadSectionKind =
-  | 'current'
-  | 'split'
-  | 'archive'
-  | 'edition'
-  | 'patches'
-  | 'extras'
-  | 'other'
-
-export type DownloadMirror = {
-  label: string
-  url: string
-}
-
-export type DownloadPart = {
-  index: number
-  total: number | null
-  label: string
-  mirrors: DownloadMirror[]
-}
-
-export type DownloadEntry = {
-  contentType: DownloadContentType
-  systems: DownloadSystem[]
-  variants: string[]
-  version: string | null
-  title: string | null
-  unofficial: boolean
-  mirrors: DownloadMirror[]
-  parts: DownloadPart[]
-}
-
-export type DownloadSection = {
-  title: string | null
-  kind: DownloadSectionKind
-  sections: DownloadSection[]
-  entries: DownloadEntry[]
-}
-
-type MutablePart = DownloadPart
 type MutableEntry = DownloadEntry
 type MutableSection = DownloadSection
 
@@ -192,7 +145,8 @@ function absolutize(url: string | undefined | null): string | null {
 function tokenizeLabel(raw: string): string[] {
   return labelText(raw)
     .toLowerCase()
-    .split(/[\s/+&,|_-]+/)
+    .split(/[\s/+&,|_()-]+/)
+    .map((token) => token.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ''))
     .filter(Boolean)
 }
 
@@ -329,6 +283,8 @@ function headingDetail($: CheerioAPI, node: AnyNode): string {
     }
     const el = $(sibling)
     if (el.is(`a, br, img, div, ul, ol, table, blockquote, ${LABEL_SELECTOR}`)) break
+    // Skip wrappers that already hold mirror links (not a short qualifier).
+    if (el.find('a[href]').length) break
     parts.push(el.text())
     sibling = sibling.next
   }
@@ -373,17 +329,38 @@ function variantsFromTokens(tokens: string[]): string[] {
     .filter(Boolean)
 }
 
+function stripPlatformTokens(raw: string): string {
+  const text = labelText(raw)
+  const cleaned = text
+    .split(/([\s/+&,|_()-]+)/)
+    .filter((chunk, index) => {
+      if (index % 2 === 1) return true
+      const token = chunk.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
+      return !PLATFORM_TOKENS.has(token) && !FILLER_TOKENS.has(token)
+    })
+    .join('')
+  return normalize(cleaned)
+    .replace(/\(\s*\)/g, ' ')
+    .replace(/^[\s/·,|:.-]+|[\s/·,|:.-]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function stripPlatformAndVariantTokens(raw: string): string {
   const text = labelText(raw)
   const cleaned = text
-    .split(/([\s/+&,|_-]+)/)
+    .split(/([\s/+&,|_()-]+)/)
     .filter((chunk, index) => {
       if (index % 2 === 1) return true
-      const token = chunk.toLowerCase()
+      const token = chunk.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
       return !PLATFORM_TOKENS.has(token) && !VARIANT_TOKENS.has(token) && !FILLER_TOKENS.has(token)
     })
     .join('')
-  return normalize(cleaned).replace(/^[\s/·,|:.-]+|[\s/·,|:.-]+$/g, '')
+  return normalize(cleaned)
+    .replace(/\(\s*\)/g, ' ')
+    .replace(/^[\s/·,|:.-]+|[\s/·,|:.-]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function extractVersionNote(raw: string): { version: string | null; rest: string } {
@@ -407,15 +384,13 @@ function sectionKindFromTitle(title: string | null, tokens: string[]): DownloadS
   if (tokens.some((token) => token === 'split' || token === 'splits' || token === 'parts')) return 'split'
   if (tokens.some((token) => token === 'extra' || token === 'extras')) return 'extras'
   if (tokens.some((token) => token === 'patch' || token === 'patches')) return 'patches'
-  if (/special|holiday|christmas|halloween|valentine|easter|anniversary|new\s*year/.test(text)) {
-    return 'edition'
-  }
-  if (
-    /before (?:the )?(?:rework|tech|update)|old\b|previous|legacy|archive|season\b|chapter\b|^s\d+\b/.test(
-      text
-    )
-  ) {
+  // Container headings that bundle editions/archives stay archives.
+  if (/before (?:the )?(?:rework|tech|update)|old\b|previous|legacy|archive|season\b|chapter\b|^s\d+\b/.test(text)) {
     return 'archive'
+  }
+  if (/and before|specials and/i.test(text)) return 'archive'
+  if (/special|holiday|christmas|halloween|valentine|easter|anniversary|new\s*year/i.test(text)) {
+    return 'edition'
   }
   if (tokens.some((token) => token === 'other' || token === 'others' || token === 'misc')) return 'other'
   return 'other'
@@ -442,7 +417,7 @@ function contentTypeFromLabel(raw: string, fallback: DownloadContentType): Downl
   if (!text) return fallback
   if (/^compressed\b|compress(?:ed)?\s+version/.test(text)) return 'compressed'
   if (/\bwalkthrough|\bguide\b|\bfaq\b/.test(text)) return 'walkthrough'
-  if (/\bcheat\b/.test(text)) return 'cheat'
+  if (/\bcheat/.test(text)) return 'cheat'
   if (/\btranslati|\btl\b|\blanguage pack/.test(text)) return 'translation'
   if (/\bsave\b|\bsaves\b/.test(text)) return 'save'
   if (/\bdlc\b/.test(text)) return 'dlc'
@@ -450,13 +425,17 @@ function contentTypeFromLabel(raw: string, fallback: DownloadContentType): Downl
   if (/\bpatch\b/.test(text)) return 'patch'
   if (/\bmod\b|\bunlocker|\benhancement|\brandomizer|\btweaker/.test(text)) return 'mod'
   if (/\bgallery\b|\bfan\s*sigs?|\bwallpaper|\bcg\b|\bwiki\b|\boff\s*topic/.test(text)) return 'extra'
-  if (/\bios\b|\bjoiplay\b/.test(text) && text.length <= 20) return 'game'
+  if (/^(?:ios|joiplay)$/i.test(text)) return 'game'
   if (fallback !== 'game' && fallback !== 'other') return fallback
-  if (/^[A-Z0-9][A-Z0-9 ._-]{1,24}$/.test(labelText(raw)) && !/\s/.test(text) && text.length <= 18) {
-    // Hoster-style labels under a game line stay as game.
-    return fallback
-  }
   return fallback
+}
+
+function systemsFromLinkLabel(raw: string): DownloadSystem[] {
+  const text = labelText(raw).toLowerCase()
+  if (/^ios$/i.test(text)) return ['ios']
+  if (/^joiplay$/i.test(text)) return ['joiplay']
+  if (/^android$/i.test(text)) return ['android']
+  return []
 }
 
 function isHosterLabel(raw: string): boolean {
@@ -488,7 +467,7 @@ function isRelatedUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
 
-function isImageLink($: CheerioAPI, el: Cheerio<AnyNode>): boolean {
+function isImageLink(_$: CheerioAPI, el: Cheerio<AnyNode>): boolean {
   return el.find('img').length > 0
 }
 
@@ -593,6 +572,20 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       active = existing
       return existing
     }
+    // First named release after DOWNLOAD reuses the empty current root.
+    if (
+      activeTop === root &&
+      !root.title &&
+      !root.entries.length &&
+      !root.sections.length &&
+      (kind === 'current' || kind === 'archive')
+    ) {
+      root.title = title
+      root.kind =
+        kind === 'archive' && /season|chapter|episode|interlude/i.test(title) ? 'current' : kind
+      active = root
+      return root
+    }
     const created = emptySection(title, kind)
     topLevels.push(created)
     activeTop = created
@@ -651,10 +644,16 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
   function addRelated(mirror: DownloadMirror, type: DownloadContentType, unofficial: boolean): void {
     if (blocked) return
     started = true
-    const entry = emptyEntry(type, [], variants.includes('compressed') ? variants : [], null, mirror.label)
+    const linkSystems = systemsFromLinkLabel(mirror.label)
+    const entry = emptyEntry(
+      type,
+      linkSystems,
+      type === 'compressed' ? ['compressed'] : [],
+      null,
+      mirror.label
+    )
     entry.mirrors = [mirror]
     entry.unofficial = unofficial
-    // Prefer a dedicated related entry rather than mixing into a platform build.
     active.entries.push(entry)
     currentEntry = null
   }
@@ -681,9 +680,21 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       blocked = false
       const rest = labelText(text.replace(/^downloads?\s*(?:links?|here|now)?/i, '')).replace(/^[\s:-]+/, '')
       const label = [rest, detail].filter(Boolean).join(' ')
-      ensureTop(null, 'current')
-      systems = systemsFromTokens(tokenizeLabel(label))
-      variants = variantsFromTokens(tokenizeLabel(label))
+      const labelTokens = tokenizeLabel(label)
+      const labelSystems = systemsFromTokens(labelTokens)
+      const labelVariants = variantsFromTokens(labelTokens)
+      const remainder = stripPlatformAndVariantTokens(label)
+      if (remainder && remainder.length <= 80) {
+        const kind = sectionKindFromTitle(remainder, tokenizeLabel(remainder))
+        ensureTop(remainder, kind === 'other' ? 'current' : kind === 'archive' ? 'current' : kind)
+        if (activeTop.kind === 'other') activeTop.kind = 'current'
+        // Season / chapter headers on the DOWNLOAD line are the current release.
+        if (/season|chapter|episode|interlude/i.test(remainder)) activeTop.kind = 'current'
+      } else {
+        ensureTop(null, 'current')
+      }
+      systems = labelSystems
+      variants = labelVariants
       version = null
       entryTitle = null
       part = null
@@ -736,16 +747,20 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       started = true
       blocked = false
       const { version: versionNote, rest } = extractVersionNote(full)
-      const remainder = stripPlatformAndVariantTokens(rest)
+      const remainder = stripPlatformTokens(rest)
+      const editionRemainder = stripPlatformAndVariantTokens(rest)
       systems = foundSystems
       version = versionNote
       part = null
       allowRelated = false
 
-      if (remainder && /special|holiday|christmas|halloween|valentine|easter|anniversary/.test(remainder)) {
+      if (
+        editionRemainder &&
+        /special|holiday|christmas|halloween|valentine|easter|anniversary/i.test(editionRemainder)
+      ) {
         const section = nested
-          ? findOrCreateChild(activeTop, remainder, 'edition')
-          : ensureTop(remainder, 'edition')
+          ? findOrCreateChild(activeTop, editionRemainder, 'edition')
+          : ensureTop(editionRemainder, 'edition')
         active = section
         applyScopeKind('edition')
         systems = foundSystems
@@ -757,24 +772,36 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
         return true
       }
 
-      if (remainder && remainder.length <= 60 && !isDownloadGroupTitle(remainder)) {
-        // e.g. "Season 3 Interlude + Episodes 9-12 (GoG 4k)" above platforms in same bold.
-        if (!nested) {
+      if (remainder && remainder.length <= 70 && !isDownloadGroupTitle(remainder)) {
+        // Bare version notes on a platform line (e.g. "v0.4.0c Win/Linux").
+        if (/^v?\d+(?:[._]\d+)+[a-z0-9._+-]*$/i.test(remainder)) {
+          version = remainder
+          entryTitle = null
+        } else if (!nested) {
           const kind = sectionKindFromTitle(remainder, tokenizeLabel(remainder))
           const section = ensureTop(remainder, kind === 'other' ? 'current' : kind)
           active = section
           if (section.kind === 'other') section.kind = 'current'
+          // Season/chapter on the first platform line is the current release title.
+          if (/season|chapter|episode|interlude/i.test(remainder) && section === activeTop) {
+            section.kind = 'current'
+          }
         } else if (active === activeTop && !active.title) {
           active.title = remainder
           active.kind = sectionKindFromTitle(remainder, tokenizeLabel(remainder))
           if (active.kind === 'other') active.kind = 'archive'
         } else {
-          entryTitle = remainder
+          const soft = stripPlatformAndVariantTokens(remainder)
+          entryTitle = soft && soft.length < remainder.length ? soft : remainder
         }
       } else {
         entryTitle = null
       }
 
+      // Keep quality flags from this platform heading.
+      if (foundVariants.length) variants = foundVariants
+      version = version || versionNote
+      systems = foundSystems
       contentType = defaultContentTypeForSection(active.kind === 'other' ? 'current' : active.kind)
       if (active.kind === 'extras' || active.kind === 'patches') contentType = 'game'
       flushEntry()
@@ -795,7 +822,12 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
               : kind === 'other'
                 ? 'Other'
                 : uniqueJoin(sectionTokens, ' ')
+      const nestOther =
+        kind === 'other' &&
+        (Boolean(activeTop.title) || activeTop.entries.some((entry) => entry.contentType === 'game'))
       if (nested && (kind === 'extras' || kind === 'patches' || kind === 'other')) {
+        active = findOrCreateChild(activeTop, title, kind)
+      } else if (nestOther) {
         active = findOrCreateChild(activeTop, title, kind)
       } else {
         ensureTop(title, kind)
@@ -881,6 +913,14 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
 
   function walk(list: AnyNode[], nested: boolean): void {
     for (const node of list) {
+      if (node.type === 'text') {
+        const text = normalize(node.data || '')
+        const plain = text.match(/^(extras?|patches?|others?|other|splits?)\s*:/i)
+        if (plain && (started || nested)) {
+          applyLabel(plain[1], '', nested)
+        }
+        continue
+      }
       if (node.type !== 'tag') continue
       const el = $(node)
 
@@ -907,8 +947,6 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
         flushEntry()
         if (!isGenericSpoilerTitle(spoiler)) {
           applyLabel(spoiler, '', true)
-        } else if (active.title && active === activeTop) {
-          // Generic spoiler under a named heading keeps that heading as container.
         }
         walk(spoilerBody($, node as Element).contents().toArray(), true)
         activeTop = snapshot.activeTop
@@ -929,24 +967,10 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       const heading = !el.find('a, img').length && el.is(LABEL_SELECTOR) ? elementText(el) : ''
       if (heading && applyLabel(heading, headingDetail($, node), nested)) continue
 
-      // Unlabelled "Extras:" text sometimes appears without a bold tag inside spoilers.
       if (el.is('br')) continue
       walk(el.contents().toArray(), nested)
     }
   }
-
-  // Also catch plain-text section labels like "Extras:" inside spoiler bodies.
-  function preprocessPlainExtras(list: AnyNode[]): void {
-    for (const node of list) {
-      if (node.type === 'text') {
-        const text = normalize(node.data || '')
-        if (/^extras?\s*:/i.test(text)) {
-          // Handled during walk when links follow; no-op marker.
-        }
-      }
-    }
-  }
-  preprocessPlainExtras(nodes)
 
   walk(nodes, false)
 
@@ -960,29 +984,20 @@ function sectionHasContent(section: MutableSection): boolean {
 }
 
 function finalizeEntry(entry: MutableEntry): DownloadEntry | null {
-  const parts = entry.parts
+  const filtered = entry.parts
     .filter((part) => part.mirrors.length)
     .sort((a, b) => a.index - b.index)
-    .map((part) => {
-      const total = part.total || (parts.length > 1 ? parts.length : null)
-      return {
-        index: part.index,
-        total,
-        label: part.label,
-        mirrors: dedupeMirrors(part.mirrors)
-      }
-    })
+
+  const inferredTotal = filtered.length > 1 ? Math.max(...filtered.map((part) => part.index)) : null
+  const parts = filtered.map((part) => ({
+    index: part.index,
+    total: part.total || inferredTotal,
+    label: part.label,
+    mirrors: dedupeMirrors(part.mirrors)
+  }))
 
   const mirrors = parts.length ? [] : dedupeMirrors(entry.mirrors)
   if (!mirrors.length && !parts.length) return null
-
-  // Fill missing totals once all parts are known.
-  if (parts.length) {
-    const maxIndex = Math.max(...parts.map((part) => part.index))
-    for (const part of parts) {
-      if (!part.total) part.total = maxIndex
-    }
-  }
 
   return {
     contentType: entry.contentType,

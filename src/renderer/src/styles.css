@@ -2235,6 +2235,55 @@ button {
   gap: 8px;
 }
 
+.notes-list {
+  display: grid;
+  gap: 20px;
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.notes-section {
+  display: grid;
+  gap: 10px;
+}
+
+.notes-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+}
+
+.notes-section .thread-prose {
+  text-align: left;
+}
+
+.thread-prose .bbCodeSpoiler {
+  margin: 10px 0;
+}
+
+.thread-prose .bbCodeSpoiler-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.thread-prose .bbCodeSpoiler-content {
+  display: none;
+}
+
+.thread-prose .bbCodeSpoiler.is-active .bbCodeSpoiler-content {
+  display: block;
+}
+
 .changelog-entry {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2254,8 +2303,10 @@ button {
   font-weight: 650;
 }
 
-.changelog-entry .thread-prose {
+.changelog-entry .changelog-body {
   padding: 0 14px 14px;
+  white-space: pre-wrap;
+  line-height: 1.45;
 }
 
 .details-tags {
@@ -2441,6 +2492,11 @@ button {
   padding: 10px 12px;
 }
 
+.download-section-nested {
+  background: var(--bg);
+  margin-top: 2px;
+}
+
 .download-section h2 {
   margin: 0 0 2px;
   font-size: 0.85rem;
@@ -2451,6 +2507,10 @@ button {
 
 .download-section .download-group {
   background: var(--bg);
+}
+
+.download-section-nested .download-group {
+  background: var(--bg-raised);
 }
 
 .download-group {
@@ -2464,10 +2524,24 @@ button {
   gap: 6px 12px;
 }
 
+.download-entry-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .download-group h3 {
   margin: 0;
   font-size: 0.9rem;
-  flex: 0 0 auto;
+}
+
+.download-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
 }
 
 .download-group ul {
@@ -2477,6 +2551,33 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.download-parts {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 100%;
+}
+
+.download-part {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  padding: 4px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.download-part:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.download-part-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex: 0 0 auto;
+  min-width: 3.5rem;
 }
 
 .download-link {
