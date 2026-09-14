@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
-import { pickLikeCount, pickViewCount } from '@shared/counts'
 import type {
   AppSettings,
   AuthSession,
@@ -29,6 +28,7 @@ import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
+import { mergeVersionPlayStats } from '@shared/updates'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
@@ -58,6 +58,7 @@ function toSummary(
     lastPlayedVersion: 'lastPlayedVersion' in game ? game.lastPlayedVersion : undefined,
     lastPlayedAt: 'lastPlayedAt' in game ? game.lastPlayedAt : undefined,
     playtimeMs: 'playtimeMs' in game ? game.playtimeMs : undefined,
+    playedVersions: 'playedVersions' in game ? game.playedVersions : undefined,
     checkedAt: 'checkedAt' in game ? game.checkedAt : undefined
   }
 }
@@ -124,6 +125,19 @@ export default function App(): JSX.Element {
     () => new Set(subscriptions.map((game) => game.threadId)),
     [subscriptions]
   )
+  const followedPlayById = useMemo(() => {
+    const map = new Map<
+      number,
+      { lastPlayedVersion: string; playedVersions: NonNullable<Subscription['playedVersions']> }
+    >()
+    for (const game of subscriptions) {
+      map.set(game.threadId, {
+        lastPlayedVersion: game.lastPlayedVersion,
+        playedVersions: game.playedVersions
+      })
+    }
+    return map
+  }, [subscriptions])
 
   const loadSubscriptions = useCallback(async (): Promise<void> => {
     setSubscriptions(await window.api.subscriptions.list())
@@ -342,10 +356,6 @@ export default function App(): JSX.Element {
     setSubscriptions(await window.api.subscriptions.remove(threadId))
   }, [])
 
-  const handleRefresh = useCallback(async (threadId: number): Promise<void> => {
-    setSubscriptions(await window.api.subscriptions.refresh(threadId))
-  }, [])
-
   const handleSetRarity = useCallback(async (threadId: number, rarity: GameRarity): Promise<void> => {
     setSubscriptions(await window.api.subscriptions.setRarity(threadId, rarity))
   }, [])
@@ -399,6 +409,7 @@ export default function App(): JSX.Element {
       {view === 'catalog' ? (
         <CatalogPage
           followedIds={followedIds}
+          followedPlayById={followedPlayById}
           rarityById={rarityById}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
@@ -471,13 +482,24 @@ export default function App(): JSX.Element {
           summary={{
             ...details,
             rarity: rarityById.get(details.threadId) ?? details.rarity,
+            title: detailsFollowed?.title || details.title,
+            creator: detailsFollowed?.creator || details.creator,
             version: detailsFollowed?.version || details.version,
+            rating: detailsFollowed?.rating ?? details.rating,
             timestamp: detailsFollowed?.timestamp ?? details.timestamp,
-            likes: pickLikeCount(details.likes, detailsFollowed?.likes),
-            views: pickViewCount(details.views, detailsFollowed?.views),
+            likes: detailsFollowed?.likes ?? details.likes,
+            views: detailsFollowed?.views ?? details.views,
+            tags: detailsFollowed?.tags?.length ? detailsFollowed.tags : details.tags,
+            prefixes: detailsFollowed?.prefixes?.length ? detailsFollowed.prefixes : details.prefixes,
+            engine: detailsFollowed?.engine || details.engine,
+            coverUrl: detailsFollowed?.coverUrl || details.coverUrl,
             lastPlayedVersion: detailsFollowed?.lastPlayedVersion ?? details.lastPlayedVersion,
             lastPlayedAt: detailsFollowed?.lastPlayedAt ?? details.lastPlayedAt,
             playtimeMs: detailsFollowed?.playtimeMs ?? details.playtimeMs,
+            playedVersions: mergeVersionPlayStats(
+              detailsFollowed?.playedVersions,
+              details.playedVersions
+            ),
             checkedAt: detailsFollowed?.checkedAt ?? details.checkedAt,
             screens: detailsFollowed?.screens?.length ? detailsFollowed.screens : details.screens
           }}
@@ -491,7 +513,6 @@ export default function App(): JSX.Element {
             setDetailsStack((stack) => [...stack, summaryFromThread(threadId, title, subscriptions)])
           }}
           onToggleFollow={handleToggleFollow}
-          onRefresh={handleRefresh}
           onSetRarity={handleSetRarity}
           onSessionExpired={handleSessionExpired}
           p2pEnabled={p2pEnabled}

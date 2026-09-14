@@ -157,7 +157,8 @@ export default function FollowedPage({
           const flags = gameUpdateState({
             latestVersion: game.version,
             installedVersion: lib?.installedVersion,
-            lastPlayedVersion: game.lastPlayedVersion
+            lastPlayedVersion: game.lastPlayedVersion,
+            playedVersions: game.playedVersions
           })
           return flags.updateAvailable || flags.unplayedUpdate
         })
@@ -190,21 +191,46 @@ export default function FollowedPage({
       const text = err instanceof Error ? err.message : 'Could not start the game.'
       if (text.includes('Not logged in')) {
         await onSessionExpired()
-        return
+        throw err
       }
       setError(text)
+      throw err instanceof Error ? err : new Error(text)
+    }
+  }
+
+  async function stopThread(threadId: number): Promise<void> {
+    setError(null)
+    try {
+      const active = sessions.filter((session) => session.threadId === threadId)
+      for (const session of active) {
+        await window.api.library.stop(session.fileId)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stop the game.')
     }
   }
 
   async function checkUpdates(): Promise<void> {
+    if (sync?.running) {
+      await window.api.subscriptions.cancelSync()
+      return
+    }
     setError(null)
     try {
       const next = await window.api.subscriptions.sync()
       setSync(next)
+      if (next.cancelled) {
+        setMessage(
+          next.updated
+            ? `Stopped after refreshing ${next.updated} followed game${next.updated === 1 ? '' : 's'}.`
+            : 'Update check stopped.'
+        )
+        return
+      }
       setMessage(
         next.updated
-          ? `Refreshed metadata for ${next.updated} followed game${next.updated === 1 ? '' : 's'}.`
-          : 'Every followed game was already refreshed within the last day.'
+          ? `Refreshed metadata for ${next.updated} followed game${next.updated === 1 ? '' : 's'} from the catalog.`
+          : 'No followed games were found in the catalog.'
       )
     } catch (err) {
       const text = err instanceof Error ? err.message : 'Could not check for updates.'
@@ -319,22 +345,21 @@ export default function FollowedPage({
           <button
             className={sync?.running ? 'ghost-btn icon-btn sync-btn is-running' : 'ghost-btn icon-btn sync-btn'}
             type="button"
-            disabled={sync?.running}
             aria-label={
               sync?.running
                 ? sync.pending
-                  ? `Checking updates, ${sync.pending} remaining`
-                  : 'Checking updates'
+                  ? `Stop update check, ${sync.pending} remaining`
+                  : 'Stop update check'
                 : 'Check updates'
             }
             title={
               sync?.running
                 ? sync.pending
-                  ? `Checking… ${sync.pending} remaining`
-                  : 'Checking…'
+                  ? `Click to stop… ${sync.pending} remaining`
+                  : 'Click to stop'
                 : sync?.lastRunAt
                   ? `Last check ${formatRelativeTime(sync.lastRunAt)}`
-                  : 'Refresh metadata for followed games not checked in the last day'
+                  : 'Refresh all followed games from the catalog'
             }
             onClick={() => void checkUpdates()}
           >
@@ -430,7 +455,12 @@ export default function FollowedPage({
               onOpen={() => onOpen(game)}
               onPlay={
                 libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => void playThread(game)
+                  ? () => playThread(game)
+                  : undefined
+              }
+              onStop={
+                libraryByThread.get(game.threadId)?.isInstalled
+                  ? () => stopThread(game.threadId)
                   : undefined
               }
               library={libraryByThread.get(game.threadId)}

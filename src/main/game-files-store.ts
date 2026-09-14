@@ -964,6 +964,7 @@ export async function playGameFile(
   startPlaySession({
     fileId: file.id,
     threadId: file.threadId,
+    version: file.version,
     pid: launched.pid,
     installPath: file.installPath || dirname(exe),
     backupSaves: usesRpgMakerSaves(file)
@@ -1142,6 +1143,7 @@ export async function adoptRunningLibrarySessions(): Promise<void> {
     startPlaySession({
       fileId: file.id,
       threadId: file.threadId,
+      version: file.version,
       pid: found.pid,
       installPath: file.installPath,
       backupSaves: usesRpgMakerSaves(file)

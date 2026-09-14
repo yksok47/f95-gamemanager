@@ -7,7 +7,8 @@ import type {
   GameRarity,
   LoginPayload,
   RenpyToolId,
-  UnRenAction
+  UnRenAction,
+  VersionPlayStatus
 } from '@shared/types'
 import {
   applyConfiguredDownloadPath,
@@ -47,6 +48,7 @@ import {
   showGameInstall,
   uninstallGameFile
 } from './game-files-store'
+import { getGameNote, setGameNote } from './game-notes-store'
 import { listPlaySessions, stopPlaySession } from './play-sessions'
 import {
   deleteRpgMakerSaves,
@@ -71,16 +73,17 @@ import {
 import { getAppPaths } from './paths'
 import { getSettings, saveSettings } from './settings-store'
 import {
-  applyCatalogScreens,
+  applyCatalogGames,
   isSubscribed,
   listSubscriptions,
   refreshSubscription,
   removeSubscription,
   setSubscriptionRarity,
+  setSubscriptionVersionStatus,
   subscriptionFromCatalog,
   upsertSubscription
 } from './subscriptions-store'
-import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed } from './follow-sync'
+import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed, cancelFollowSyncRun } from './follow-sync'
 import { openInAppWindow } from './open-url'
 import type { PackageFlagKind, PackageInstallTags, PackageListQuery } from '@shared/p2p'
 import {
@@ -147,14 +150,23 @@ export function registerIpc(): void {
   ipcMain.handle('catalog:list', async (_event, query: CatalogQuery = {}) => {
     try {
       const page = await fetchCatalog(query)
-      await Promise.all([
-        applyCatalogScreens(page.games).catch((error) =>
-          console.warn('Could not store catalog preview screens', error)
-        ),
-        applyLibraryCatalogScreens(page.games).catch((error) =>
-          console.warn('Could not store library preview screens', error)
-        )
-      ])
+      const unfilteredDateBrowse =
+        (query.sort ?? 'date') === 'date' &&
+        !query.search &&
+        !query.creator &&
+        !(query.prefixes?.length) &&
+        !(query.excludePrefixes?.length) &&
+        !(query.tags?.length) &&
+        !(query.excludeTags?.length)
+      const advanceLastSeen = unfilteredDateBrowse && (query.page ?? 1) === 1
+
+      // Apply followed/library updates in the background so catalog UI is not delayed.
+      void applyCatalogGames(page.games, { advanceLastSeen }).catch((error) =>
+        console.warn('Could not refresh followed games from catalog page', error)
+      )
+      void applyLibraryCatalogScreens(page.games).catch((error) =>
+        console.warn('Could not store library preview screens', error)
+      )
       return page
     } catch (error) {
       throw toIpcError(error)
@@ -237,6 +249,17 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle(
+    'subscriptions:setVersionStatus',
+    async (_event, threadId: number, version: string, status: VersionPlayStatus) => {
+      try {
+        return await setSubscriptionVersionStatus(threadId, version, status)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
   ipcMain.handle('subscriptions:sync', async () => {
     try {
       return await checkStaleFollowed()
@@ -244,6 +267,8 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle('subscriptions:cancelSync', () => cancelFollowSyncRun())
 
   ipcMain.handle('subscriptions:startSync', async () => {
     try {
@@ -266,6 +291,22 @@ export function registerIpc(): void {
   ipcMain.handle('threads:reviews', async (_event, threadId: number, page: number) => {
     try {
       return await fetchThreadReviews(Number(threadId), Number(page) || 1)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('gameNotes:get', async (_event, threadId: number) => {
+    try {
+      return await getGameNote(Number(threadId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('gameNotes:set', async (_event, threadId: number, text: string) => {
+    try {
+      return await setGameNote(Number(threadId), typeof text === 'string' ? text : '')
     } catch (error) {
       throw toIpcError(error)
     }

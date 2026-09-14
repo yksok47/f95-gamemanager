@@ -380,6 +380,25 @@ export type RpgMakerInfo = {
   message?: string
 }
 
+/**
+ * Per-version history for a game (survives uninstall/remove of that build).
+ * Entries may be unplayed — e.g. versions discovered when refreshing metadata.
+ */
+export type VersionPlayStatus = 'unplayed' | 'played' | 'skipped'
+
+export type VersionPlayStat = {
+  version: string
+  /** F95 / catalog release (or thread-update) time for this version, when known. */
+  releasedAt: number
+  lastPlayedAt: number
+  playtimeMs: number
+  /**
+   * User-set attention state. When omitted, inferred from play activity.
+   * Explicit `unplayed` can override recorded playtime (e.g. launched but unfinished).
+   */
+  status?: VersionPlayStatus
+}
+
 export type Subscription = {
   threadId: number
   title: string
@@ -401,6 +420,8 @@ export type Subscription = {
   lastPlayedVersion: string
   lastPlayedAt: number
   playtimeMs: number
+  /** Cumulative play stats keyed by version string. */
+  playedVersions: VersionPlayStat[]
   checkedAt: number
   screens: string[]
 }
@@ -432,6 +453,7 @@ export type GameSummary = {
   lastPlayedVersion?: string
   lastPlayedAt?: number
   playtimeMs?: number
+  playedVersions?: VersionPlayStat[]
   checkedAt?: number
 }
 
@@ -442,6 +464,7 @@ export type FollowSyncStatus = {
   checked: number
   updated: number
   pending: number
+  cancelled: boolean
 }
 
 export type ThreadField = {

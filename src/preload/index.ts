@@ -21,7 +21,8 @@ import type {
   ThreadDetails,
   ThreadReviewsPage,
   FollowSyncStatus,
-  UnRenAction
+  UnRenAction,
+  VersionPlayStatus
 } from '@shared/types'
 import type {
   PackageFlagKind,
@@ -57,7 +58,14 @@ const api = {
       ipcRenderer.invoke('subscriptions:refresh', threadId),
     setRarity: (threadId: number, rarity: GameRarity): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:setRarity', threadId, rarity),
+    setVersionStatus: (
+      threadId: number,
+      version: string,
+      status: VersionPlayStatus
+    ): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:setVersionStatus', threadId, version, status),
     sync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:sync'),
+    cancelSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:cancelSync'),
     startSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:startSync'),
     syncStatus: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:syncStatus'),
     onChange: (listener: (items: Subscription[]) => void): (() => void) => {
@@ -79,6 +87,11 @@ const api = {
     details: (threadId: number): Promise<ThreadDetails> => ipcRenderer.invoke('threads:details', threadId),
     reviews: (threadId: number, page = 1): Promise<ThreadReviewsPage> =>
       ipcRenderer.invoke('threads:reviews', threadId, page)
+  },
+  gameNotes: {
+    get: (threadId: number): Promise<string> => ipcRenderer.invoke('gameNotes:get', threadId),
+    set: (threadId: number, text: string): Promise<string> =>
+      ipcRenderer.invoke('gameNotes:set', threadId, text)
   },
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),

@@ -17,6 +17,7 @@ export function getAppPaths(): {
   p2pIdentityFile: string
   p2pTorrentsDir: string
   downloadsHistoryFile: string
+  gameNotesFile: string
   downloadsDir: string
   libraryDir: string
 } {
@@ -32,6 +33,7 @@ export function getAppPaths(): {
     p2pIdentityFile: join(userData, 'p2p-identity.json'),
     p2pTorrentsDir: join(userData, 'p2p-torrents'),
     downloadsHistoryFile: join(userData, 'downloads-history.json'),
+    gameNotesFile: join(userData, 'game-notes.json'),
     downloadsDir: join(userData, 'downloads'),
     libraryDir: join(userData, 'library')
   }

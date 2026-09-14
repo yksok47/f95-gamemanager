@@ -139,9 +139,22 @@ export default function LibraryPage({
       const text = err instanceof Error ? err.message : 'Could not start the game.'
       if (text.includes('Not logged in')) {
         await onSessionExpired()
-        return
+        throw err
       }
       setError(text)
+      throw err instanceof Error ? err : new Error(text)
+    }
+  }
+
+  async function stopThread(threadId: number): Promise<void> {
+    setError(null)
+    try {
+      const active = sessions.filter((session) => session.threadId === threadId)
+      for (const session of active) {
+        await window.api.library.stop(session.fileId)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stop the game.')
     }
   }
 
@@ -274,7 +287,12 @@ export default function LibraryPage({
                 onOpen={() => onOpen(game)}
                 onPlay={
                   libraryByThread.get(game.threadId)?.isInstalled
-                    ? () => void playThread(game)
+                    ? () => playThread(game)
+                    : undefined
+                }
+                onStop={
+                  libraryByThread.get(game.threadId)?.isInstalled
+                    ? () => stopThread(game.threadId)
                     : undefined
                 }
                 library={libraryByThread.get(game.threadId)}

@@ -8,6 +8,7 @@ import {
   setUsername,
   userIdFromXfUser
 } from '../session-store'
+import { invalidateCatalogSessionOptions } from './catalog'
 import { F95Error, f95Fetch } from './http'
 
 const TOKEN_RE = /name="_xfToken"\s+value="([^"]+)"/
@@ -41,6 +42,7 @@ export async function login(username: string, password: string): Promise<AuthSes
   }
 
   await clearSession()
+  invalidateCatalogSessionOptions()
 
   const { body: loginPage } = await f95Fetch('/login/')
   const token = loginPage.match(TOKEN_RE)?.[1]
@@ -84,5 +86,6 @@ export async function login(username: string, password: string): Promise<AuthSes
 
 export async function logout(): Promise<AuthSession> {
   await clearSession()
+  invalidateCatalogSessionOptions()
   return { loggedIn: false, userId: null, username: null }
 }

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
-import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
+import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, HatedTag, Subscription, VersionPlayStat } from '@shared/types'
 import { engineFromTitle, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
-import { formatUpdateDate, gameUpdateState } from '@shared/updates'
+import { catalogTimestamp, formatDateTime, formatRelativeTime, gameUpdateState } from '@shared/updates'
 import EngineBadge from './EngineBadge'
 import FollowButton from './FollowButton'
 import { favoriteTagsOnGame, hatedTagsOnGame } from '../lib/favorites'
@@ -33,6 +33,7 @@ type GameCardProps = {
     lastPlayedVersion?: string
     lastPlayedAt?: number
     playtimeMs?: number
+    playedVersions?: VersionPlayStat[]
     checkedAt?: number
   }
   subscribed: boolean
@@ -40,7 +41,8 @@ type GameCardProps = {
   hatedTags?: HatedTag[]
   onToggle: () => void
   onOpen?: () => void
-  onPlay?: () => void
+  onPlay?: () => void | Promise<void>
+  onStop?: () => void | Promise<void>
   library?: GameLibraryStatus
   playing?: boolean
   prefixCatalog?: CatalogPrefix[]
@@ -68,12 +70,14 @@ export default function GameCard({
   onToggle,
   onOpen,
   onPlay,
+  onStop,
   library,
   playing = false,
   prefixCatalog
 }: GameCardProps): JSX.Element {
   const [broken, setBroken] = useState(!game.coverUrl)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
+  const [starting, setStarting] = useState(false)
   const coverRef = useRef<HTMLDivElement>(null)
   const previewing = useRef(false)
   const rarity = game.rarity ?? 'regular'
@@ -95,13 +99,18 @@ export default function GameCard({
   const updates = gameUpdateState({
     latestVersion: game.version,
     installedVersion: library?.installedVersion,
-    lastPlayedVersion: game.lastPlayedVersion
+    lastPlayedVersion: game.lastPlayedVersion,
+    playedVersions: game.playedVersions
   })
   const status = gameStatusFlags(game.prefixes, prefixCatalog)
 
   useEffect(() => {
     setBroken(!game.coverUrl)
   }, [game.coverUrl])
+
+  useEffect(() => {
+    if (playing) setStarting(false)
+  }, [playing])
 
   function previewFromX(clientX: number): number {
     const rect = coverRef.current?.getBoundingClientRect()
@@ -145,12 +154,14 @@ export default function GameCard({
   ]
     .filter(Boolean)
     .join(' ')
-  const updatedLabel = formatUpdateDate(game.timestamp)
+  const updatedAt = catalogTimestamp(game.timestamp)
+  const updatedRelative = formatRelativeTime(updatedAt)
+  const updatedExact = formatDateTime(updatedAt)
 
   function onCardClick(event: MouseEvent): void {
     if (!onOpen) return
     const target = event.target as HTMLElement
-    if (target.closest('button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge')) return
+    if (target.closest('button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge, .update-chip')) return
     onOpen()
   }
 
@@ -219,42 +230,73 @@ export default function GameCard({
           ) : null}
           <EngineBadge name={engine} />
         </div>
-        {library?.hasArchive || (library?.isInstalled && onPlay) ? (
+        {library?.isInstalled && (onPlay || playing) ? (
           <div className="cover-bl">
-            {library.isInstalled && onPlay ? (
-              <button
-                className="play-badge"
-                type="button"
-                disabled={playing}
-                title={
-                  playing
-                    ? 'Playing'
+            <button
+              className={[
+                'play-badge',
+                starting ? 'is-starting' : '',
+                playing ? 'is-stop' : ''
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              type="button"
+              disabled={starting}
+              title={
+                starting
+                  ? 'Starting…'
+                  : playing
+                    ? 'Stop'
                     : library.installedVersion
                       ? `Play ${library.installedVersion}`
                       : 'Play'
+              }
+              onClick={(event) => {
+                event.stopPropagation()
+                if (starting) return
+                if (playing) {
+                  void onStop?.()
+                  return
                 }
-                onClick={(event) => {
-                  event.stopPropagation()
-                  onPlay()
-                }}
-              >
+                if (!onPlay) return
+                setStarting(true)
+                void Promise.resolve(onPlay()).catch(() => {
+                  setStarting(false)
+                })
+              }}
+            >
+              {starting ? (
+                <svg className="play-badge-spinner" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle
+                    cx="8"
+                    cy="8"
+                    r="5.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeOpacity="0.28"
+                    strokeWidth="2"
+                  />
+                  <path
+                    d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              ) : playing ? (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" />
+                </svg>
+              ) : (
                 <svg viewBox="0 0 16 16" aria-hidden="true">
                   <path fill="currentColor" d="M4.2 2.8v10.4L13.4 8z" />
                 </svg>
-                <span className="sr-only">{playing ? 'Playing' : 'Play'}</span>
-              </button>
-            ) : null}
-            {library.hasArchive ? (
-              <span className="archive-badge" title="Archive downloaded">
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
-                  />
-                </svg>
-                <span className="sr-only">Archive downloaded</span>
+              )}
+              <span className="sr-only">
+                {starting ? 'Starting' : playing ? 'Stop' : 'Play'}
               </span>
-            ) : null}
+            </button>
           </div>
         ) : null}
         {game.version ? (
@@ -265,22 +307,37 @@ export default function GameCard({
         <FollowButton subscribed={subscribed} onToggle={onToggle} />
       </div>
       <div className="game-meta">
-        <h2 className="game-title">{game.title}</h2>
+        <div className="game-title-row">
+          <h2 className="game-title">{game.title}</h2>
+          {(subscribed && updates.unplayedUpdate) || library?.hasArchive ? (
+            <div className="game-title-badges">
+              {subscribed && updates.unplayedUpdate ? (
+                <span
+                  className="update-chip update-chip-new"
+                  title={
+                    game.lastPlayedVersion
+                      ? `New version available · last played ${game.lastPlayedVersion}`
+                      : 'New version available'
+                  }
+                >
+                  New
+                </span>
+              ) : null}
+              {library?.hasArchive ? (
+                <span className="archive-badge" title="Archive downloaded">
+                  <svg viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
+                    />
+                  </svg>
+                  <span className="sr-only">Archive downloaded</span>
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <span className="muted">{game.creator || 'Unknown creator'}</span>
-        {updates.unplayedUpdate || playing ? (
-          <div className="game-meta-row">
-            {updates.unplayedUpdate ? (
-              <span className="update-chip update-chip-play" title={`Last played ${game.lastPlayedVersion}`}>
-                New since play
-              </span>
-            ) : null}
-            {playing ? (
-              <span className="update-chip update-chip-play" title="This game is running">
-                Playing
-              </span>
-            ) : null}
-          </div>
-        ) : null}
         <div className="game-stats muted">
           <span className={ratingClass(game.rating)}>{formatRating(game.rating)}</span>
           {likes ? (
@@ -305,9 +362,9 @@ export default function GameCard({
               {formatCount(views)}
             </span>
           ) : null}
-          <span>
-            {updatedLabel
-              ? `Updated ${updatedLabel}`
+          <span title={updatedExact || undefined}>
+            {updatedRelative
+              ? `Updated ${updatedRelative}`
               : game.source === 'bookmark'
                 ? 'Bookmark'
                 : game.source === 'watched'

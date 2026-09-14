@@ -6,6 +6,7 @@ import { sendToRenderer } from './windows'
 type PlaySession = {
   fileId: string
   threadId: number
+  version: string
   pid: number
   installPath: string
   backupSaves: boolean
@@ -40,11 +41,16 @@ function broadcast(): void {
   sendToRenderer('play:sessions', [...sessions.values()].map(present))
 }
 
-async function addPlaytime(fileId: string, threadId: number, deltaMs: number): Promise<void> {
+async function addPlaytime(
+  fileId: string,
+  threadId: number,
+  version: string,
+  deltaMs: number
+): Promise<void> {
   if (deltaMs < 1000) return
   const { addFilePlaytime } = await import('./game-files-store')
   await addFilePlaytime(fileId, deltaMs)
-  await addSubscriptionPlaytime(threadId, deltaMs)
+  await addSubscriptionPlaytime(threadId, deltaMs, version)
 }
 
 async function backupRpgMakerSaves(session: PlaySession, skipUnstable = false): Promise<void> {
@@ -65,7 +71,7 @@ async function backupRpgMakerSaves(session: PlaySession, skipUnstable = false): 
 async function flushSession(session: PlaySession, until = now()): Promise<void> {
   const delta = until - session.flushedAt
   session.flushedAt = until
-  await addPlaytime(session.fileId, session.threadId, delta)
+  await addPlaytime(session.fileId, session.threadId, session.version, delta)
   await backupRpgMakerSaves(session, true)
 }
 
@@ -131,6 +137,7 @@ export function getPlaySession(fileId: string): PlaySessionStatus | null {
 export function startPlaySession(input: {
   fileId: string
   threadId: number
+  version?: string
   pid: number
   installPath: string
   backupSaves?: boolean
@@ -141,6 +148,7 @@ export function startPlaySession(input: {
   sessions.set(input.fileId, {
     fileId: input.fileId,
     threadId: input.threadId,
+    version: (input.version || existing?.version || '').trim(),
     pid: input.pid,
     installPath: input.installPath,
     backupSaves: Boolean(input.backupSaves || existing?.backupSaves),

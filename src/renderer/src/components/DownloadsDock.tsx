@@ -69,6 +69,7 @@ export default function DownloadsDock({
 }: DownloadsDockProps): JSX.Element | null {
   const [collapsed, setCollapsed] = useState(false)
   const prevKeysRef = useRef<string[] | null>(null)
+  const dockRef = useRef<HTMLElement | null>(null)
 
   const activeRegular = items.filter(isActiveDownload)
   const activeP2p = p2pTransfers.filter((t) => isActiveP2pDownload(t, p2pSharedHashes))
@@ -79,6 +80,7 @@ export default function DownloadsDock({
   const percent = overallPercent(activeRegular, activeP2p)
   const keys = activeKeys(activeRegular, activeP2p)
   const keysSignature = keys.join('|')
+  const hasActive = p2pShown.length > 0 || regularShown.length > 0
 
   useEffect(() => {
     const next = keysSignature.length ? keysSignature.split('|') : []
@@ -93,7 +95,20 @@ export default function DownloadsDock({
     if (started || finished) setCollapsed(false)
   }, [keysSignature])
 
-  if (!p2pShown.length && !regularShown.length) return null
+  useEffect(() => {
+    if (!hasActive || collapsed) return
+
+    function onPointer(event: PointerEvent): void {
+      const target = event.target as Node
+      if (dockRef.current?.contains(target)) return
+      setCollapsed(true)
+    }
+
+    window.addEventListener('pointerdown', onPointer)
+    return () => window.removeEventListener('pointerdown', onPointer)
+  }, [hasActive, collapsed])
+
+  if (!hasActive) return null
 
   if (collapsed) {
     const ringStyle =
@@ -104,7 +119,11 @@ export default function DownloadsDock({
           }
 
     return (
-      <aside className="downloads-dock downloads-dock-collapsed" aria-label="Active downloads">
+      <aside
+        ref={dockRef}
+        className="downloads-dock downloads-dock-collapsed"
+        aria-label="Active downloads"
+      >
         <button
           className="downloads-dock-tile"
           type="button"
@@ -128,7 +147,7 @@ export default function DownloadsDock({
   }
 
   return (
-    <aside className="downloads-dock" aria-label="Active downloads">
+    <aside ref={dockRef} className="downloads-dock" aria-label="Active downloads">
       <div className="downloads-dock-header">
         <strong>Downloads</strong>
         <div className="downloads-dock-header-actions">

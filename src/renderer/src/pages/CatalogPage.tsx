@@ -7,7 +7,8 @@ import type {
   FavoriteTag,
   HatedTag,
   GameRarity,
-  MatchMode
+  MatchMode,
+  VersionPlayStat
 } from '@shared/types'
 import { TAG_QUERY_LIMIT } from '@shared/types'
 import { FALLBACK_PREFIXES } from '@shared/prefixes'
@@ -23,6 +24,7 @@ import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type CatalogViewProps = {
   followedIds: Set<number>
+  followedPlayById: Map<number, { lastPlayedVersion: string; playedVersions: VersionPlayStat[] }>
   rarityById: Map<number, GameRarity>
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
@@ -50,6 +52,7 @@ function selectedIds(
 
 export default function CatalogPage({
   followedIds,
+  followedPlayById,
   rarityById,
   favoriteTags,
   hatedTags,
@@ -178,9 +181,22 @@ export default function CatalogPage({
       const text = err instanceof Error ? err.message : 'Could not start the game.'
       if (text.includes('Not logged in')) {
         await onSessionExpired()
-        return
+        throw err
       }
       setError(text)
+      throw err instanceof Error ? err : new Error(text)
+    }
+  }
+
+  async function stopThread(threadId: number): Promise<void> {
+    setError(null)
+    try {
+      const active = sessions.filter((session) => session.threadId === threadId)
+      for (const session of active) {
+        await window.api.library.stop(session.fileId)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stop the game.')
     }
   }
 
@@ -208,7 +224,7 @@ export default function CatalogPage({
       try {
         const result = await window.api.catalog.list({
           page,
-          rows: 30,
+          rows: 90,
           sort,
           search: search || undefined,
           creator: creator || undefined,
@@ -496,10 +512,17 @@ export default function CatalogPage({
         <div className="empty-state">No games match these filters.</div>
       ) : (
         <div className="catalog-grid">
-          {data?.games.map((game) => (
+          {data?.games.map((game) => {
+            const play = followedPlayById.get(game.threadId)
+            return (
             <GameCard
               key={game.threadId}
-              game={{ ...game, rarity: rarityById.get(game.threadId) }}
+              game={{
+                ...game,
+                rarity: rarityById.get(game.threadId),
+                lastPlayedVersion: play?.lastPlayedVersion,
+                playedVersions: play?.playedVersions
+              }}
               subscribed={followedIds.has(game.threadId)}
               favoriteTags={favoriteTags}
               hatedTags={hatedTags}
@@ -507,14 +530,20 @@ export default function CatalogPage({
               onOpen={() => onOpen(game)}
               onPlay={
                 libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => void playThread(game)
+                  ? () => playThread(game)
+                  : undefined
+              }
+              onStop={
+                libraryByThread.get(game.threadId)?.isInstalled
+                  ? () => stopThread(game.threadId)
                   : undefined
               }
               library={libraryByThread.get(game.threadId)}
               playing={Boolean(sessionForThread(game.threadId))}
               prefixCatalog={filters.prefixes}
             />
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

@@ -1,9 +1,17 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname } from 'path'
-import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, type SubscriptionSource } from '@shared/types'
+import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, type SubscriptionSource, type VersionPlayStatus } from '@shared/types'
 import { engineFromTitle } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
-import { catalogTimestamp, isRelativeDate } from '@shared/updates'
+import {
+  addVersionPlaytime,
+  catalogTimestamp,
+  ensureKnownVersion,
+  isRelativeDate,
+  normalizeVersionPlayStats,
+  setVersionPlayStatus,
+  touchVersionPlayStat
+} from '@shared/updates'
 import { uniqueScreenUrls } from './f95/catalog'
 import { lookupGame, isWeakCover } from './f95/lookup'
 import { pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
@@ -14,6 +22,8 @@ import { sendToRenderer } from './windows'
 let loaded: Subscription[] | null = null
 const METADATA_CHECK_VERSION = 1
 let metadataCheckVersion = 0
+/** Newest catalog update timestamp we have continuously scanned down from. */
+let lastSeenCatalogUpdate = 0
 
 function isRarity(value: unknown): value is GameRarity {
   return typeof value === 'string' && GAME_RARITIES.includes(value as GameRarity)
@@ -44,6 +54,7 @@ function emptyDetails(): Pick<
   | 'lastPlayedVersion'
   | 'lastPlayedAt'
   | 'playtimeMs'
+  | 'playedVersions'
   | 'checkedAt'
   | 'screens'
 > {
@@ -63,6 +74,7 @@ function emptyDetails(): Pick<
     lastPlayedVersion: '',
     lastPlayedAt: 0,
     playtimeMs: 0,
+    playedVersions: [],
     checkedAt: 0,
     screens: []
   }
@@ -94,9 +106,36 @@ export function subscriptionFromCatalog(
     lastPlayedVersion: '',
     lastPlayedAt: 0,
     playtimeMs: 0,
+    playedVersions: ensureKnownVersion([], game.version, game.timestamp),
     checkedAt: 0,
     screens: uniqueScreenUrls(game.screens)
   }
+}
+
+function seedPlayedVersions(game: Partial<Subscription>): Subscription['playedVersions'] {
+  let existing = normalizeVersionPlayStats(game.playedVersions)
+  if (!existing.length) {
+    const version = typeof game.lastPlayedVersion === 'string' ? game.lastPlayedVersion.trim() : ''
+    const lastPlayedAt = Number(game.lastPlayedAt) || 0
+    if (version || lastPlayedAt) {
+      // Keep last-played version history, but do not re-attribute aggregate playtime
+      // (that would over-count once per-file stats are merged in the UI).
+      existing = normalizeVersionPlayStats([{ version, releasedAt: 0, lastPlayedAt, playtimeMs: 0 }])
+    }
+  }
+  return ensureKnownVersion(existing, game.version, game.timestamp)
+}
+
+function recordKnownVersion(
+  game: Pick<Subscription, 'playedVersions' | 'version' | 'timestamp'>,
+  version?: string | null,
+  timestamp?: number | string | null
+): Subscription['playedVersions'] {
+  return ensureKnownVersion(
+    game.playedVersions || [],
+    version || game.version,
+    catalogTimestamp(timestamp) || game.timestamp
+  )
 }
 
 function needsDetails(game: Subscription): boolean {
@@ -107,15 +146,22 @@ function needsDetails(game: Subscription): boolean {
 
 let enriching: Promise<Subscription[]> | null = null
 
+type SubscriptionsFile = {
+  games?: Subscription[]
+  metadataCheckVersion?: number
+  lastSeenCatalogUpdate?: number
+}
+
 async function readStore(): Promise<Subscription[]> {
   if (loaded) return loaded
   try {
     const raw = await readFile(getAppPaths().subscriptionsFile, 'utf8')
-    const parsed = JSON.parse(raw) as
-      | { games?: Subscription[]; metadataCheckVersion?: number }
-      | Subscription[]
+    const parsed = JSON.parse(raw) as SubscriptionsFile | Subscription[]
     const stored = Array.isArray(parsed) ? parsed : (parsed.games ?? [])
     metadataCheckVersion = Array.isArray(parsed) ? 0 : (parsed.metadataCheckVersion ?? 0)
+    lastSeenCatalogUpdate = Array.isArray(parsed)
+      ? 0
+      : catalogTimestamp(parsed.lastSeenCatalogUpdate)
     const resetChecks = metadataCheckVersion < METADATA_CHECK_VERSION
     loaded = stored.map((game) => ({
       ...emptyDetails(),
@@ -127,6 +173,7 @@ async function readStore(): Promise<Subscription[]> {
       lastPlayedVersion: typeof game.lastPlayedVersion === 'string' ? game.lastPlayedVersion : '',
       lastPlayedAt: Number(game.lastPlayedAt) || 0,
       playtimeMs: Number(game.playtimeMs) || 0,
+      playedVersions: seedPlayedVersions(game),
       checkedAt: resetChecks ? 0 : Number(game.checkedAt) || 0,
       likes: saneLikeCount(game.likes),
       views: saneViewCount(game.views),
@@ -145,6 +192,7 @@ async function readStore(): Promise<Subscription[]> {
   } catch {
     loaded = []
     metadataCheckVersion = METADATA_CHECK_VERSION
+    lastSeenCatalogUpdate = 0
   }
   return loaded
 }
@@ -155,10 +203,52 @@ async function writeStore(games: Subscription[]): Promise<void> {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(
     file,
-    JSON.stringify({ games, metadataCheckVersion: METADATA_CHECK_VERSION }, null, 2),
+    JSON.stringify(
+      {
+        games,
+        metadataCheckVersion: METADATA_CHECK_VERSION,
+        lastSeenCatalogUpdate
+      },
+      null,
+      2
+    ),
     'utf8'
   )
   sendToRenderer('subscriptions:changed', [...games].sort((a, b) => b.addedAt - a.addedAt))
+}
+
+async function persistMeta(): Promise<void> {
+  const games = await readStore()
+  const file = getAppPaths().subscriptionsFile
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(
+    file,
+    JSON.stringify(
+      {
+        games,
+        metadataCheckVersion: METADATA_CHECK_VERSION,
+        lastSeenCatalogUpdate
+      },
+      null,
+      2
+    ),
+    'utf8'
+  )
+}
+
+export async function getLastSeenCatalogUpdate(): Promise<number> {
+  await readStore()
+  return lastSeenCatalogUpdate
+}
+
+/** Raise the catalog scan watermark when coverage is continuous from the newest games. */
+export async function advanceLastSeenCatalogUpdate(timestamp: number): Promise<void> {
+  const at = catalogTimestamp(timestamp)
+  if (!at || at <= lastSeenCatalogUpdate) return
+  await readStore()
+  if (at <= lastSeenCatalogUpdate) return
+  lastSeenCatalogUpdate = at
+  await persistMeta()
 }
 
 export async function listSubscriptions(): Promise<Subscription[]> {
@@ -190,6 +280,11 @@ export async function upsertSubscription(entry: Subscription): Promise<Subscript
       lastPlayedVersion: games[index].lastPlayedVersion,
       lastPlayedAt: games[index].lastPlayedAt,
       playtimeMs: games[index].playtimeMs,
+      playedVersions: recordKnownVersion(
+        games[index],
+        entry.version || games[index].version,
+        entry.timestamp || games[index].timestamp
+      ),
       checkedAt: games[index].checkedAt || 0,
       likes: pickLikeCount(entry.likes, games[index].likes),
       views: pickViewCount(entry.views, games[index].views),
@@ -254,19 +349,22 @@ async function runEnrichment(): Promise<Subscription[]> {
     if (!needsDetails(game)) continue
     const details = await lookupGame(game.threadId, game.title, game.creator)
     if (!details) continue
+    const version = details.version || game.version
+    const timestamp = catalogTimestamp(details.timestamp) || game.timestamp
     Object.assign(game, {
       title: details.title || game.title,
       creator: details.creator || game.creator,
-      version: details.version || game.version,
+      version,
       coverUrl: details.coverUrl || game.coverUrl,
       rating: details.rating || game.rating,
       likes: pickLikeCount(details.likes, game.likes),
       views: pickViewCount(details.views, game.views),
       updatedAt: details.updatedAt && !isRelativeDate(details.updatedAt) ? details.updatedAt : '',
-      timestamp: catalogTimestamp(details.timestamp) || game.timestamp,
+      timestamp,
       tags: details.tags?.length ? details.tags : game.tags,
       prefixes: details.prefixes?.length ? details.prefixes : game.prefixes,
       engine: resolveEngine({ ...game, ...details }),
+      playedVersions: recordKnownVersion(game, version, timestamp),
       screens: uniqueScreenUrls(details.screens).length
         ? uniqueScreenUrls(details.screens)
         : game.screens
@@ -294,20 +392,23 @@ export async function refreshSubscription(threadId: number): Promise<Subscriptio
     throw new Error('Could not refresh metadata from F95zone.')
   }
 
+  const version = details.version || current.version
+  const timestamp = catalogTimestamp(details.timestamp) || current.timestamp
   games[index] = {
     ...current,
     title: details.title || current.title,
     creator: details.creator || current.creator,
-    version: details.version || current.version,
+    version,
     coverUrl: !isWeakCover(details.coverUrl) ? details.coverUrl : current.coverUrl,
     rating: details.rating || current.rating,
     likes: pickLikeCount(details.likes, current.likes),
     views: pickViewCount(details.views, current.views),
     updatedAt: details.updatedAt && !isRelativeDate(details.updatedAt) ? details.updatedAt : '',
-    timestamp: catalogTimestamp(details.timestamp) || current.timestamp,
+    timestamp,
     tags: details.tags?.length ? details.tags : current.tags ?? [],
     prefixes: details.prefixes?.length ? details.prefixes : current.prefixes ?? [],
     engine: resolveEngine({ ...current, ...details }),
+    playedVersions: recordKnownVersion(current, version, timestamp),
     checkedAt: Date.now(),
     screens: uniqueScreenUrls(details.screens).length
       ? uniqueScreenUrls(details.screens)
@@ -334,21 +435,56 @@ export async function setSubscriptionRarity(
   return listSubscriptions()
 }
 
+function isVersionPlayStatus(value: unknown): value is VersionPlayStatus {
+  return value === 'unplayed' || value === 'played' || value === 'skipped'
+}
+
+export async function setSubscriptionVersionStatus(
+  threadId: number,
+  version: string,
+  status: VersionPlayStatus
+): Promise<Subscription[]> {
+  if (!isVersionPlayStatus(status)) {
+    throw new Error('Unknown version status.')
+  }
+  const key = (version || '').trim()
+  if (!key) {
+    throw new Error('Missing version.')
+  }
+  const games = await readStore()
+  const game = games.find((item) => item.threadId === threadId)
+  if (!game) {
+    throw new Error('That game is not in the followed list.')
+  }
+  game.playedVersions = setVersionPlayStatus(game.playedVersions || [], key, status)
+  await writeStore(games)
+  return listSubscriptions()
+}
+
 export async function recordSubscriptionPlay(threadId: number, version: string): Promise<void> {
   const games = await readStore()
   const game = games.find((item) => item.threadId === threadId)
   if (!game) return
+  const at = Date.now()
   game.lastPlayedVersion = version || game.lastPlayedVersion
-  game.lastPlayedAt = Date.now()
+  game.lastPlayedAt = at
+  game.playedVersions = touchVersionPlayStat(game.playedVersions || [], version || game.lastPlayedVersion, at)
   await writeStore(games)
 }
 
-export async function addSubscriptionPlaytime(threadId: number, deltaMs: number): Promise<void> {
+export async function addSubscriptionPlaytime(
+  threadId: number,
+  deltaMs: number,
+  version?: string
+): Promise<void> {
   if (!Number.isFinite(deltaMs) || deltaMs <= 0) return
   const games = await readStore()
   const game = games.find((item) => item.threadId === threadId)
   if (!game) return
+  const at = Date.now()
   game.playtimeMs = (game.playtimeMs || 0) + Math.round(deltaMs)
+  const key = (version || game.lastPlayedVersion || '').trim()
+  game.playedVersions = addVersionPlaytime(game.playedVersions || [], key, deltaMs, at)
   await writeStore(games)
 }
 
@@ -358,31 +494,150 @@ function sameScreens(left?: string[], right?: string[]): boolean {
   return left.every((url, index) => url === right[index])
 }
 
-export async function applyCatalogScreens(
-  games: Array<{ threadId: number; screens?: string[]; likes?: number; views?: number }>
-): Promise<void> {
-  if (!games.length) return
+function sameIdList(left?: number[], right?: number[]): boolean {
+  if (!left?.length && !right?.length) return true
+  if (!left || !right || left.length !== right.length) return false
+  return left.every((id, index) => id === right[index])
+}
+
+function applyCatalogGameFields(game: Subscription, incoming: CatalogGame, checkedAt: number): boolean {
+  let changed = false
+  const version = (incoming.version || '').trim() || game.version
+  const timestamp = catalogTimestamp(incoming.timestamp) || game.timestamp
+  const title = (incoming.title || '').trim() || game.title
+  const creator = (incoming.creator || '').trim() || game.creator
+  const coverUrl =
+    incoming.coverUrl && !isWeakCover(incoming.coverUrl) ? incoming.coverUrl : game.coverUrl
+  const rating = Number(incoming.rating) || game.rating
+  const likes = pickLikeCount(incoming.likes, game.likes)
+  const views = pickViewCount(incoming.views, game.views)
+  const tags = incoming.tags?.length ? incoming.tags : game.tags
+  const prefixes = incoming.prefixes?.length ? incoming.prefixes : game.prefixes
+  const engine = resolveEngine({ ...game, ...incoming, prefixes, title }) || game.engine
+  const screens = uniqueScreenUrls(incoming.screens)
+  const nextScreens = screens.length ? screens : game.screens
+  const playedVersions = recordKnownVersion(game, version, timestamp)
+
+  if (title !== game.title) {
+    game.title = title
+    changed = true
+  }
+  if (creator !== game.creator) {
+    game.creator = creator
+    changed = true
+  }
+  if (version !== game.version) {
+    game.version = version
+    changed = true
+  }
+  if (coverUrl !== game.coverUrl) {
+    game.coverUrl = coverUrl
+    changed = true
+  }
+  if (rating !== game.rating) {
+    game.rating = rating
+    changed = true
+  }
+  if (likes !== game.likes) {
+    game.likes = likes
+    changed = true
+  }
+  if (views !== game.views) {
+    game.views = views
+    changed = true
+  }
+  if (timestamp && timestamp !== game.timestamp) {
+    game.timestamp = timestamp
+    changed = true
+  }
+  if (!sameIdList(game.tags, tags)) {
+    game.tags = tags
+    changed = true
+  }
+  if (!sameIdList(game.prefixes, prefixes)) {
+    game.prefixes = prefixes
+    changed = true
+  }
+  if (engine !== game.engine) {
+    game.engine = engine
+    changed = true
+  }
+  if (!sameScreens(game.screens, nextScreens)) {
+    game.screens = nextScreens
+    changed = true
+  }
+  if (
+    playedVersions.length !== (game.playedVersions?.length || 0) ||
+    playedVersions.some((item, index) => {
+      const prev = game.playedVersions[index]
+      return (
+        !prev ||
+        prev.version !== item.version ||
+        prev.releasedAt !== item.releasedAt ||
+        prev.lastPlayedAt !== item.lastPlayedAt ||
+        prev.playtimeMs !== item.playtimeMs ||
+        prev.status !== item.status
+      )
+    })
+  ) {
+    game.playedVersions = playedVersions
+    changed = true
+  }
+  if (game.checkedAt !== checkedAt) {
+    game.checkedAt = checkedAt
+    changed = true
+  }
+  return changed
+}
+
+export type ApplyCatalogGamesOptions = {
+  /**
+   * When true, raise lastSeenCatalogUpdate if this page reaches back to the prior
+   * watermark (continuous coverage from the newest updates).
+   */
+  advanceLastSeen?: boolean
+}
+
+/** Merge already-fetched catalog rows into followed games without blocking on network. */
+export async function applyCatalogGames(
+  games: CatalogGame[],
+  options: ApplyCatalogGamesOptions = {}
+): Promise<number> {
+  if (!games.length) {
+    return 0
+  }
+
   const byId = new Map(games.map((game) => [game.threadId, game]))
   const stored = await readStore()
+  const checkedAt = Date.now()
   let changed = false
+  let matched = 0
+
   for (const game of stored) {
     const incoming = byId.get(game.threadId)
     if (!incoming) continue
-    const screens = uniqueScreenUrls(incoming.screens)
-    if (screens.length && !sameScreens(game.screens, screens)) {
-      game.screens = screens
-      changed = true
+    matched += 1
+    if (applyCatalogGameFields(game, incoming, checkedAt)) changed = true
+  }
+
+  if (changed) await writeStore(stored)
+
+  if (options.advanceLastSeen) {
+    let newest = 0
+    let oldest = Number.POSITIVE_INFINITY
+    for (const game of games) {
+      const at = catalogTimestamp(game.timestamp)
+      if (!at) continue
+      if (at > newest) newest = at
+      if (at < oldest) oldest = at
     }
-    const likes = saneLikeCount(incoming.likes)
-    if (likes && likes !== game.likes) {
-      game.likes = likes
-      changed = true
-    }
-    const views = saneViewCount(incoming.views)
-    if (views && views !== game.views) {
-      game.views = views
-      changed = true
+    if (newest && oldest !== Number.POSITIVE_INFINITY && oldest <= lastSeenCatalogUpdate) {
+      await advanceLastSeenCatalogUpdate(newest)
+    } else if (newest && lastSeenCatalogUpdate === 0) {
+      // First watermark: seed from the newest page without claiming deeper coverage.
+      await advanceLastSeenCatalogUpdate(newest)
     }
   }
-  if (changed) await writeStore(stored)
+
+  return matched
 }

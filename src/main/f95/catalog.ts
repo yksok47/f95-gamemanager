@@ -46,8 +46,62 @@ type LatestDataResponse = {
   }
 }
 
+/** SAM caps page size at 90; session options must match or list ignores higher `rows`. */
+const CATALOG_ROWS_MAX = 90
+
+const CATALOG_SESSION_OPTIONS = {
+  newTab: 'true',
+  ignoredThreads: 'hide',
+  view: 'grid',
+  notifications: 'nsfw',
+  hover: '50',
+  version: 'small',
+  filterSticky: 'false',
+  searchHighlight: 'true',
+  rows: String(CATALOG_ROWS_MAX)
+}
+
 let cachedFilters: CatalogFilters | null = null
 let filtersPromise: Promise<CatalogFilters> | null = null
+let catalogOptionsReady = false
+let catalogOptionsPromise: Promise<void> | null = null
+
+async function applyCatalogSessionOptions(): Promise<void> {
+  const body = new URLSearchParams(CATALOG_SESSION_OPTIONS)
+  await f95Fetch('/sam/latest_alpha/latest_data.php?cmd=options', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Accept: 'application/json,text/plain,*/*',
+      Origin: 'https://f95zone.to',
+      Referer: 'https://f95zone.to/sam/latest_alpha/'
+    },
+    body: body.toString()
+  })
+}
+
+/** Persist SAM list preferences on the session cookie so `rows` up to 90 is honored. */
+async function ensureCatalogSessionOptions(): Promise<void> {
+  if (catalogOptionsReady) return
+  if (!catalogOptionsPromise) {
+    catalogOptionsPromise = applyCatalogSessionOptions()
+      .then(() => {
+        catalogOptionsReady = true
+      })
+      .catch((error) => {
+        console.warn('Could not set F95zone catalog session options', error)
+      })
+      .finally(() => {
+        catalogOptionsPromise = null
+      })
+  }
+  await catalogOptionsPromise
+}
+
+/** Call after login/logout so options are re-applied on the new session cookie. */
+export function invalidateCatalogSessionOptions(): void {
+  catalogOptionsReady = false
+}
 
 export function uniqueScreenUrls(urls: unknown): string[] {
   if (!Array.isArray(urls)) return []
@@ -262,7 +316,8 @@ function appendArray(params: URLSearchParams, name: string, values?: number[]): 
 
 export async function fetchCatalog(query: CatalogQuery = {}): Promise<CatalogPage> {
   const page = query.page && query.page > 0 ? query.page : 1
-  const rows = query.rows && query.rows > 0 ? query.rows : 30
+  const requested = query.rows && query.rows > 0 ? query.rows : CATALOG_ROWS_MAX
+  const rows = Math.min(requested, CATALOG_ROWS_MAX)
   const sort = query.sort ?? 'date'
   const category = query.category ?? 'games'
   const ts = Date.now()
@@ -271,6 +326,8 @@ export async function fetchCatalog(query: CatalogQuery = {}): Promise<CatalogPag
   const filtersPromise = fetchCatalogFilters().catch(
     (): CatalogFilters => ({ prefixes: FALLBACK_PREFIXES, tags: [] })
   )
+
+  await ensureCatalogSessionOptions()
 
   const params = new URLSearchParams()
   params.set('cmd', 'list')

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { GameLibraryFile, PlaySessionStatus, Subscription } from '@shared/types'
+import type { GameLibraryFile, PlaySessionStatus, Subscription, VersionPlayStat } from '@shared/types'
 import {
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
@@ -7,6 +7,7 @@ import {
 } from '@shared/types'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
 import { compareGameVersions, engineKind } from '@shared/engines'
+import { mergeVersionPlayStats, versionPlayStatsFromFiles } from '@shared/updates'
 
 export type GameLibraryStatus = {
   hasArchive: boolean
@@ -34,6 +35,7 @@ export type LibraryGame = {
   lastPlayedVersion: string
   lastPlayedAt: number
   playtimeMs: number
+  playedVersions: VersionPlayStat[]
   downloadedAt: number
 }
 
@@ -210,6 +212,10 @@ export function groupLibraryGames(
       playtimeMs: Math.max(
         sub?.playtimeMs || 0,
         items.reduce((sum, file) => sum + (file.playtimeMs || 0), 0)
+      ),
+      playedVersions: mergeVersionPlayStats(
+        versionPlayStatsFromFiles(items),
+        sub?.playedVersions
       ),
       downloadedAt: Math.max(...items.map((file) => file.downloadedAt || 0))
     })

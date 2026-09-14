@@ -14,9 +14,10 @@ import type {
   InstalledPatchRef,
   PackageTagHint,
   ThreadDetails,
-  ThreadReview
+  ThreadReview,
+  VersionPlayStat,
+  VersionPlayStatus
 } from '@shared/types'
-import { pickLikeCount, pickViewCount } from '@shared/counts'
 import {
   CONTENT_KIND_BY_ID,
   CONTENT_KIND_IDS,
@@ -33,8 +34,19 @@ import {
 } from '@shared/types'
 import type { PackageInstallTags, P2pTransferProgress } from '@shared/p2p'
 import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
-import { gameStatusFlags } from '@shared/prefixes'
-import { formatPlaytime, formatRelativeTime, formatSessionTime, formatUpdateDate, gameUpdateState, isRelativeDate } from '@shared/updates'
+import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
+import {
+  formatPlaytime,
+  formatRelativeTime,
+  formatSessionTime,
+  formatUpdateDate,
+  effectiveVersionStatus,
+  gameUpdateState,
+  isRelativeDate,
+  mergeVersionPlayStats,
+  usableVersion,
+  versionPlayStatsFromFiles
+} from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
 import FollowButton from '../components/FollowButton'
 import RaritySlider from '../components/RaritySlider'
@@ -49,28 +61,28 @@ import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
-import { useCatalogPrefixes } from '../lib/catalog-prefixes'
-import { favoriteTierByName, isHatedTagName } from '../lib/favorites'
+import UserNotesPanel from '../components/UserNotesPanel'
+import { useCatalogPrefixes, useCatalogTags } from '../lib/catalog-prefixes'
 import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
 import PackageMetaTags from '../components/PackageMetaTags'
-import { RefreshIcon } from '../components/ToolbarIcons'
 import { usePlaySessions } from '../lib/library'
 
 type DetailsTab =
   | 'overview'
-  | 'description'
-  | 'notes'
+  | 'about'
+  | 'userNotes'
   | 'gallery'
-  | 'changelog'
   | 'downloads'
   | 'files'
   | 'saves'
-  | 'unren'
-  | 'options'
+  | 'renpy'
   | 'reviews'
+
+type AboutMode = 'description' | 'changelog' | 'notes'
+type RenpyMode = 'unren' | 'options'
 
 type GameDetailsPageProps = {
   summary: GameSummary
@@ -81,7 +93,6 @@ type GameDetailsPageProps = {
   onClose: () => void
   onOpenThread: (threadId: number, title: string) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
-  onRefresh?: (threadId: number) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
   onSessionExpired: () => Promise<void>
   /** When false/undefined, P2P section is hidden */
@@ -302,24 +313,25 @@ function isGeneratedCover(url: string): boolean {
   return /\/data\/covers\//i.test(url) || /preview\.f95zone\./i.test(url)
 }
 
+/** Follow / store metadata stays catalog-shaped; scrape only fills gaps (e.g. gallery). */
 function toCatalogGame(summary: GameSummary, details: ThreadDetails | null): CatalogGame {
   return {
     threadId: summary.threadId,
-    title: details?.title || summary.title,
-    creator: details?.creator || summary.creator,
-    version: details?.version || summary.version,
-    views: pickViewCount(summary.views, details?.views),
-    likes: pickLikeCount(summary.likes, details?.likes),
+    title: summary.title,
+    creator: summary.creator,
+    version: summary.version,
+    views: summary.views || 0,
+    likes: summary.likes || 0,
     rating: summary.rating,
-    coverUrl: details?.coverUrl || summary.coverUrl,
-    updatedAt: details?.updatedAt || summary.updatedAt || '',
+    coverUrl: summary.coverUrl,
+    updatedAt: summary.updatedAt || '',
     timestamp: summary.timestamp || 0,
     isNew: false,
-    threadUrl: details?.threadUrl || summary.threadUrl,
+    threadUrl: summary.threadUrl,
     prefixes: summary.prefixes ?? [],
     tags: summary.tags ?? [],
     screens: summary.screens?.length ? summary.screens : details?.gallery ?? [],
-    engine: details?.engine || summary.engine || ''
+    engine: summary.engine || ''
   }
 }
 
@@ -332,17 +344,19 @@ export default function GameDetailsPage({
   onClose,
   onOpenThread,
   onToggleFollow,
-  onRefresh,
   onSetRarity,
   onSessionExpired,
   p2pEnabled = false
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
+  const tagCatalog = useCatalogTags()
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
-  const [tab, setTab] = useState<DetailsTab>('description')
+  const [tab, setTab] = useState<DetailsTab>('overview')
+  const [aboutMode, setAboutMode] = useState<AboutMode>('description')
+  const [renpyMode, setRenpyMode] = useState<RenpyMode>('unren')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
   const [lightbox, setLightbox] = useState<number | null>(null)
   const lightboxThumbRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -373,7 +387,6 @@ export default function GameDetailsPage({
   const [threadIdCopied, setThreadIdCopied] = useState(false)
   const [installError, setInstallError] = useState<string | null>(null)
   const [playError, setPlayError] = useState<string | null>(null)
-  const [refreshingMeta, setRefreshingMeta] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -382,15 +395,18 @@ export default function GameDetailsPage({
   const [reviewsReload, setReviewsReload] = useState(0)
   const sessions = usePlaySessions()
   const [now, setNow] = useState(() => Date.now())
+  const [versionsExpanded, setVersionsExpanded] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setBusy(true)
     setError(null)
     setDetails(null)
-    setTab('description')
+    setTab('overview')
+    setAboutMode('description')
     setLightbox(null)
     setOpenVersions({})
+    setVersionsExpanded(false)
     setCoverBroken(!summary.coverUrl)
     setFullCoverReady(false)
     setReviewPage(1)
@@ -549,8 +565,14 @@ export default function GameDetailsPage({
     return () => window.clearInterval(timer)
   }, [sessions.length])
 
-  const title = details?.title && !/^Thread \d+$/i.test(details.title) ? details.title : summary.title
-  const creator = details?.creator || summary.creator
+  // Persistent banner metadata comes from catalog/summary; scrape only fills gaps.
+  const title =
+    summary.title && !/^Thread \d+$/i.test(summary.title)
+      ? summary.title
+      : details?.title && !/^Thread \d+$/i.test(details.title)
+        ? details.title
+        : summary.title
+  const creator = summary.creator || details?.creator || ''
   const creatorLinks = useMemo(() => {
     const seen = new Set<string>()
     return (details?.creatorLinks ?? []).filter((link) => {
@@ -571,18 +593,14 @@ export default function GameDetailsPage({
       ),
     [details]
   )
-  const version = details?.version || summary.version
-  const engine = normalizeEngine(details?.engine) || engineFromFields(details?.fields)
-  const status = useMemo(() => {
-    const fromPrefixes = gameStatusFlags(summary.prefixes, prefixCatalog)
-    const statusValue =
-      details?.fields.find((field) => /^status$/i.test(field.label))?.value ?? ''
-    return {
-      completed: fromPrefixes.completed || /\b(completed?|complete)\b/i.test(statusValue),
-      abandoned: fromPrefixes.abandoned || /\babandoned\b/i.test(statusValue),
-      onHold: fromPrefixes.onHold || /\bon[\s-]?hold\b/i.test(statusValue)
-    }
-  }, [summary.prefixes, prefixCatalog, details?.fields])
+  // Banner / downloads / package hints use catalog version; scraped version stays in overview fields only.
+  const version = summary.version || ''
+  const engine =
+    normalizeEngine(summary.engine) ||
+    engineFromPrefixIds(summary.prefixes, prefixCatalog) ||
+    normalizeEngine(details?.engine) ||
+    engineFromFields(details?.fields)
+  const status = useMemo(() => gameStatusFlags(summary.prefixes, prefixCatalog), [summary.prefixes, prefixCatalog])
   const packageBytes = useMemo(
     () => files.reduce((sum, file) => sum + (file.hasArchive ? file.size || 0 : 0), 0),
     [files]
@@ -611,9 +629,29 @@ export default function GameDetailsPage({
       ? parsedCover
       : guessedFull || (parsedCover && parsedCover !== previewCover ? parsedCover : null)
   const coverUrl = fullCover || previewCover
-  const threadUrl = details?.threadUrl || summary.threadUrl
-  const likes = pickLikeCount(summary.likes, details?.likes)
-  const views = pickViewCount(summary.views, details?.views)
+  const threadUrl = summary.threadUrl || details?.threadUrl || ''
+  const likes = summary.likes || 0
+  const views = summary.views || 0
+  const bannerTags = useMemo(() => {
+    const byId = new Map(tagCatalog.map((tag) => [tag.id, tag.name]))
+    const favoriteById = new Map(favoriteTags.map((tag) => [tag.id, tag.tier]))
+    const hatedIds = new Set(hatedTags.map((tag) => tag.id))
+    return (summary.tags ?? [])
+      .map((id) => {
+        const name = byId.get(id)
+        if (!name) return null
+        return { id, name, tier: favoriteById.get(id), hated: hatedIds.has(id) }
+      })
+      .filter((tag): tag is NonNullable<typeof tag> => Boolean(tag))
+      .sort((a, b) => {
+        if (a.tier && b.tier) return TAG_TIER_RANK[b.tier] - TAG_TIER_RANK[a.tier]
+        if (a.tier && !b.tier) return -1
+        if (!a.tier && b.tier) return 1
+        if (a.hated && !b.hated) return -1
+        if (!a.hated && b.hated) return 1
+        return a.name.localeCompare(b.name)
+      })
+  }, [tagCatalog, summary.tags, favoriteTags, hatedTags])
   const gallery = details?.gallery ?? []
   const downloads = details?.downloads ?? []
   const downloadCount = useMemo(() => countDownloadMirrors(downloads), [downloads])
@@ -623,32 +661,55 @@ export default function GameDetailsPage({
     formatUpdateDate(summary.timestamp) || formatDate(details?.updatedAt || '') || formatDate(summary.updatedAt || '')
   const releaseDate = details?.releaseDate || ''
 
+  const aboutModes = useMemo(() => {
+    const settled = !busy
+    const items: Array<{ id: AboutMode; label: string; count?: number; hidden?: boolean }> = [
+      { id: 'description', label: 'Description', hidden: settled && !details?.descriptionHtml },
+      { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
+      { id: 'notes', label: 'Notes', count: notes.length, hidden: settled && !notes.length }
+    ]
+    return items.filter((item) => !item.hidden)
+  }, [busy, details?.descriptionHtml, changelog.length, notes.length])
+
   const tabs = useMemo(() => {
     const settled = !busy
     const items: Array<{ id: DetailsTab; label: string; count?: number; hidden?: boolean }> = [
-      { id: 'description', label: 'Description', hidden: settled && !details?.descriptionHtml },
-      { id: 'notes', label: 'Notes', count: notes.length, hidden: settled && !notes.length },
-      { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
-      { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
+      { id: 'overview', label: 'Overview' },
       { id: 'downloads', label: 'Downloads', count: downloadCount || undefined },
       { id: 'files', label: 'Files', count: files.length },
-      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
-      { id: 'unren', label: 'UnRen', hidden: !isRenpy },
-      { id: 'options', label: 'Options', hidden: !isRenpy },
       {
         id: 'reviews',
         label: 'Reviews',
         count: details?.reviewsTotal || details?.reviews.length,
         hidden: settled && !details?.reviews.length && !details?.reviewsTotal
       },
-      { id: 'overview', label: 'Overview' }
+      { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
+      { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
+      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
+      { id: 'userNotes', label: 'Notes' },
+      { id: 'renpy', label: 'Renpy', hidden: !isRenpy }
     ]
     return items.filter((item) => !item.hidden)
-  }, [busy, details, gallery.length, downloadCount, changelog.length, notes.length, files, isRenpy, isRpgMaker])
+  }, [
+    busy,
+    details,
+    gallery.length,
+    downloadCount,
+    aboutModes.length,
+    files,
+    isRenpy,
+    isRpgMaker
+  ])
 
   useEffect(() => {
     if (!tabs.some((item) => item.id === tab)) setTab(tabs[0]?.id ?? 'overview')
   }, [tabs, tab])
+
+  useEffect(() => {
+    if (!aboutModes.some((item) => item.id === aboutMode)) {
+      setAboutMode(aboutModes[0]?.id ?? 'description')
+    }
+  }, [aboutModes, aboutMode])
 
   useEffect(() => {
     setCoverBroken(!previewCover && !fullCover)
@@ -937,13 +998,49 @@ export default function GameDetailsPage({
     () => sessions.filter((session) => session.threadId === summary.threadId),
     [sessions, summary.threadId]
   )
-  const totalPlaytimeMs =
-    (summary.playtimeMs || 0) ||
+  const playedVersions = useMemo(
+    () => mergeVersionPlayStats(versionPlayStatsFromFiles(files), summary.playedVersions),
+    [files, summary.playedVersions]
+  )
+  const latestVersionKey = usableVersion(version)
+  const lastPlayedVersionKey = usableVersion(lastPlayedVersion)
+  const collapsedVersions = useMemo(() => {
+    if (!playedVersions.length) return []
+    const latest =
+      (latestVersionKey
+        ? playedVersions.find((item) => item.version === latestVersionKey)
+        : null) || playedVersions[0]
+    const lastPlayed =
+      (lastPlayedVersionKey
+        ? playedVersions.find((item) => item.version === lastPlayedVersionKey)
+        : null) ||
+      [...playedVersions]
+        .filter((item) => item.lastPlayedAt)
+        .sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0))[0] ||
+      null
+    const selected = new Set<string>()
+    const rows: VersionPlayStat[] = []
+    for (const item of playedVersions) {
+      const isLatest = item.version === latest.version
+      const isLastPlayed = Boolean(lastPlayed && item.version === lastPlayed.version)
+      if (!isLatest && !isLastPlayed) continue
+      if (selected.has(item.version)) continue
+      selected.add(item.version)
+      rows.push(item)
+    }
+    return rows
+  }, [playedVersions, latestVersionKey, lastPlayedVersionKey])
+  const visibleVersions = versionsExpanded ? playedVersions : collapsedVersions
+  const hiddenVersionCount = Math.max(0, playedVersions.length - collapsedVersions.length)
+  const totalPlaytimeMs = Math.max(
+    summary.playtimeMs || 0,
     files.reduce((sum, file) => sum + (file.playtimeMs || 0), 0)
+  )
   const updates = gameUpdateState({
     latestVersion: version,
     installedVersion: latestInstalled?.version,
-    lastPlayedVersion
+    lastPlayedVersion,
+    playedVersions
   })
 
   const pendingInstall = useMemo(() => {
@@ -1034,13 +1131,13 @@ export default function GameDetailsPage({
       creator,
       coverUrl: coverUrl || summary.coverUrl,
       rating: summary.rating,
-      likes: pickLikeCount(summary.likes, details?.likes),
-      views: pickViewCount(summary.views, details?.views),
-      threadUrl: details?.threadUrl || summary.threadUrl,
+      likes: summary.likes,
+      views: summary.views,
+      threadUrl: summary.threadUrl || details?.threadUrl,
       prefixes: summary.prefixes,
       tags: summary.tags,
       timestamp: summary.timestamp,
-      updatedAt: details?.updatedAt || summary.updatedAt,
+      updatedAt: summary.updatedAt,
       screens: summary.screens,
       packageHint
     })
@@ -1161,19 +1258,6 @@ export default function GameDetailsPage({
     }
   }
 
-  async function refreshMetadata(): Promise<void> {
-    if (!onRefresh) return
-    setPlayError(null)
-    setRefreshingMeta(true)
-    try {
-      await onRefresh(summary.threadId)
-    } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not refresh metadata.')
-    } finally {
-      setRefreshingMeta(false)
-    }
-  }
-
   function sessionFor(fileId: string) {
     return threadSessions.find((session) => session.fileId === fileId) ?? null
   }
@@ -1211,6 +1295,40 @@ export default function GameDetailsPage({
     } catch (err) {
       setInstallError(err instanceof Error ? err.message : 'Could not remove that version.')
     }
+  }
+
+  async function setVersionStatus(versionName: string, status: VersionPlayStatus): Promise<void> {
+    if (!subscribed) return
+    try {
+      await window.api.subscriptions.setVersionStatus(summary.threadId, versionName, status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update version status.')
+    }
+  }
+
+  function versionStatusMenuItems(item: VersionPlayStat): MenuItem[] {
+    if (!subscribed || !item.version) return []
+    const current = effectiveVersionStatus(item)
+    return [
+      {
+        id: 'mark-played',
+        label: 'Mark as played',
+        active: current === 'played',
+        onClick: () => void setVersionStatus(item.version, 'played')
+      },
+      {
+        id: 'mark-unplayed',
+        label: 'Mark as not played',
+        active: current === 'unplayed',
+        onClick: () => void setVersionStatus(item.version, 'unplayed')
+      },
+      {
+        id: 'mark-skipped',
+        label: 'Skip version',
+        active: current === 'skipped',
+        onClick: () => void setVersionStatus(item.version, 'skipped')
+      }
+    ]
   }
 
   function moreMenuItems(file: GameLibraryFile): MenuItem[] {
@@ -1277,7 +1395,7 @@ export default function GameDetailsPage({
     totalPlaytimeMs ? `${formatPlaytime(totalPlaytimeMs)} total` : null,
     updatedLabel ? `Thread updated ${updatedLabel}` : null
   ].filter(Boolean) as string[]
-  const showCheckedStatus = Boolean(summary.checkedAt || (subscribed && onRefresh))
+  const showCheckedStatus = Boolean(summary.checkedAt)
   const showStatusLine = statusParts.length > 0 || showCheckedStatus
 
   return (
@@ -1336,7 +1454,7 @@ export default function GameDetailsPage({
                 </>
               )}
             </div>
-            {busy ? (
+            {busy && !previewCover && !fullCover ? (
               <div className="details-hero-spinner" role="status" aria-label="Loading thread">
                 <span aria-hidden="true" />
               </div>
@@ -1390,11 +1508,10 @@ export default function GameDetailsPage({
                       Update from {latestInstalled?.version}
                     </span>
                   ) : null}
-                  {updates.unplayedUpdate ? (
-                    <span className="details-pill details-pill-play">New since {lastPlayedVersion}</span>
-                  ) : null}
-                  {threadSessions.length ? (
-                    <span className="details-pill details-pill-play">Playing</span>
+                  {updates.unplayedUpdate && lastPlayedVersion ? (
+                    <span className="details-pill details-pill-play">
+                      New since {lastPlayedVersion}
+                    </span>
                   ) : null}
                   <div className="details-creator">
                     <span>{creator || 'Unknown creator'}</span>
@@ -1449,50 +1566,21 @@ export default function GameDetailsPage({
                       <span className="details-checked">
                         Data checked{' '}
                         {summary.checkedAt ? formatRelativeTime(summary.checkedAt) : 'never'}
-                        {subscribed && onRefresh ? (
-                          <button
-                            className="details-refresh-link"
-                            type="button"
-                            disabled={refreshingMeta}
-                            title={refreshingMeta ? 'Refreshing…' : 'Refresh metadata'}
-                            aria-label={refreshingMeta ? 'Refreshing metadata' : 'Refresh metadata'}
-                            onClick={() => void refreshMetadata()}
-                          >
-                            <RefreshIcon spinning={refreshingMeta} />
-                          </button>
-                        ) : null}
                       </span>
                     </>
                   ) : null}
                 </p>
               ) : null}
-              {details?.tags.length ? (
+              {bannerTags.length ? (
                 <div className="details-tags">
-                  {[...details.tags]
-                    .sort((a, b) => {
-                      const aTier = favoriteTierByName(a, favoriteTags)
-                      const bTier = favoriteTierByName(b, favoriteTags)
-                      if (aTier && bTier) return TAG_TIER_RANK[bTier] - TAG_TIER_RANK[aTier]
-                      if (aTier && !bTier) return -1
-                      if (!aTier && bTier) return 1
-                      const aHate = isHatedTagName(a, hatedTags)
-                      const bHate = isHatedTagName(b, hatedTags)
-                      if (aHate && !bHate) return -1
-                      if (!aHate && bHate) return 1
-                      return 0
-                    })
-                    .map((tag) => {
-                      const tier = favoriteTierByName(tag, favoriteTags)
-                      const hated = isHatedTagName(tag, hatedTags)
-                      return (
-                        <span
-                          key={tag}
-                          className={tier ? `chip chip-${tier}` : hated ? 'chip chip-hate' : 'chip'}
-                        >
-                          {tag}
-                        </span>
-                      )
-                    })}
+                  {bannerTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={tag.tier ? `chip chip-${tag.tier}` : tag.hated ? 'chip chip-hate' : 'chip'}
+                    >
+                      {tag.name}
+                    </span>
+                  ))}
                 </div>
               ) : null}
               <div className="details-actions">
@@ -1603,37 +1691,98 @@ export default function GameDetailsPage({
         ))}
       </div>
 
-      <div className={tab === 'description' ? 'details-body details-body-description' : 'details-body'}>
-        {tab === 'description' ? (
-          details?.descriptionHtml ? (
-            <div
-              className="thread-prose"
-              onClick={onProseClick}
-              dangerouslySetInnerHTML={{ __html: details.descriptionHtml }}
-            />
-          ) : (
-            <p className="muted">{busy ? 'Loading description…' : 'No overview section was found in the first post.'}</p>
-          )
+      <div
+        className={
+          tab === 'about' && aboutMode === 'description' && aboutModes.length <= 1
+            ? 'details-body details-body-description'
+            : 'details-body'
+        }
+      >
+        {tab === 'about' ? (
+          <div className="about-tab">
+            {aboutModes.length > 1 ? (
+              <div className="match-toggle" role="group" aria-label="About sections">
+                {aboutModes.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={aboutMode === item.id ? 'is-active' : undefined}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => setAboutMode(item.id)}
+                  >
+                    {item.label}
+                    {item.count ? <span className="details-tab-count">{item.count}</span> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {aboutMode === 'description' ? (
+              details?.descriptionHtml ? (
+                <div
+                  className="thread-prose"
+                  onClick={onProseClick}
+                  dangerouslySetInnerHTML={{ __html: details.descriptionHtml }}
+                />
+              ) : (
+                <p className="muted">
+                  {busy ? 'Loading description…' : 'No overview section was found in the first post.'}
+                </p>
+              )
+            ) : null}
+
+            {aboutMode === 'notes' ? (
+              notes.length ? (
+                <div className="notes-list">
+                  {notes.map((section, index) => (
+                    <section key={`${section.title}-${index}`} className="notes-section">
+                      <h3 className="notes-title">{section.title}</h3>
+                      <div
+                        className="thread-prose"
+                        onClick={onProseClick}
+                        dangerouslySetInnerHTML={{ __html: section.html }}
+                      />
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">{busy ? 'Loading notes…' : 'No notes were found in the first post.'}</p>
+              )
+            ) : null}
+
+            {aboutMode === 'changelog' ? (
+              changelog.length ? (
+                <div className="changelog-list">
+                  {changelog.map((entry, index) => {
+                    const open = Boolean(openVersions[index])
+                    return (
+                      <section key={`${entry.version}-${index}`} className="changelog-entry">
+                        <button
+                          className="changelog-toggle"
+                          type="button"
+                          aria-expanded={open}
+                          onClick={() => setOpenVersions((current) => ({ ...current, [index]: !open }))}
+                        >
+                          <span>{entry.version}</span>
+                          <span className="muted">{open ? 'Hide' : 'Show'}</span>
+                        </button>
+                        {open ? (
+                          <div className="changelog-body" onClick={onProseClick}>
+                            {entry.text}
+                          </div>
+                        ) : null}
+                      </section>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="muted">{busy ? 'Loading changelog…' : 'No changelog was found.'}</p>
+              )
+            ) : null}
+          </div>
         ) : null}
 
-        {tab === 'notes' ? (
-          notes.length ? (
-            <div className="notes-list">
-              {notes.map((section, index) => (
-                <section key={`${section.title}-${index}`} className="notes-section">
-                  <h3 className="notes-title">{section.title}</h3>
-                  <div
-                    className="thread-prose"
-                    onClick={onProseClick}
-                    dangerouslySetInnerHTML={{ __html: section.html }}
-                  />
-                </section>
-              ))}
-            </div>
-          ) : (
-            <p className="muted">{busy ? 'Loading notes…' : 'No notes were found in the first post.'}</p>
-          )
-        ) : null}
+        {tab === 'userNotes' ? <UserNotesPanel threadId={summary.threadId} /> : null}
 
         {tab === 'gallery' ? (
           gallery.length ? (
@@ -1651,36 +1800,6 @@ export default function GameDetailsPage({
             </div>
           ) : (
             <p className="muted">{busy ? 'Loading gallery…' : 'No full-size screenshots were found.'}</p>
-          )
-        ) : null}
-
-        {tab === 'changelog' ? (
-          changelog.length ? (
-            <div className="changelog-list">
-              {changelog.map((entry, index) => {
-                const open = Boolean(openVersions[index])
-                return (
-                  <section key={`${entry.version}-${index}`} className="changelog-entry">
-                    <button
-                      className="changelog-toggle"
-                      type="button"
-                      aria-expanded={open}
-                      onClick={() => setOpenVersions((current) => ({ ...current, [index]: !open }))}
-                    >
-                      <span>{entry.version}</span>
-                      <span className="muted">{open ? 'Hide' : 'Show'}</span>
-                    </button>
-                    {open ? (
-                      <div className="changelog-body" onClick={onProseClick}>
-                        {entry.text}
-                      </div>
-                    ) : null}
-                  </section>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="muted">{busy ? 'Loading changelog…' : 'No changelog was found.'}</p>
           )
         ) : null}
 
@@ -1928,8 +2047,29 @@ export default function GameDetailsPage({
             <RenpySavesPanel files={files} title={title} />
           )
         ) : null}
-        {tab === 'unren' ? <UnRenPanel files={files} /> : null}
-        {tab === 'options' ? <OptionsPanel files={files} /> : null}
+        {tab === 'renpy' ? (
+          <div className="renpy-tab">
+            <div className="match-toggle" role="group" aria-label="Renpy tools">
+              <button
+                type="button"
+                className={renpyMode === 'unren' ? 'is-active' : undefined}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setRenpyMode('unren')}
+              >
+                UnRen
+              </button>
+              <button
+                type="button"
+                className={renpyMode === 'options' ? 'is-active' : undefined}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setRenpyMode('options')}
+              >
+                Options
+              </button>
+            </div>
+            {renpyMode === 'unren' ? <UnRenPanel files={files} /> : <OptionsPanel files={files} />}
+          </div>
+        ) : null}
 
         {tab === 'reviews' ? (
           reviewItems.length || reviewsTotalPages > 1 || reviewsBusy || reviewsError ? (
@@ -2018,6 +2158,76 @@ export default function GameDetailsPage({
                 <strong>{formatDate(releaseDate) || releaseDate || 'Unknown'}</strong>
               </div>
             </div>
+            {playedVersions.length ? (
+              <section className="played-versions">
+                <div className="played-versions-header">
+                  <h2>Versions</h2>
+                  {hiddenVersionCount ? (
+                    <button
+                      className="ghost-btn played-versions-toggle"
+                      type="button"
+                      onClick={() => setVersionsExpanded((value) => !value)}
+                    >
+                      {versionsExpanded
+                        ? 'Show less'
+                        : `Show ${hiddenVersionCount} more`}
+                    </button>
+                  ) : null}
+                </div>
+                <ul className="played-versions-list">
+                  {visibleVersions.map((item) => {
+                    const parts = [
+                      item.releasedAt ? `Released ${formatUpdateDate(item.releasedAt)}` : '',
+                      item.lastPlayedAt
+                        ? `Last played ${formatRelativeTime(item.lastPlayedAt, now)}`
+                        : ''
+                    ].filter(Boolean)
+                    const isLatest =
+                      (latestVersionKey
+                        ? item.version === latestVersionKey
+                        : item.version === playedVersions[0]?.version) && Boolean(item.version)
+                    const status = effectiveVersionStatus(item)
+                    const isUnplayedLatest = isLatest && status === 'unplayed'
+                    const statusItems = versionStatusMenuItems(item)
+                    const statusLabel =
+                      status === 'skipped'
+                        ? 'Skipped'
+                        : status === 'played'
+                          ? 'Played'
+                          : 'Unplayed'
+                    return (
+                      <li
+                        key={item.version || '__unknown__'}
+                        className={[
+                          isUnplayedLatest ? 'played-versions-latest-new' : '',
+                          status === 'skipped' ? 'played-versions-skipped' : ''
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined}
+                      >
+                        <strong className="played-versions-version">
+                          {item.version || 'Unknown'}
+                        </strong>
+                        <span className="muted">{parts.join(' · ') || '—'}</span>
+                        <div className="played-versions-aside">
+                          <span className={`played-versions-status status-${status}`}>
+                            {statusLabel}
+                          </span>
+                          <span className="played-versions-playtime">
+                            {item.lastPlayedAt || item.playtimeMs
+                              ? formatPlaytime(item.playtimeMs)
+                              : '—'}
+                          </span>
+                          {statusItems.length ? (
+                            <MoreMenu items={statusItems} label={`Version ${item.version} actions`} />
+                          ) : null}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ) : null}
             {details?.relatedGames.length ? (
               <section className="related-games">
                 <h2>Related games</h2>

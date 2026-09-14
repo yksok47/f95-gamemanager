@@ -106,6 +106,7 @@ function toSubscriptions(
       lastPlayedVersion: '',
       lastPlayedAt: 0,
       playtimeMs: 0,
+      playedVersions: [],
       checkedAt: 0
     }
   })
