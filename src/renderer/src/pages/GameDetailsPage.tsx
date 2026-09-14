@@ -1489,7 +1489,7 @@ function GameDetailsPage({
       skipDetailsRender.current = false
       document.body.classList.remove('is-details-modal-dragging')
       if (!moved) return
-      const suppressClick = (clickEvent: MouseEvent): void => {
+      const suppressClick = (clickEvent: globalThis.MouseEvent): void => {
         clickEvent.preventDefault()
         clickEvent.stopPropagation()
       }
