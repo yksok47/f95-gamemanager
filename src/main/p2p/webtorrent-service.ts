@@ -107,6 +107,8 @@ const quarantineMetaById = new Map<
     f95ThreadUrl?: string | null
     normalizedName?: string
     filePath: string
+    /** Original .torrent so approve can reseed without create-torrent hashing. */
+    torrentFile?: Buffer
   }
 >()
 type TrackMeta = {
@@ -285,11 +287,13 @@ async function enterQuarantine(
   if (quarantineIds.has(id) || finalizedContentHashes.has(contentHash)) return
 
   const stored = rememberMeta(id, meta)
-  const buf = torrent.torrentFile
-  if (buf) {
-    void saveCachedTorrentFile(contentHash, buf).catch((err) => {
+  const torrentFile = copyTorrentFile(torrent.torrentFile)
+  if (torrentFile) {
+    try {
+      await saveCachedTorrentFile(contentHash, torrentFile)
+    } catch (err) {
       console.warn('[p2p] failed to cache quarantined torrent', err)
-    })
+    }
   }
 
   quarantineIds.add(id)
@@ -302,7 +306,8 @@ async function enterQuarantine(
     f95ThreadId: stored?.f95ThreadId,
     f95ThreadUrl: stored?.f95ThreadUrl,
     normalizedName: stored?.normalizedName,
-    filePath
+    filePath,
+    torrentFile
   })
 
   const cur = progressById.get(id)
@@ -387,6 +392,7 @@ async function promoteQuarantinedFile(
     f95ThreadId?: number | null
     f95ThreadUrl?: string | null
     normalizedName?: string
+    torrentFile?: Buffer
   },
   tags?: PackageInstallTags
 ): Promise<void> {
@@ -430,17 +436,17 @@ async function promoteQuarantinedFile(
   })
   finalizedContentHashes.add(contentHash)
   console.info('[p2p] approved quarantine → library', trustedPath)
-  try {
-    await p2pSeedPath(trustedPath, {
-      contentHash,
-      gameName: meta.gameName,
-      f95ThreadId: meta.f95ThreadId ?? null,
-      normalizedName: normalizePackageFilename(meta.normalizedName || basename(trustedPath))
-    })
-    console.info('[p2p] reseeding approved package', contentHash)
-  } catch (error) {
-    console.warn('[p2p] reseed after approve failed', error)
-  }
+  // Reseed in the background so Approve returns once the file is in the library.
+  void p2pSeedPath(trustedPath, {
+    contentHash,
+    infoHash: meta.infoHash,
+    torrentFile: meta.torrentFile,
+    gameName: meta.gameName,
+    f95ThreadId: meta.f95ThreadId ?? null,
+    normalizedName: normalizePackageFilename(meta.normalizedName || basename(trustedPath))
+  })
+    .then(() => console.info('[p2p] reseeding approved package', contentHash))
+    .catch((error) => console.warn('[p2p] reseed after approve failed', error))
 }
 
 export async function p2pRevealQuarantine(id: string): Promise<string> {
@@ -522,6 +528,11 @@ export async function p2pRejectQuarantine(id: string): Promise<void> {
 
 
 
+function copyTorrentFile(buf?: Buffer | Uint8Array | null): Buffer | undefined {
+  if (!buf?.length) return undefined
+  return Buffer.from(buf)
+}
+
 function isSeedTransfer(id: string): boolean {
   return id.startsWith('seed:')
 }
@@ -542,7 +553,13 @@ function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress
   if (isSeedTransfer(id)) {
     // Local share: create-torrent hashing has no infoHash yet. After metadata,
     // we already have the file — never label that as a download.
-    if (normalizeInfoHash(torrent.infoHash) || torrentLooksComplete(torrent) || torrent.ready) {
+    if (
+      normalizeInfoHash(torrent.infoHash) ||
+      torrentLooksComplete(torrent) ||
+      torrent.ready ||
+      // Reseed of a known torrent: skipVerify parse is not a download.
+      normalizeInfoHash(metaById.get(id)?.infoHash)
+    ) {
       return 'seeding'
     }
     return 'checking'
@@ -1070,6 +1087,8 @@ export async function p2pSeedPath(
   filePath: string,
   opts?: {
     contentHash?: string
+    infoHash?: string | null
+    torrentFile?: Buffer | Uint8Array
     gameName?: string
     f95ThreadId?: number | null
     normalizedName?: string
@@ -1079,15 +1098,18 @@ export async function p2pSeedPath(
   const id = `seed:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`
   const meta = {
     contentHash: opts?.contentHash,
+    infoHash: normalizeInfoHash(opts?.infoHash),
     gameName: opts?.gameName,
     f95ThreadId: opts?.f95ThreadId,
     normalizedName: opts?.normalizedName
   }
 
-  // Fast path: reuse cached .torrent + skipVerify (no create-torrent re-hash).
-  const cached = opts?.contentHash ? await loadCachedTorrentFile(opts.contentHash) : null
+  // Fast path: reuse the original .torrent + skipVerify (no create-torrent re-hash).
+  const cached =
+    copyTorrentFile(opts?.torrentFile) ||
+    (opts?.contentHash ? await loadCachedTorrentFile(opts.contentHash) : null)
   if (cached) {
-    const existing = findTrackedByHash(opts?.contentHash, null)
+    const existing = findTrackedByHash(opts?.contentHash, meta.infoHash)
     if (existing?.state === 'seeding') return existing
     try {
       const torrent = wtClient.add(cached, {
@@ -1116,19 +1138,20 @@ export async function p2pSeedPath(
       return progressById.get(id)!
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      if (!/duplicate|already exists|Cannot add/i.test(msg)) {
-        console.warn('[p2p] cached torrent add failed, falling back to seed(path)', msg)
-      } else {
-        const tracked = findTrackedByHash(opts?.contentHash, null)
+      if (/duplicate|already exists|Cannot add/i.test(msg)) {
+        const tracked = findTrackedByHash(opts?.contentHash, meta.infoHash)
         if (tracked) return tracked
       }
+      console.warn('[p2p] cached torrent add failed, falling back to seed(path)', msg)
     }
   }
+
+  const seedMeta = { ...meta, infoHash: undefined }
 
   try {
     const torrent = wtClient.seed(filePath, { announce: announceList() }, (t) => {
       trackTorrent(id, t, {
-        ...meta,
+        ...seedMeta,
         infoHash: normalizeInfoHash(t.infoHash)
       })
       const buf = t.torrentFile
@@ -1138,17 +1161,57 @@ export async function p2pSeedPath(
         })
       }
     })
-    // Return immediately so UI can show the transfer while create-torrent hashes.
-    trackTorrent(id, torrent, meta)
+    // Keep the live torrent for waitForTorrentInfoHash, but do not emit a Checking
+    // row — the file is already usable; piece hashing is background work.
+    torrentById.set(id, torrent)
+    rememberMeta(id, seedMeta)
     torrent.on('error', (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err)
       const cur = progressById.get(id)
       if (cur) {
         progressById.set(id, { ...cur, state: 'error', error: msg })
         emit()
+        return
       }
+      progressById.set(id, {
+        id,
+        contentHash: seedMeta.contentHash,
+        infoHash: null,
+        path: filePath,
+        state: 'error',
+        downloaded: 0,
+        uploaded: 0,
+        length: 0,
+        downloadSpeed: 0,
+        uploadSpeed: 0,
+        progress: 0,
+        numPeers: 0,
+        numActivePeers: 0,
+        error: msg,
+        gameName: seedMeta.gameName,
+        f95ThreadId: seedMeta.f95ThreadId,
+        normalizedName: seedMeta.normalizedName
+      })
+      emit()
     })
-    return progressById.get(id)!
+    return {
+      id,
+      contentHash: seedMeta.contentHash,
+      infoHash: null,
+      path: filePath,
+      state: 'checking',
+      downloaded: 0,
+      uploaded: 0,
+      length: 0,
+      downloadSpeed: 0,
+      uploadSpeed: 0,
+      progress: 0,
+      numPeers: 0,
+      numActivePeers: 0,
+      gameName: seedMeta.gameName,
+      f95ThreadId: seedMeta.f95ThreadId,
+      normalizedName: seedMeta.normalizedName
+    }
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error))
   }

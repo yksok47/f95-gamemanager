@@ -5,12 +5,24 @@ export function isActiveDownload(item: DownloadRecord): boolean {
   return item.status === 'progressing' || item.status === 'paused' || item.status === 'interrupted'
 }
 
+/** Completed downloads that still need hashing or approve/reject before they leave the dock. */
+export function needsReviewDownload(item: DownloadRecord): boolean {
+  if (item.status !== 'completed') return false
+  return item.libraryStatus === 'pendingReview' || item.libraryStatus === 'hashing'
+}
+
+export function isDockDownload(item: DownloadRecord): boolean {
+  return isActiveDownload(item) || needsReviewDownload(item)
+}
+
 /** In-progress P2P downloads for UI lists (excludes background seeds of mapped shares). */
 export function isActiveP2pDownload(
   item: P2pTransferProgress,
   sharedContentHashes?: ReadonlySet<string>
 ): boolean {
   if (!isInFlightP2pState(item.state)) return false
+  // create-torrent / skipVerify hashing is background work after the file is usable.
+  if (item.state === 'checking') return false
   if (
     item.id.startsWith('seed:') &&
     item.contentHash &&
@@ -21,6 +33,14 @@ export function isActiveP2pDownload(
     return false
   }
   return true
+}
+
+/** P2P transfers that should keep the downloads dock visible (in-flight + quarantined). */
+export function isDockP2pDownload(
+  item: P2pTransferProgress,
+  sharedContentHashes?: ReadonlySet<string>
+): boolean {
+  return isActiveP2pDownload(item, sharedContentHashes) || item.state === 'quarantined'
 }
 
 export function formatBytes(bytes: number): string {

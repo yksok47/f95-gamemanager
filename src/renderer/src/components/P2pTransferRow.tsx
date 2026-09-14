@@ -61,6 +61,7 @@ export default function P2pTransferRow({
   const [approveReady, setApproveReady] = useState(false)
   const percent = Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))
   const isQuarantined = item.state === 'quarantined'
+  const isChecking = item.state === 'checking'
   const deferReviewToDownloads = Boolean(compact && onOpenDownloads)
   const approveFormId = `p2p-approve-${item.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
   const canPause =
@@ -123,7 +124,7 @@ export default function P2pTransferRow({
           <p className="muted download-meta">
             Saved to untrusted quarantine — review before opening or installing.
           </p>
-        ) : (
+        ) : isChecking ? null : (
           <div
             className="download-progress"
             role="progressbar"
@@ -139,15 +140,19 @@ export default function P2pTransferRow({
             ? [formatBytes(item.length || item.downloaded), shortHash(item.contentHash)]
                 .filter(Boolean)
                 .join(' · ')
-            : [
-                size,
-                down,
-                up,
-                item.state === 'connecting'
-                  ? 'finding peers'
-                  : `${item.numActivePeers ?? 0} active / ${item.numPeers} connected`,
-                `${percent}%`
-              ].join(' · ')}
+            : isChecking
+              ? [item.length > 0 ? formatBytes(item.length) : formatBytes(item.downloaded), 'preparing to share']
+                  .filter(Boolean)
+                  .join(' · ')
+              : [
+                  size,
+                  down,
+                  up,
+                  item.state === 'connecting'
+                    ? 'finding peers'
+                    : `${item.numActivePeers ?? 0} active / ${item.numPeers} connected`,
+                  `${percent}%`
+                ].join(' · ')}
         </p>
         {isQuarantined || compact ? null : (
           <PackageMetaTags consensus={item.consensus} versionFallback={item.gameVersion} />

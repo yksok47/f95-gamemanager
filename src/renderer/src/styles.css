@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: dark;
   --bg: #12141a;
   --bg-raised: #1b1f2a;
@@ -364,11 +364,12 @@ button {
 .app-footer {
   order: 2;
   position: relative;
-  z-index: 5;
+  z-index: 70;
   flex-shrink: 0;
   min-height: var(--app-footer-height);
   display: flex;
   align-items: center;
+  gap: 12px;
   padding: 6px 16px;
   background: var(--bg-raised);
   border-top: 1px solid var(--border);
@@ -380,8 +381,144 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  width: 100%;
+  flex: 1;
+  width: auto;
   min-width: 0;
+}
+
+.app-footer-dock {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.game-taskbar {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  max-width: min(46vw, 560px);
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+  pointer-events: auto;
+}
+
+.game-taskbar::-webkit-scrollbar {
+  display: none;
+}
+
+.game-taskbar-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  flex: 0 0 auto;
+  user-select: none;
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+
+.game-taskbar-btn:hover,
+.game-taskbar-btn:focus-visible {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.game-taskbar-btn.is-active {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+.game-taskbar-btn::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 1px;
+  width: 6px;
+  height: 3px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text) 55%, transparent);
+  transform: translateX(-50%);
+  transition: width 0.16s ease, background 0.16s ease;
+}
+
+.game-taskbar-btn.is-active::after {
+  width: 16px;
+  background: var(--accent);
+}
+
+.game-taskbar-cover,
+.game-taskbar-fallback {
+  border-radius: 6px;
+}
+
+.game-taskbar-icon.game-taskbar-cover,
+.game-taskbar-icon.game-taskbar-fallback {
+  width: 22px;
+  height: 22px;
+}
+
+.game-taskbar-cover {
+  object-fit: cover;
+  display: block;
+  background: var(--bg-card);
+}
+
+.game-taskbar-fallback {
+  display: grid;
+  place-items: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.game-taskbar-preview {
+  position: fixed;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  width: min(220px, calc(100vw - 24px));
+  overflow: hidden;
+  padding: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.game-taskbar-preview-cover.game-taskbar-cover,
+.game-taskbar-preview-cover.game-taskbar-fallback {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
+}
+
+.game-taskbar-preview-cover.game-taskbar-fallback {
+  font-size: 1.4rem;
+}
+
+.game-taskbar-preview-name {
+  display: block;
+  margin: 8px 10px 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: var(--text);
 }
 
 .nav-btn {
@@ -923,17 +1060,27 @@ button {
 }
 
 .header-actions,
-.pager {
+.pager,
+.footer-cluster {
   display: flex;
   gap: 6px;
   align-items: center;
   flex-shrink: 0;
 }
 
+.footer-cluster {
+  gap: 14px;
+}
+
 .pager-btn {
   min-width: 32px;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+.pager .icon-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 .pager-label {
@@ -1251,7 +1398,111 @@ button {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 16px;
-  padding: 20px 24px 32px;
+  padding: 12px 24px 16px;
+}
+
+.lazy-card {
+  min-width: 0;
+  min-height: 100%;
+}
+
+.lazy-card-placeholder {
+  min-height: 280px;
+  border-radius: 14px;
+  background: #141824;
+}
+
+.catalog-page-turn {
+  position: relative;
+  min-width: 0;
+}
+
+.catalog-page-turn.is-animating {
+  pointer-events: none;
+}
+
+.catalog-page-turn-control {
+  display: flex;
+  justify-content: center;
+  padding: 8px 24px 0;
+}
+
+.catalog-page-turn-control-prev {
+  padding-top: 16px;
+  padding-bottom: 4px;
+}
+
+.catalog-page-turn-control-next {
+  padding-top: 4px;
+  padding-bottom: 24px;
+}
+
+.catalog-page-turn-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 148px;
+  opacity: 0.72;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+}
+
+.catalog-page-turn-btn:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.catalog-page-turn-chevron {
+  font-size: 1.15em;
+  line-height: 1;
+}
+
+.catalog-page-turn-btn.is-preparing {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.catalog-page-turn-viewport {
+  position: relative;
+  min-width: 0;
+}
+
+.catalog-page-turn-strip {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.catalog-page-turn.is-animating .catalog-page-turn-strip {
+  backface-visibility: hidden;
+}
+
+.catalog-page-turn-panel {
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.catalog-page-turn.is-animating .catalog-page-turn-panel {
+  overflow: hidden;
+  backface-visibility: hidden;
+}
+
+.catalog-page-turn-panel.is-incoming {
+  box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.38);
+}
+
+.catalog-page-turn.is-prev .catalog-page-turn-panel.is-incoming {
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38);
+}
+
+.catalog-page-turn-panel-inner {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .catalog-page-turn.is-animating .catalog-page-turn-strip {
+    transition: none !important;
+  }
 }
 
 .game-card {
@@ -1847,6 +2098,13 @@ button {
   font-size: 0.9rem;
 }
 
+.cover-skeleton {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #141824 0%, #1c2230 50%, #141824 100%);
+  background-size: 200% 100%;
+}
+
 .game-meta {
   padding: 12px 14px 14px;
   display: grid;
@@ -1995,7 +2253,10 @@ button {
 .details-backdrop {
   --details-backdrop: rgba(8, 10, 14, 0.72);
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: var(--app-footer-height);
+  left: 0;
   z-index: 50;
   display: grid;
   place-items: center;
@@ -2007,9 +2268,10 @@ button {
   display: flex;
   align-items: stretch;
   max-width: 100%;
-  height: calc(100vh - 40px);
-  max-height: calc(100vh - 40px);
+  height: calc(100vh - var(--app-footer-height) - 40px);
+  max-height: calc(100vh - var(--app-footer-height) - 40px);
   pointer-events: none;
+  will-change: transform;
 }
 
 .details-modal-frame {
@@ -2962,6 +3224,22 @@ button.details-pill {
   background: var(--bg);
 }
 
+.details-hero,
+.details-drag-handle {
+  touch-action: none;
+}
+
+body.is-details-modal-dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+body.is-details-modal-dragging .details-modal-shell * {
+  pointer-events: none !important;
+  backdrop-filter: none !important;
+  animation-play-state: paused !important;
+}
+
 .details-tab {
   background: transparent;
   border: 0;
@@ -3633,6 +3911,58 @@ button.details-pill {
   border: none;
   border-radius: 0;
   box-shadow: none;
+}
+
+.app-footer-dock .downloads-dock-collapsed {
+  position: static;
+  right: auto;
+  bottom: auto;
+  z-index: auto;
+}
+
+.app-footer-dock .downloads-dock-tile {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: auto;
+  min-height: 32px;
+  padding: 2px 10px 2px 6px;
+  border-radius: 10px;
+  box-shadow: none;
+}
+
+.app-footer-dock .downloads-dock-tile-open,
+.downloads-dock-tile-open {
+  border-color: var(--accent);
+}
+
+.app-footer-dock .downloads-dock-ring {
+  width: 26px;
+  height: 26px;
+}
+
+.app-footer-dock .downloads-dock-ring-inner {
+  width: 20px;
+  height: 20px;
+}
+
+.app-footer-dock .downloads-dock-ring-inner svg {
+  width: 13px;
+  height: 13px;
+}
+
+.app-footer-dock .downloads-dock-count {
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.62rem;
+  line-height: 16px;
+}
+
+.app-footer-dock .downloads-dock-pct {
+  font-size: 0.68rem;
 }
 
 .downloads-dock-header {
@@ -4623,28 +4953,6 @@ body.is-save-dragging * {
 
 .game-p2p-section > h2 {
   margin: 0 0 6px;
-}
-
-.game-p2p-spinner {
-  position: absolute;
-  top: 16px;
-  right: 0;
-  z-index: 2;
-  width: 28px;
-  height: 28px;
-  margin: 0;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-}
-
-.game-p2p-spinner span {
-  width: 14px;
-  height: 14px;
-  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: details-spin 0.7s linear infinite;
 }
 
 .game-p2p-active {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   CatalogFilters,
   CatalogGame,
@@ -15,10 +15,15 @@ import { FALLBACK_PREFIXES } from '@shared/prefixes'
 import { nextChipState, type FilterChipState } from '../components/FilterChip'
 import FilterShelf from '../components/FilterShelf'
 import GameCard from '../components/GameCard'
+import LazyMount from '../components/LazyMount'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
+import CatalogPageTurn, {
+  type CatalogPageTurnState,
+  type PageTurnDirection
+} from '../components/CatalogPageTurn'
 import { selectTagsForQuery } from '../lib/favorites'
-import { ClearIcon, FilterIcon, HateIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
+import { ClearIcon, FilterIcon, HateIcon, PagerIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
@@ -40,6 +45,9 @@ const SORTS: Array<{ value: CatalogSort; label: string }> = [
   { value: 'rating', label: 'Rating' },
   { value: 'title', label: 'Title' }
 ]
+
+/** Enough tiles to fill a wide catalog viewport; the rest wait until they scroll near. */
+const EAGER_CARDS = 40
 
 function selectedIds(
   state: Record<number, FilterChipState>,
@@ -65,8 +73,16 @@ export default function CatalogPage({
   const [page, setPage] = useState(1)
   const [reloadToken, setReloadToken] = useState(0)
   const [data, setData] = useState<CatalogPageData | null>(null)
+  const [displayPage, setDisplayPage] = useState(1)
+  const [displayGames, setDisplayGames] = useState<CatalogGame[] | null>(null)
+  const [incomingGames, setIncomingGames] = useState<CatalogGame[] | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [turn, setTurn] = useState<CatalogPageTurnState>(null)
+  const pendingRevertRef = useRef<number | null>(null)
+  const turnLockRef = useRef(false)
+  const turnRef = useRef<CatalogPageTurnState>(null)
+  turnRef.current = turn
   const [filters, setFilters] = useState<CatalogFilters>({ prefixes: FALLBACK_PREFIXES, tags: [] })
   const [sort, setSort] = useState<CatalogSort>('date')
   const [searchInput, setSearchInput] = useState('')
@@ -201,7 +217,11 @@ export default function CatalogPage({
   }
 
   useEffect(() => {
+    turnLockRef.current = false
+    setTurn(null)
+    setIncomingGames(null)
     setPage(1)
+    setDisplayPage(1)
   }, [
     sort,
     search,
@@ -235,10 +255,29 @@ export default function CatalogPage({
           excludeTags: excludedTags.length ? excludedTags : undefined,
           tagType: queryTagType
         })
-        if (!cancelled) setData(result)
+        if (cancelled) return
+        setData(result)
+        const currentTurn = turnRef.current
+        if (currentTurn?.phase === 'preparing') {
+          setIncomingGames(result.games)
+          setTurn({ ...currentTurn, phase: 'animating' })
+        } else {
+          setDisplayGames(result.games)
+          setDisplayPage(page)
+          setIncomingGames(null)
+        }
       } catch (err) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Could not load the catalog.'
+        // Capture direction before clearing; `page` is the failed target.
+        setTurn((current) => {
+          if (current) {
+            pendingRevertRef.current = current.fromPage
+          }
+          return null
+        })
+        turnLockRef.current = false
+        setIncomingGames(null)
         if (message.includes('Not logged in')) {
           await onSessionExpired()
           return
@@ -268,6 +307,99 @@ export default function CatalogPage({
     hatedActive,
     onSessionExpired
   ])
+
+  useEffect(() => {
+    const revertTo = pendingRevertRef.current
+    if (revertTo == null) return
+    pendingRevertRef.current = null
+    if (revertTo !== page) setPage(revertTo)
+  }, [turn, page])
+
+  const incomingGamesRef = useRef<CatalogGame[] | null>(null)
+  incomingGamesRef.current = incomingGames
+
+  const finishTurn = useCallback((): void => {
+    const settled = turnRef.current
+    const incoming = incomingGamesRef.current
+    if (incoming) setDisplayGames(incoming)
+    if (settled) setDisplayPage(settled.toPage)
+    setIncomingGames(null)
+    turnLockRef.current = false
+    setTurn(null)
+  }, [])
+
+  function goToPage(target: number, direction: PageTurnDirection): void {
+    if (turnLockRef.current || turn || busy || !data) return
+    if (target < 1 || target > data.totalPages || target === displayPage) return
+    turnLockRef.current = true
+    setTurn({
+      direction,
+      phase: 'preparing',
+      fromPage: displayPage,
+      toPage: target
+    })
+    setPage(target)
+  }
+
+  function goPrev(): void {
+    goToPage(displayPage - 1, 'prev')
+  }
+
+  function goNext(): void {
+    goToPage(displayPage + 1, 'next')
+  }
+
+  function goFirst(): void {
+    goToPage(1, 'prev')
+  }
+
+  function goLast(): void {
+    if (!data) return
+    goToPage(data.totalPages, 'next')
+  }
+
+  function renderGameGrid(games: CatalogGame[], pageNum: number, eagerCovers = false): JSX.Element {
+    return (
+      <div className="catalog-grid">
+        {games.map((game, index) => {
+          const play = followedPlayById.get(game.threadId)
+          const eager = index < EAGER_CARDS
+          return (
+            <LazyMount key={game.threadId} eager={eager}>
+              <GameCard
+                game={{
+                  ...game,
+                  rarity: rarityById.get(game.threadId),
+                  lastPlayedVersion: play?.lastPlayedVersion,
+                  playedVersions: play?.playedVersions
+                }}
+                subscribed={followedIds.has(game.threadId)}
+                favoriteTags={favoriteTags}
+                hatedTags={hatedTags}
+                onToggle={() => void onToggleFollow(game)}
+                onOpen={() => onOpen(game)}
+                onPlay={
+                  libraryByThread.get(game.threadId)?.isInstalled
+                    ? () => playThread(game)
+                    : undefined
+                }
+                onStop={
+                  libraryByThread.get(game.threadId)?.isInstalled
+                    ? () => stopThread(game.threadId)
+                    : undefined
+                }
+                library={libraryByThread.get(game.threadId)}
+                playing={Boolean(sessionForThread(game.threadId))}
+                prefixCatalog={filters.prefixes}
+                coverRetryKey={`${pageNum}-${reloadToken}`}
+                coverEager={eagerCovers || eager}
+              />
+            </LazyMount>
+          )
+        })}
+      </div>
+    )
+  }
 
   function togglePrefix(id: number): void {
     setPrefixState((current) => {
@@ -439,37 +571,68 @@ export default function CatalogPage({
           <button
             className="ghost-btn icon-btn"
             type="button"
-            disabled={busy}
+            disabled={busy || Boolean(turn)}
             title="Refresh catalog"
             aria-label="Refresh catalog"
-            onClick={() => setReloadToken((value) => value + 1)}
+            onClick={() => {
+              if (turn) return
+              setReloadToken((value) => value + 1)
+            }}
           >
             <RefreshIcon spinning={busy && Boolean(data)} />
           </button>
         </div>
       </ToolbarPortal>
       <FooterPortal>
-        <span className="muted pager-label">
-          {data ? `${data.totalGames.toLocaleString()} titles` : 'Loading…'}
-        </span>
-        <div className="pager">
-          <button
-            className="ghost-btn pager-btn"
-            disabled={busy || page <= 1}
-            onClick={() => setPage((value) => Math.max(1, value - 1))}
-          >
-            ‹
-          </button>
+        <div className="footer-cluster">
+          <div className="pager">
+            <button
+              className="ghost-btn icon-btn"
+              type="button"
+              disabled={Boolean(turn) || busy || page <= 1}
+              title="First page"
+              aria-label="First page"
+              onClick={goFirst}
+            >
+              <PagerIcon kind="first" />
+            </button>
+            <button
+              className="ghost-btn icon-btn"
+              type="button"
+              disabled={Boolean(turn) || busy || page <= 1}
+              title="Previous page"
+              aria-label="Previous page"
+              onClick={goPrev}
+            >
+              <PagerIcon kind="prev" />
+            </button>
+            <span className="muted pager-label">
+              {page}/{data?.totalPages ?? '…'}
+            </span>
+            <button
+              className="ghost-btn icon-btn"
+              type="button"
+              disabled={Boolean(turn) || busy || !data || page >= data.totalPages}
+              title="Next page"
+              aria-label="Next page"
+              onClick={goNext}
+            >
+              <PagerIcon kind="next" />
+            </button>
+            <button
+              className="ghost-btn icon-btn"
+              type="button"
+              disabled={Boolean(turn) || busy || !data || page >= data.totalPages}
+              title="Last page"
+              aria-label="Last page"
+              onClick={goLast}
+            >
+              <PagerIcon kind="last" />
+            </button>
+          </div>
           <span className="muted pager-label">
-            {data?.page ?? page}/{data?.totalPages ?? '…'}
+            {data ? `${data.totalGames.toLocaleString()} titles` : 'Loading…'}
           </span>
-          <button
-            className="ghost-btn pager-btn"
-            disabled={busy || !data || page >= data.totalPages}
-            onClick={() => setPage((value) => value + 1)}
-          >
-            ›
-          </button>
         </div>
       </FooterPortal>
 
@@ -508,44 +671,35 @@ export default function CatalogPage({
       {error ? <p className="catalog-status error-text">{error}</p> : null}
       {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
 
-      {data && data.games.length === 0 ? (
+      {displayGames && displayGames.length === 0 && !turn ? (
         <div className="empty-state">No games match these filters.</div>
-      ) : (
-        <div className="catalog-grid">
-          {data?.games.map((game) => {
-            const play = followedPlayById.get(game.threadId)
-            return (
-            <GameCard
-              key={game.threadId}
-              game={{
-                ...game,
-                rarity: rarityById.get(game.threadId),
-                lastPlayedVersion: play?.lastPlayedVersion,
-                playedVersions: play?.playedVersions
-              }}
-              subscribed={followedIds.has(game.threadId)}
-              favoriteTags={favoriteTags}
-              hatedTags={hatedTags}
-              onToggle={() => void onToggleFollow(game)}
-              onOpen={() => onOpen(game)}
-              onPlay={
-                libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => playThread(game)
-                  : undefined
-              }
-              onStop={
-                libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => stopThread(game.threadId)
-                  : undefined
-              }
-              library={libraryByThread.get(game.threadId)}
-              playing={Boolean(sessionForThread(game.threadId))}
-              prefixCatalog={filters.prefixes}
-            />
-            )
-          })}
-        </div>
-      )}
+      ) : displayGames || incomingGames ? (
+        <CatalogPageTurn
+          totalPages={data?.totalPages ?? 1}
+          disabled={busy && !turn}
+          turn={turn}
+          currentKey={displayPage}
+          incomingKey={turn?.toPage ?? page}
+          incoming={
+            incomingGames ? (
+              incomingGames.length === 0 ? (
+                <div className="empty-state">No games match these filters.</div>
+              ) : (
+                renderGameGrid(incomingGames, turn?.toPage ?? page, true)
+              )
+            ) : null
+          }
+          onPrev={goPrev}
+          onNext={goNext}
+          onTurnAnimationEnd={finishTurn}
+        >
+          {!displayGames || displayGames.length === 0 ? (
+            <div className="empty-state">No games match these filters.</div>
+          ) : (
+            renderGameGrid(displayGames, displayPage)
+          )}
+        </CatalogPageTurn>
+      ) : null}
     </div>
   )
 }

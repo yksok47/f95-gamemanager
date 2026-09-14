@@ -1,7 +1,8 @@
-import { useRef, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
+import { FullscreenIcon } from './ToolbarIcons'
 
 export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'uploads' | 'settings'
 
@@ -46,8 +47,14 @@ export default function AppNav({
   onLogout
 }: AppNavProps): JSX.Element {
   const [accountOpen, setAccountOpen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
   const avatarRef = useRef<HTMLButtonElement>(null)
   const name = displayName(username, userId)
+
+  useEffect(() => {
+    void window.api.window.isFullScreen().then(setFullscreen)
+    return window.api.window.onFullScreenChange(setFullscreen)
+  }, [])
 
   return (
     <header className="top-bar">
@@ -93,6 +100,18 @@ export default function AppNav({
       </div>
       <ToolbarSlot />
       <div className="app-nav-user">
+        <button
+          className={fullscreen ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          title={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          aria-label={fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          aria-pressed={fullscreen}
+          onClick={() => {
+            void window.api.window.toggleFullScreen().then(setFullscreen)
+          }}
+        >
+          <FullscreenIcon active={fullscreen} />
+        </button>
         <button
           className={view === 'settings' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"

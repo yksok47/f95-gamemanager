@@ -123,7 +123,7 @@ export function mapGame(entry: LatestDataGame, catalog?: CatalogPrefix[]): Catal
     threadId: Number(entry.thread_id),
     title: entry.title,
     creator: entry.creator,
-    version: entry.version,
+    version: typeof entry.version === 'string' ? entry.version : String(entry.version ?? ''),
     views: saneViewCount(entry.views),
     likes: saneLikeCount(entry.likes),
     rating: Number(entry.rating) || 0,

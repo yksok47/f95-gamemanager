@@ -313,6 +313,7 @@ export default function GameP2pSection({
       if (!cancelled) setTransfers(rows);
     });
     const stop = window.api.p2p.onProgress((rows) => {
+      if (document.body.classList.contains("is-details-modal-dragging")) return;
       setTransfers(rows);
     });
     return () => {
@@ -416,15 +417,6 @@ export default function GameP2pSection({
 
   return (
     <section className="download-section game-p2p-section">
-      {busy ? (
-        <div
-          className="game-p2p-spinner"
-          role="status"
-          aria-label="Loading shared packages"
-        >
-          <span />
-        </div>
-      ) : null}
       <h2>P2P downloads</h2>
 
       <div className="filter-row game-p2p-controls">
@@ -467,14 +459,6 @@ export default function GameP2pSection({
             setSort(next);
           }}
         />
-        <button
-          className="ghost-btn"
-          type="button"
-          disabled={busy}
-          onClick={() => void load()}
-        >
-          Refresh
-        </button>
       </div>
 
       {error ? <p className="error-text">{error}</p> : null}

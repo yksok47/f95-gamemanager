@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX } from 'react'
 import type { CatalogGame, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import GameCard from '../components/GameCard'
+import LazyMount from '../components/LazyMount'
 import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
 import { HateIcon, HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
@@ -26,6 +27,8 @@ const SORTS: Array<{ value: LibrarySort; label: string }> = [
   { value: 'likes', label: 'Likes' },
   { value: 'views', label: 'Views' }
 ]
+
+const EAGER_CARDS = 18
 
 type LibraryPageProps = {
   subscriptions: Subscription[]
@@ -111,6 +114,11 @@ export default function LibraryPage({
   const libraryByThread = useMemo(() => summarizeLibrary(files), [files])
   const games = useMemo(() => groupLibraryGames(files, subscriptions), [files, subscriptions])
   const needle = query.trim().toLowerCase()
+  const playingByThread = useMemo(() => {
+    const ids = new Set<number>()
+    for (const session of sessions) ids.add(session.threadId)
+    return ids
+  }, [sessions])
   const visible = useMemo(
     () =>
       games
@@ -126,10 +134,6 @@ export default function LibraryPage({
         .sort((a, b) => compareGames(a, b, sort, descending)),
     [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, hatedActive, hatedTags, prefixCatalog]
   )
-
-  function sessionForThread(threadId: number) {
-    return sessions.find((session) => session.threadId === threadId) ?? null
-  }
 
   async function playThread(game: LibraryGame): Promise<void> {
     setError(null)
@@ -274,31 +278,33 @@ export default function LibraryPage({
         </div>
       ) : (
         <div className="catalog-grid">
-          {visible.map((game) => {
+          {visible.map((game, index) => {
             const subscribed = followedIds.has(game.threadId)
             return (
-              <GameCard
-                key={game.threadId}
-                game={{ ...game, rarity: rarityById.get(game.threadId) }}
-                subscribed={subscribed}
-                favoriteTags={favoriteTags}
-                hatedTags={hatedTags}
-                onToggle={() => void onToggleFollow(toCatalogGame(game))}
-                onOpen={() => onOpen(game)}
-                onPlay={
-                  libraryByThread.get(game.threadId)?.isInstalled
-                    ? () => playThread(game)
-                    : undefined
-                }
-                onStop={
-                  libraryByThread.get(game.threadId)?.isInstalled
-                    ? () => stopThread(game.threadId)
-                    : undefined
-                }
-                library={libraryByThread.get(game.threadId)}
-                playing={Boolean(sessionForThread(game.threadId))}
-                prefixCatalog={prefixCatalog}
-              />
+              <LazyMount key={game.threadId} eager={index < EAGER_CARDS}>
+                <GameCard
+                  game={{ ...game, rarity: rarityById.get(game.threadId) }}
+                  subscribed={subscribed}
+                  favoriteTags={favoriteTags}
+                  hatedTags={hatedTags}
+                  onToggle={() => void onToggleFollow(toCatalogGame(game))}
+                  onOpen={() => onOpen(game)}
+                  onPlay={
+                    libraryByThread.get(game.threadId)?.isInstalled
+                      ? () => playThread(game)
+                      : undefined
+                  }
+                  onStop={
+                    libraryByThread.get(game.threadId)?.isInstalled
+                      ? () => stopThread(game.threadId)
+                      : undefined
+                  }
+                  library={libraryByThread.get(game.threadId)}
+                  playing={playingByThread.has(game.threadId)}
+                  prefixCatalog={prefixCatalog}
+                  coverEager={index < EAGER_CARDS}
+                />
+              </LazyMount>
             )
           })}
         </div>

@@ -4,6 +4,7 @@ import { RARITY_RANK } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import { formatRelativeTime, gameUpdateState } from '@shared/updates'
 import GameCard from '../components/GameCard'
+import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
@@ -23,6 +24,8 @@ const SORTS: Array<{ value: FollowedSort; label: string }> = [
   { value: 'views', label: 'Views' },
   { value: 'rarity', label: 'Rarity' }
 ]
+
+const EAGER_CARDS = 18
 
 function updateTime(game: Subscription): number {
   return game.timestamp || game.addedAt || 0
@@ -142,6 +145,11 @@ export default function FollowedPage({
   }
 
   const needle = query.trim().toLowerCase()
+  const playingByThread = useMemo(() => {
+    const ids = new Set<number>()
+    for (const session of sessions) ids.add(session.threadId)
+    return ids
+  }, [sessions])
   const visible = useMemo(
     () =>
       games
@@ -178,10 +186,6 @@ export default function FollowedPage({
       prefixCatalog
     ]
   )
-
-  function sessionForThread(threadId: number) {
-    return sessions.find((session) => session.threadId === threadId) ?? null
-  }
 
   async function playThread(game: Subscription): Promise<void> {
     setError(null)
@@ -444,29 +448,31 @@ export default function FollowedPage({
         </div>
       ) : (
         <div className="catalog-grid">
-          {visible.map((game) => (
-            <GameCard
-              key={game.threadId}
-              game={game}
-              subscribed
-              favoriteTags={favoriteTags}
-              hatedTags={hatedTags}
-              onToggle={() => void onRemove(game.threadId)}
-              onOpen={() => onOpen(game)}
-              onPlay={
-                libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => playThread(game)
-                  : undefined
-              }
-              onStop={
-                libraryByThread.get(game.threadId)?.isInstalled
-                  ? () => stopThread(game.threadId)
-                  : undefined
-              }
-              library={libraryByThread.get(game.threadId)}
-              playing={Boolean(sessionForThread(game.threadId))}
-              prefixCatalog={prefixCatalog}
-            />
+          {visible.map((game, index) => (
+            <LazyMount key={game.threadId} eager={index < EAGER_CARDS}>
+              <GameCard
+                game={game}
+                subscribed
+                favoriteTags={favoriteTags}
+                hatedTags={hatedTags}
+                onToggle={() => void onRemove(game.threadId)}
+                onOpen={() => onOpen(game)}
+                onPlay={
+                  libraryByThread.get(game.threadId)?.isInstalled
+                    ? () => playThread(game)
+                    : undefined
+                }
+                onStop={
+                  libraryByThread.get(game.threadId)?.isInstalled
+                    ? () => stopThread(game.threadId)
+                    : undefined
+                }
+                library={libraryByThread.get(game.threadId)}
+                playing={playingByThread.has(game.threadId)}
+                prefixCatalog={prefixCatalog}
+                coverEager={index < EAGER_CARDS}
+              />
+            </LazyMount>
           ))}
         </div>
       )}

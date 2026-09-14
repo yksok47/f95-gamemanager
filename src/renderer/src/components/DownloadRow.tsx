@@ -25,6 +25,8 @@ type DownloadRowProps = {
   onApprove?: (id: string, tags: PackageInstallTags) => void
   onReject?: (id: string) => void
   onFlag?: (id: string) => void
+  /** When set with compact, pending-review rows link here instead of showing Approve/Reject. */
+  onOpenDownloads?: () => void
 }
 
 function hintToConsensus(hint: PackageTagHint | undefined): PackageConsensus | null {
@@ -51,7 +53,8 @@ export default function DownloadRow({
   onOpenGame,
   onApprove,
   onReject,
-  onFlag
+  onFlag,
+  onOpenDownloads
 }: DownloadRowProps): JSX.Element {
   const [approveReady, setApproveReady] = useState(false)
   const percent = downloadPercent(item)
@@ -66,6 +69,7 @@ export default function DownloadRow({
   const gameTitle = item.gameTitle?.trim() || (item.gameThreadId != null ? `Thread ${item.gameThreadId}` : '')
   const canOpenGame = Boolean(onOpenGame && item.gameThreadId)
   const needsReview = item.status === 'completed' && item.libraryStatus === 'pendingReview'
+  const deferReviewToDownloads = Boolean(compact && onOpenDownloads)
   const approveFormId = `dl-approve-${item.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
   const fallbackConsensus = hintToConsensus(item.packageHint)
   const finishedAt = item.finishedAt ?? item.updatedAt
@@ -134,43 +138,49 @@ export default function DownloadRow({
       </div>
       <div className="download-row-actions">
         {needsReview ? (
-          <>
-            <button className="ghost-btn" type="button" onClick={() => onShowInFolder(item.id)}>
-              View in folder
+          deferReviewToDownloads ? (
+            <button className="primary-btn" type="button" onClick={onOpenDownloads}>
+              Review on Downloads
             </button>
-            <button
-              className="primary-btn"
-              type="submit"
-              form={approveFormId}
-              disabled={!approveReady || !onApprove}
-              title={approveReady ? undefined : 'Set content type, OS, and version first'}
-            >
-              Approve
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => onReject?.(item.id)}
-              disabled={!onReject}
-            >
-              Reject
-            </button>
-            <button
-              className="ghost-btn"
-              type="button"
-              onClick={() => onFlag?.(item.id)}
-              disabled={!onFlag || !item.hash}
-              title={
-                !item.hash
-                  ? 'Wait for hashing to finish before flagging'
-                  : !onFlag
-                    ? undefined
-                    : 'Reject and report this file as malicious'
-              }
-            >
-              Flag malicious
-            </button>
-          </>
+          ) : (
+            <>
+              <button className="ghost-btn" type="button" onClick={() => onShowInFolder(item.id)}>
+                View in folder
+              </button>
+              <button
+                className="primary-btn"
+                type="submit"
+                form={approveFormId}
+                disabled={!approveReady || !onApprove}
+                title={approveReady ? undefined : 'Set content type, OS, and version first'}
+              >
+                Approve
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => onReject?.(item.id)}
+                disabled={!onReject}
+              >
+                Reject
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                onClick={() => onFlag?.(item.id)}
+                disabled={!onFlag || !item.hash}
+                title={
+                  !item.hash
+                    ? 'Wait for hashing to finish before flagging'
+                    : !onFlag
+                      ? undefined
+                      : 'Reject and report this file as malicious'
+                }
+              >
+                Flag malicious
+              </button>
+            </>
+          )
         ) : (
           <>
             {item.status === 'progressing' ? (
@@ -206,7 +216,7 @@ export default function DownloadRow({
           </>
         )}
       </div>
-      {needsReview && onApprove ? (
+      {needsReview && onApprove && !deferReviewToDownloads ? (
         <P2pApproveTagsForm
           formId={approveFormId}
           contentHash={item.hash}

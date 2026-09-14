@@ -164,7 +164,11 @@ async function injectCookiesIntoElectron(): Promise<void> {
         secure: cookie.secure !== false,
         httpOnly: cookie.httpOnly ?? cookie.name !== 'xf_csrf',
         expirationDate: expiryFrom(cookie),
-        sameSite: cookie.sameSite && cookie.sameSite !== 'unspecified' ? cookie.sameSite : 'lax',
+        sameSite: cookie.name === 'cf_clearance' || cookie.name === '__cf_bm'
+          ? 'no_restriction'
+          : cookie.sameSite && cookie.sameSite !== 'unspecified'
+            ? cookie.sameSite
+            : 'lax',
         ...(cookie.hostOnly ? {} : { domain: cookie.domain || `.${F95_HOST}` })
       })
     } catch (error) {

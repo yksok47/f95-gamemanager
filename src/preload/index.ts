@@ -35,6 +35,17 @@ import type {
 } from '@shared/p2p'
 
 const api = {
+  window: {
+    isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:isFullScreen'),
+    toggleFullScreen: (): Promise<boolean> => ipcRenderer.invoke('window:toggleFullScreen'),
+    onFullScreenChange: (listener: (fullscreen: boolean) => void): (() => void) => {
+      const wrapped = (_event: unknown, fullscreen: boolean): void => listener(fullscreen)
+      ipcRenderer.on('window:fullscreen-changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('window:fullscreen-changed', wrapped)
+      }
+    }
+  },
   auth: {
     getSession: (): Promise<AuthSession> => ipcRenderer.invoke('auth:session'),
     login: (payload: LoginPayload): Promise<AuthSession> =>

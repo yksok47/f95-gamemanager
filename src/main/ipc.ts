@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
   CatalogGame,
@@ -121,7 +121,33 @@ function toIpcError(error: unknown): Error {
   return new Error('Unexpected error')
 }
 
+function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
+  return BrowserWindow.fromWebContents(event.sender)
+}
+
 export function registerIpc(): void {
+  app.on('browser-window-created', (_event, win) => {
+    const send = (): void => {
+      if (!win.isDestroyed()) {
+        win.webContents.send('window:fullscreen-changed', win.isFullScreen())
+      }
+    }
+    win.on('enter-full-screen', send)
+    win.on('leave-full-screen', send)
+  })
+
+  ipcMain.handle('window:isFullScreen', (event) => {
+    return windowFromEvent(event)?.isFullScreen() ?? false
+  })
+
+  ipcMain.handle('window:toggleFullScreen', (event) => {
+    const win = windowFromEvent(event)
+    if (!win) return false
+    const next = !win.isFullScreen()
+    win.setFullScreen(next)
+    return next
+  })
+
   ipcMain.handle('auth:session', async () => {
     try {
       return await getAuthSession()

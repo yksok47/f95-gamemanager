@@ -10,6 +10,7 @@ import { registerSaveThumbProtocol, registerSaveThumbScheme } from "./renpy/save
 import { getSettings } from "./settings-store";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
 import { loadSession, persistSessionNow } from "./session-store";
+import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
 import { appIcon } from "./app-icon";
 
 registerSaveThumbScheme();
@@ -61,6 +62,7 @@ app.whenReady().then(async () => {
 
   attachGuestWindowOpenHandler();
   await loadSession();
+  registerF95CdnRequestHeaders();
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();

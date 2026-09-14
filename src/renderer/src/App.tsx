@@ -11,7 +11,8 @@ import type {
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
 import DownloadsDock from './components/DownloadsDock'
-import { FooterSlot } from './components/FooterPortal'
+import { FooterDockSlot, FooterSlot } from './components/FooterPortal'
+import GameTaskbar, { type GameTaskbarItem } from './components/GameTaskbar'
 import CatalogPage from './pages/CatalogPage'
 import DownloadsPage from './pages/DownloadsPage'
 import UploadsPage from './pages/UploadsPage'
@@ -100,11 +101,12 @@ export default function App(): JSX.Element {
     trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL,
     p2pUploadLimitKBps: 0
   })
-  const [detailsStack, setDetailsStack] = useState<GameSummary[]>([])
+  const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
+  const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
-  const details = detailsStack.at(-1) ?? null
+  const details = detailsWindows.find((game) => game.threadId === activeThreadId) ?? null
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
   const p2pEnabled = Boolean(settings.p2pEnabled)
@@ -157,6 +159,7 @@ export default function App(): JSX.Element {
       if (!cancelled) setDownloads(items)
     })
     const stop = window.api.downloads.onChange((items) => {
+      if (document.body.classList.contains('is-details-modal-dragging')) return
       setDownloads(items)
     })
     return () => {
@@ -206,6 +209,7 @@ export default function App(): JSX.Element {
       if (!cancelled) setP2pTransfers(items)
     })
     const stop = window.api.p2p.onProgress((items) => {
+      if (document.body.classList.contains('is-details-modal-dragging')) return
       setP2pTransfers(items)
     })
     return () => {
@@ -337,13 +341,15 @@ export default function App(): JSX.Element {
     setSession(next)
     setSubscriptions([])
     setView('catalog')
-    setDetailsStack([])
+    setDetailsWindows([])
+    setActiveThreadId(null)
   }, [])
 
   const handleSessionExpired = useCallback(async (): Promise<void> => {
     setSubscriptions([])
     setView('catalog')
-    setDetailsStack([])
+    setDetailsWindows([])
+    setActiveThreadId(null)
     setSession({ loggedIn: false, userId: null, username: null })
     setError('The saved F95zone session could not be used. Please log in again.')
   }, [])
@@ -360,6 +366,30 @@ export default function App(): JSX.Element {
     setSubscriptions(await window.api.subscriptions.setRarity(threadId, rarity))
   }, [])
 
+  const openDetailsWindow = useCallback((game: GameSummary) => {
+    setDetailsWindows((windows) => {
+      const index = windows.findIndex((item) => item.threadId === game.threadId)
+      if (index === -1) return [...windows, game]
+      const next = windows.slice()
+      next[index] = { ...next[index], ...game }
+      return next
+    })
+    setActiveThreadId(game.threadId)
+  }, [])
+
+  const closeDetailsWindow = useCallback((threadId: number) => {
+    setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
+    setActiveThreadId((current) => (current === threadId ? null : current))
+  }, [])
+
+  const toggleDetailsWindow = useCallback((threadId: number) => {
+    setActiveThreadId((current) => (current === threadId ? null : threadId))
+  }, [])
+
+  const minimizeDetailsWindow = useCallback(() => {
+    setActiveThreadId(null)
+  }, [])
+
   const rarityById = useMemo(() => {
     const map = new Map<number, GameRarity>()
     for (const game of subscriptions) {
@@ -371,6 +401,19 @@ export default function App(): JSX.Element {
   const detailsFollowed = details
     ? subscriptions.find((game) => game.threadId === details.threadId)
     : undefined
+
+  const taskbarItems = useMemo<GameTaskbarItem[]>(
+    () =>
+      detailsWindows.map((game) => {
+        const followed = subscriptions.find((item) => item.threadId === game.threadId)
+        return {
+          threadId: game.threadId,
+          title: followed?.title || game.title,
+          coverUrl: followed?.coverUrl || game.coverUrl
+        }
+      }),
+    [detailsWindows, subscriptions]
+  )
 
   if (!session) {
     return (
@@ -397,13 +440,19 @@ export default function App(): JSX.Element {
         uploadCount={uploadCount}
         showUploads={p2pEnabled}
         onViewChange={(next) => {
-          setDetailsStack([])
           setView(next)
         }}
         onLogout={() => void handleLogout()}
       />
       <footer className="app-footer">
         <FooterSlot />
+        <GameTaskbar
+          items={taskbarItems}
+          activeThreadId={activeThreadId}
+          onToggle={toggleDetailsWindow}
+          onClose={closeDetailsWindow}
+        />
+        <FooterDockSlot />
       </footer>
       <main className="app-main">
       {view === 'catalog' ? (
@@ -414,7 +463,7 @@ export default function App(): JSX.Element {
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
           onToggleFollow={handleToggleFollow}
-          onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
+          onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />
       ) : view === 'downloads' ? (
@@ -442,7 +491,7 @@ export default function App(): JSX.Element {
           onRejectQuarantine={(id) => void handleRejectQuarantine(id)}
           onFlagQuarantine={(id) => void handleFlagQuarantine(id)}
           onOpenGame={(threadId, title) => {
-            setDetailsStack([summaryFromThread(threadId, title, subscriptions)])
+            openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
           }}
         />
       ) : view === 'uploads' ? (
@@ -450,7 +499,7 @@ export default function App(): JSX.Element {
           shared={p2pShared}
           liveTransfers={p2pTransfers}
           onOpenGame={(threadId, title) => {
-            setDetailsStack([summaryFromThread(threadId, title, subscriptions)])
+            openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
           }}
         />
       ) : view === 'followed' ? (
@@ -459,7 +508,7 @@ export default function App(): JSX.Element {
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
           onRemove={handleRemove}
-          onOpen={(game) => setDetailsStack([toSummary(game)])}
+          onOpen={(game) => openDetailsWindow(toSummary(game))}
           onImported={loadSubscriptions}
           onSessionExpired={handleSessionExpired}
         />
@@ -470,7 +519,7 @@ export default function App(): JSX.Element {
           hatedTags={hatedTags}
           rarityById={rarityById}
           onToggleFollow={handleToggleFollow}
-          onOpen={(game) => setDetailsStack([toSummary(game, rarityById.get(game.threadId))])}
+          onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />
       ) : (
@@ -479,6 +528,7 @@ export default function App(): JSX.Element {
       </main>
       {details ? (
         <GameDetailsPage
+          key={details.threadId}
           summary={{
             ...details,
             rarity: rarityById.get(details.threadId) ?? details.rarity,
@@ -507,15 +557,17 @@ export default function App(): JSX.Element {
           rarity={rarityById.get(details.threadId) ?? details.rarity}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
-          onClose={() => setDetailsStack((stack) => stack.slice(0, -1))}
+          onClose={() => closeDetailsWindow(details.threadId)}
+          onMinimize={minimizeDetailsWindow}
           onOpenThread={(threadId, title) => {
             if (threadId === details.threadId) return
-            setDetailsStack((stack) => [...stack, summaryFromThread(threadId, title, subscriptions)])
+            openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
           }}
           onToggleFollow={handleToggleFollow}
           onSetRarity={handleSetRarity}
           onSessionExpired={handleSessionExpired}
           p2pEnabled={p2pEnabled}
+          p2pSharedHashes={p2pSharedHashes}
         />
       ) : null}
       {view === 'downloads' ? null : (
@@ -524,7 +576,7 @@ export default function App(): JSX.Element {
           p2pTransfers={p2pEnabled ? p2pTransfers : []}
           p2pSharedHashes={p2pSharedHashes}
           onOpenPage={() => {
-            setDetailsStack([])
+            setActiveThreadId(null)
             setView('downloads')
           }}
           onCancel={(id) => void handleCancelDownload(id)}

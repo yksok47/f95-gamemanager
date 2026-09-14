@@ -1,8 +1,13 @@
 import { compareGameVersions } from './engines'
 import type { VersionPlayStat, VersionPlayStatus } from './types'
 
-export function usableVersion(value: string | undefined | null): string {
-  const version = (value || '').trim()
+export function usableVersion(value: unknown): string {
+  const version =
+    typeof value === 'string'
+      ? value.trim()
+      : typeof value === 'number' && Number.isFinite(value)
+        ? String(value)
+        : ''
   if (!version || /^unknown$/i.test(version)) return ''
   return version
 }

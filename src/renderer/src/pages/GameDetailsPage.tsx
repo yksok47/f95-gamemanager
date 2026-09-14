@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent} from 'react'
 import type {
   CatalogGame,
   DownloadEntry,
@@ -67,6 +67,7 @@ import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downl
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
+import { PagerIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { usePlaySessions } from '../lib/library'
 
@@ -91,12 +92,14 @@ type GameDetailsPageProps = {
   favoriteTags?: FavoriteTag[]
   hatedTags?: HatedTag[]
   onClose: () => void
+  onMinimize: () => void
   onOpenThread: (threadId: number, title: string) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
   onSessionExpired: () => Promise<void>
   /** When false/undefined, P2P section is hidden */
   p2pEnabled?: boolean
+  p2pSharedHashes?: ReadonlySet<string>
 }
 
 function formatDate(value: string): string {
@@ -335,18 +338,22 @@ function toCatalogGame(summary: GameSummary, details: ThreadDetails | null): Cat
   }
 }
 
-export default function GameDetailsPage({
+const skipDetailsRender = { current: false }
+
+function GameDetailsPage({
   summary,
   subscribed,
   rarity = 'regular',
   favoriteTags = [],
   hatedTags = [],
   onClose,
+  onMinimize,
   onOpenThread,
   onToggleFollow,
   onSetRarity,
   onSessionExpired,
-  p2pEnabled = false
+  p2pEnabled = false,
+  p2pSharedHashes
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
   const tagCatalog = useCatalogTags()
@@ -363,6 +370,25 @@ export default function GameDetailsPage({
   const lightboxThumbsRef = useRef<HTMLDivElement>(null)
   const lightboxStageRef = useRef<HTMLDivElement>(null)
   const lightboxDrag = useRef({ active: false, moved: false, startX: 0, startLeft: 0 })
+  const modalShellRef = useRef<HTMLDivElement>(null)
+  const modalOffsetRef = useRef({ x: 0, y: 0 })
+  const modalDrag = useRef({
+    active: false,
+    moved: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    origX: 0,
+    origY: 0
+  })
+  const backdropGesture = useRef(false)
+
+  function applyModalOffset(x: number, y: number): void {
+    modalOffsetRef.current = { x, y }
+    const el = modalShellRef.current
+    if (el) el.style.transform = `translate3d(${x}px, ${y}px, 0)`
+  }
+
   const lightboxSwipe = useRef({
     active: false,
     moved: false,
@@ -416,6 +442,7 @@ export default function GameDetailsPage({
     setReviewsError(null)
     setReviewsReload(0)
     setThreadIdCopied(false)
+    applyModalOffset(0, 0)
 
     async function load(): Promise<void> {
       try {
@@ -506,7 +533,7 @@ export default function GameDetailsPage({
       void refreshFiles()
     })
     const stopDownloads = window.api.downloads.onChange((items) => {
-      if (cancelled) return
+      if (cancelled || modalDrag.current.active) return
       setTransfers(items)
       if (
         items.some(
@@ -523,7 +550,8 @@ export default function GameDetailsPage({
       if (!cancelled) setP2pTransfers(items)
     })
     const stopP2p = window.api.p2p.onProgress((items) => {
-      if (!cancelled) setP2pTransfers(items)
+      if (cancelled || modalDrag.current.active) return
+      setP2pTransfers(items)
     })
     return () => {
       cancelled = true
@@ -561,7 +589,10 @@ export default function GameDetailsPage({
 
   useEffect(() => {
     if (!sessions.length) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    const timer = window.setInterval(() => {
+      if (modalDrag.current.active) return
+      setNow(Date.now())
+    }, 1000)
     return () => window.clearInterval(timer)
   }, [sessions.length])
 
@@ -729,6 +760,7 @@ export default function GameDetailsPage({
     if (!modal) return
 
     const syncRailMetrics = (): void => {
+      if (modalDrag.current.active) return
       const scrollHeight = modal.scrollHeight
       const needsRail = scrollHeight > modal.clientHeight + 1
       setModalRailHeight(scrollHeight)
@@ -778,7 +810,7 @@ export default function GameDetailsPage({
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
         if (lightbox != null) setLightbox(null)
-        else onClose()
+        else onMinimize()
         return
       }
       if (lightbox == null) return
@@ -790,7 +822,7 @@ export default function GameDetailsPage({
 
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [lightbox, gallery.length, onClose])
+  }, [lightbox, gallery.length, onMinimize])
 
   useEffect(() => {
     if (lightbox == null) return
@@ -1107,12 +1139,12 @@ export default function GameDetailsPage({
       p2pEnabled
         ? p2pTransfers.filter(
             (item) =>
-              isActiveP2pDownload(item) &&
+              isActiveP2pDownload(item, p2pSharedHashes) &&
               (item.f95ThreadId === summary.threadId ||
                 (item.gameName != null && item.gameName === title))
           )
         : [],
-    [p2pEnabled, p2pTransfers, summary.threadId, title]
+    [p2pEnabled, p2pTransfers, p2pSharedHashes, summary.threadId, title]
   )
 
   async function openUrl(url: string, entry?: DownloadEntry): Promise<void> {
@@ -1385,6 +1417,98 @@ export default function GameDetailsPage({
     })
   }
 
+
+  function isModalDragIgnoreTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return true
+    if (target.closest('.details-tab')) return false
+    return Boolean(
+      target.closest(
+        'button, a, input, textarea, select, label, .follow-btn, .rarity-slider, .details-pill, .link-chip, .chip, .ghost-btn, .switch, .menu-popover'
+      )
+    )
+  }
+
+  function suppressMiddleAutoscroll(
+    event: ReactPointerEvent<HTMLElement> | MouseEvent<HTMLElement>
+  ): void {
+    if (event.button !== 1) return
+    event.preventDefault()
+    event.stopPropagation()
+  }
+
+  function closeOnMiddleButton(
+    event: ReactPointerEvent<HTMLElement> | MouseEvent<HTMLElement>
+  ): void {
+    if (event.button !== 1) return
+    event.preventDefault()
+    event.stopPropagation()
+    onClose()
+  }
+
+  function minimizeOnContextMenu(event: MouseEvent<HTMLElement>): void {
+    event.preventDefault()
+    event.stopPropagation()
+    onMinimize()
+  }
+
+  function onModalDragPointerDown(event: ReactPointerEvent<HTMLElement>): void {
+    if (event.button !== 0) return
+    if (isModalDragIgnoreTarget(event.target)) return
+    backdropGesture.current = false
+    const drag = modalDrag.current
+    drag.active = true
+    drag.moved = false
+    drag.pointerId = event.pointerId
+    drag.startX = event.clientX
+    drag.startY = event.clientY
+    drag.origX = modalOffsetRef.current.x
+    drag.origY = modalOffsetRef.current.y
+  }
+
+  useEffect(() => {
+    function onPointerMove(event: PointerEvent): void {
+      const drag = modalDrag.current
+      if (!drag.active || event.pointerId !== drag.pointerId) return
+      const x = drag.origX + event.clientX - drag.startX
+      const y = drag.origY + event.clientY - drag.startY
+      if (!drag.moved && Math.hypot(x - drag.origX, y - drag.origY) < 4) return
+      if (!drag.moved) {
+        drag.moved = true
+        skipDetailsRender.current = true
+        document.body.classList.add('is-details-modal-dragging')
+      }
+      applyModalOffset(x, y)
+    }
+
+    function onPointerUp(event: PointerEvent): void {
+      const drag = modalDrag.current
+      if (!drag.active || event.pointerId !== drag.pointerId) return
+      const moved = drag.moved
+      drag.active = false
+      drag.pointerId = -1
+      skipDetailsRender.current = false
+      document.body.classList.remove('is-details-modal-dragging')
+      if (!moved) return
+      const suppressClick = (clickEvent: MouseEvent): void => {
+        clickEvent.preventDefault()
+        clickEvent.stopPropagation()
+      }
+      window.addEventListener('click', suppressClick, { capture: true, once: true })
+    }
+
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      modalDrag.current.active = false
+      skipDetailsRender.current = false
+      document.body.classList.remove('is-details-modal-dragging')
+    }
+  }, [])
+
   const statusPlayLabel = threadSessions.length
     ? `Playing · ${formatSessionTime(elapsedMs(threadSessions[0].startedAt, threadSessions[0].elapsedMs))}`
     : lastPlayedAt
@@ -1401,18 +1525,45 @@ export default function GameDetailsPage({
   return (
     <div
       className="details-backdrop"
-      onClick={() => {
+      onPointerDown={(event) => {
+        backdropGesture.current = event.button === 0 && event.target === event.currentTarget
+      }}
+      onClick={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (!backdropGesture.current) return
+        backdropGesture.current = false
         if (lightbox != null) setLightbox(null)
-        else onClose()
+        else onMinimize()
+      }}
+      onAuxClick={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (lightbox != null) setLightbox(null)
+        else onMinimize()
+      }}
+      onContextMenu={(event) => {
+        if (event.target !== event.currentTarget) return
+        event.preventDefault()
+        if (lightbox != null) setLightbox(null)
+        else onMinimize()
       }}
     >
-      <div className="details-modal-shell">
+      <div className="details-modal-shell" ref={modalShellRef}>
         <div
           className={
             rarity === 'regular' ? 'details-modal-frame' : `details-modal-frame details-modal-frame-${rarity}`
           }
         >
-        <div className="details-modal-card" onClick={(event) => event.stopPropagation()}>
+        <div
+          className="details-modal-card"
+          onClick={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            if (event.button === 0) backdropGesture.current = false
+            suppressMiddleAutoscroll(event)
+          }}
+          onMouseDown={suppressMiddleAutoscroll}
+          onAuxClick={closeOnMiddleButton}
+          onContextMenu={minimizeOnContextMenu}
+        >
         <div
           className="details-modal"
           ref={modalScrollRef}
@@ -1422,7 +1573,7 @@ export default function GameDetailsPage({
           onScroll={onModalScroll}
         >
         <div className="details-page">
-          <div className={coverBroken || !coverUrl ? 'details-hero details-hero-empty' : 'details-hero'}>
+          <div className={coverBroken || !coverUrl ? 'details-hero details-hero-empty' : 'details-hero'} onPointerDown={onModalDragPointerDown}>
             <div className="details-hero-banner" aria-hidden="true">
               {coverBroken || !coverUrl ? (
                 <div className="cover-fallback">No cover</div>
@@ -1671,7 +1822,7 @@ export default function GameDetailsPage({
         </p>
       ) : null}
 
-      <div className="details-tabs" role="tablist">
+      <div className="details-tabs details-drag-handle" role="tablist" onPointerDown={onModalDragPointerDown}>
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -2098,23 +2249,25 @@ export default function GameDetailsPage({
               {reviewsTotalPages > 1 ? (
                 <div className="pager review-pager">
                   <button
-                    className="ghost-btn pager-btn"
+                    className="ghost-btn icon-btn"
                     type="button"
                     disabled={reviewsBusy || reviewPage <= 1}
+                    aria-label="Previous page"
                     onClick={() => setReviewPage((value) => Math.max(1, value - 1))}
                   >
-                    ‹
+                    <PagerIcon kind="prev" />
                   </button>
                   <span className="muted pager-label">
                     {reviewPage}/{reviewsTotalPages}
                   </span>
                   <button
-                    className="ghost-btn pager-btn"
+                    className="ghost-btn icon-btn"
                     type="button"
                     disabled={reviewsBusy || reviewPage >= reviewsTotalPages}
+                    aria-label="Next page"
                     onClick={() => setReviewPage((value) => value + 1)}
                   >
-                    ›
+                    <PagerIcon kind="next" />
                   </button>
                 </div>
               ) : null}
@@ -2332,6 +2485,10 @@ export default function GameDetailsPage({
               className="details-modal-rail"
               ref={modalRailRef}
               onClick={(event) => event.stopPropagation()}
+              onPointerDown={suppressMiddleAutoscroll}
+              onMouseDown={suppressMiddleAutoscroll}
+              onAuxClick={closeOnMiddleButton}
+              onContextMenu={minimizeOnContextMenu}
               onScroll={onModalRailScroll}
             >
               <div className="details-modal-rail-spacer" style={{ height: modalRailHeight }} />
@@ -2343,3 +2500,5 @@ export default function GameDetailsPage({
     </div>
   )
 }
+
+export default memo(GameDetailsPage, () => skipDetailsRender.current)

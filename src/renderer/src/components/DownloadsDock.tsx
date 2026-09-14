@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { createPortal } from 'react-dom'
 import type { DownloadRecord } from '@shared/types'
 import type { P2pTransferProgress } from '@shared/p2p'
-import { downloadPercent, isActiveDownload, isActiveP2pDownload } from '../lib/downloads'
+import {
+  downloadPercent,
+  isActiveDownload,
+  isActiveP2pDownload,
+  isDockDownload,
+  isDockP2pDownload,
+  needsReviewDownload
+} from '../lib/downloads'
+import { FOOTER_DOCK_ID } from './FooterPortal'
 import DownloadRow from './DownloadRow'
 import P2pTransferRow from './P2pTransferRow'
 
@@ -68,19 +77,35 @@ export default function DownloadsDock({
   onStopP2p
 }: DownloadsDockProps): JSX.Element | null {
   const [collapsed, setCollapsed] = useState(false)
+  const [footerDock, setFooterDock] = useState<HTMLElement | null>(() =>
+    document.getElementById(FOOTER_DOCK_ID)
+  )
   const prevKeysRef = useRef<string[] | null>(null)
-  const dockRef = useRef<HTMLElement | null>(null)
+  const tileRef = useRef<HTMLElement | null>(null)
+  const popupRef = useRef<HTMLElement | null>(null)
 
   const activeRegular = items.filter(isActiveDownload)
-  const activeP2p = p2pTransfers.filter((t) => isActiveP2pDownload(t, p2pSharedHashes))
+  const reviewRegular = items.filter(needsReviewDownload)
+  const dockRegular = items.filter(isDockDownload)
+  const activeP2p = p2pTransfers.filter(
+    (t) => isActiveP2pDownload(t, p2pSharedHashes) && t.state !== 'quarantined'
+  )
+  const dockP2p = p2pTransfers.filter((t) => isDockP2pDownload(t, p2pSharedHashes))
   const slots = 3
-  const p2pShown = activeP2p.slice(0, slots)
-  const regularShown = activeRegular.slice(0, Math.max(0, slots - p2pShown.length))
+  const p2pShown = dockP2p.slice(0, slots)
+  const regularShown = dockRegular.slice(0, Math.max(0, slots - p2pShown.length))
   const activeCount = activeRegular.length + activeP2p.length
+  const reviewCount =
+    reviewRegular.length + dockP2p.filter((t) => t.state === 'quarantined').length
+  const badgeCount = dockRegular.length + dockP2p.length
   const percent = overallPercent(activeRegular, activeP2p)
-  const keys = activeKeys(activeRegular, activeP2p)
+  const keys = activeKeys(dockRegular, dockP2p)
   const keysSignature = keys.join('|')
-  const hasActive = p2pShown.length > 0 || regularShown.length > 0
+  const hasVisible = p2pShown.length > 0 || regularShown.length > 0
+
+  useEffect(() => {
+    setFooterDock(document.getElementById(FOOTER_DOCK_ID))
+  }, [])
 
   useEffect(() => {
     const next = keysSignature.length ? keysSignature.split('|') : []
@@ -96,58 +121,69 @@ export default function DownloadsDock({
   }, [keysSignature])
 
   useEffect(() => {
-    if (!hasActive || collapsed) return
+    if (!hasVisible || collapsed) return
 
     function onPointer(event: PointerEvent): void {
       const target = event.target as Node
-      if (dockRef.current?.contains(target)) return
+      if (popupRef.current?.contains(target)) return
+      if (tileRef.current?.contains(target)) return
       setCollapsed(true)
     }
 
     window.addEventListener('pointerdown', onPointer)
     return () => window.removeEventListener('pointerdown', onPointer)
-  }, [hasActive, collapsed])
+  }, [hasVisible, collapsed])
 
-  if (!hasActive) return null
+  if (!hasVisible) return null
 
-  if (collapsed) {
-    const ringStyle =
-      percent == null
-        ? undefined
-        : {
-            background: `conic-gradient(var(--accent) ${percent}%, var(--border) 0)`
-          }
+  const ringStyle =
+    percent == null
+      ? undefined
+      : {
+          background: `conic-gradient(var(--accent) ${percent}%, var(--border) 0)`
+        }
 
-    return (
-      <aside
-        ref={dockRef}
-        className="downloads-dock downloads-dock-collapsed"
-        aria-label="Active downloads"
+  const reviewOnly = activeCount === 0 && reviewCount > 0
+  const ariaLabel = collapsed
+    ? reviewOnly
+      ? `${reviewCount} download${reviewCount === 1 ? '' : 's'} need review`
+      : `${activeCount} download${activeCount === 1 ? '' : 's'} in progress${
+          percent == null ? '' : `, ${percent}%`
+        }${reviewCount > 0 ? `, ${reviewCount} need review` : ''}`
+    : 'Hide downloads'
+
+  const tile = (
+    <aside
+      ref={tileRef}
+      className="downloads-dock downloads-dock-collapsed"
+      aria-label="Downloads"
+    >
+      <button
+        className={
+          collapsed ? 'downloads-dock-tile' : 'downloads-dock-tile downloads-dock-tile-open'
+        }
+        type="button"
+        title={collapsed ? 'Show downloads' : 'Hide downloads'}
+        aria-expanded={!collapsed}
+        aria-label={ariaLabel}
+        onClick={() => setCollapsed((value) => !value)}
       >
-        <button
-          className="downloads-dock-tile"
-          type="button"
-          title="Show downloads"
-          aria-expanded={false}
-          aria-label={`${activeCount} download${activeCount === 1 ? '' : 's'} in progress${
-            percent == null ? '' : `, ${percent}%`
-          }`}
-          onClick={() => setCollapsed(false)}
-        >
-          <span className="downloads-dock-ring" style={ringStyle}>
-            <span className="downloads-dock-ring-inner">
-              <DownloadIcon />
-            </span>
+        <span className="downloads-dock-ring" style={ringStyle}>
+          <span className="downloads-dock-ring-inner">
+            <DownloadIcon />
           </span>
-          <span className="downloads-dock-count">{activeCount}</span>
-          {percent != null ? <span className="downloads-dock-pct">{percent}%</span> : null}
-        </button>
-      </aside>
-    )
-  }
+        </span>
+        <span className="downloads-dock-count">{badgeCount}</span>
+        {percent != null ? <span className="downloads-dock-pct">{percent}%</span> : null}
+        {percent == null && reviewCount > 0 ? (
+          <span className="downloads-dock-pct">Review</span>
+        ) : null}
+      </button>
+    </aside>
+  )
 
-  return (
-    <aside ref={dockRef} className="downloads-dock" aria-label="Active downloads">
+  const popup = collapsed ? null : (
+    <aside ref={popupRef} className="downloads-dock" aria-label="Downloads">
       <div className="downloads-dock-header">
         <strong>Downloads</strong>
         <div className="downloads-dock-header-actions">
@@ -194,9 +230,17 @@ export default function DownloadsDock({
             onRemove={onRemove}
             onShowInFolder={onShowInFolder}
             onOpenFile={onOpenFile}
+            onOpenDownloads={onOpenPage}
           />
         ))}
       </div>
     </aside>
+  )
+
+  return (
+    <>
+      {footerDock ? createPortal(tile, footerDock) : tile}
+      {popup}
+    </>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent } from 'react'
 import type { CatalogGame, CatalogPrefix, FavoriteTag, GameRarity, HatedTag, Subscription, VersionPlayStat } from '@shared/types'
 import { engineFromTitle, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
@@ -6,6 +6,7 @@ import { catalogTimestamp, formatDateTime, formatRelativeTime, gameUpdateState }
 import EngineBadge from './EngineBadge'
 import FollowButton from './FollowButton'
 import { favoriteTagsOnGame, hatedTagsOnGame } from '../lib/favorites'
+import { enqueueLowPriorityScreens, trackCoverEnd, trackCoverStart } from '../lib/image-priority'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import type { GameLibraryStatus } from '../lib/library'
@@ -46,6 +47,10 @@ type GameCardProps = {
   library?: GameLibraryStatus
   playing?: boolean
   prefixCatalog?: CatalogPrefix[]
+  /** Bump on page/reload so failed covers retry even when coverUrl is unchanged. */
+  coverRetryKey?: string | number
+  /** Force cover fetch so incoming page-turn cards are painted before they slide in. */
+  coverEager?: boolean
 }
 
 function cardEngine(
@@ -62,7 +67,7 @@ function cardEngine(
   )
 }
 
-export default function GameCard({
+function GameCard({
   game,
   subscribed,
   favoriteTags = [],
@@ -73,13 +78,17 @@ export default function GameCard({
   onStop,
   library,
   playing = false,
-  prefixCatalog
+  prefixCatalog,
+  coverRetryKey,
+  coverEager = false
 }: GameCardProps): JSX.Element {
   const [broken, setBroken] = useState(!game.coverUrl)
+  const [loadNonce, setLoadNonce] = useState(0)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
   const coverRef = useRef<HTMLDivElement>(null)
   const previewing = useRef(false)
+  const coverRetrySeen = useRef(false)
   const rarity = game.rarity ?? 'regular'
   const shownFavorites = favoriteTagsOnGame(game.tags, favoriteTags)
   const shownHated = hatedTagsOnGame(game.tags, hatedTags)
@@ -109,8 +118,46 @@ export default function GameCard({
   }, [game.coverUrl])
 
   useEffect(() => {
+    if (coverRetryKey === undefined) return
+    // Initial mount already loads the image; only retry when the key changes later
+    // (catalog page turn / refresh) while this card instance is reused.
+    if (!coverRetrySeen.current) {
+      coverRetrySeen.current = true
+      return
+    }
+    setBroken(!game.coverUrl)
+    setLoadNonce((n) => n + 1)
+  }, [coverRetryKey, game.coverUrl])
+
+  useEffect(() => {
     if (playing) setStarting(false)
   }, [playing])
+
+  const coverSrc =
+    game.coverUrl && loadNonce > 0
+      ? `${game.coverUrl}${game.coverUrl.includes('?') ? '&' : '?'}_gm_retry=${loadNonce}`
+      : game.coverUrl
+  const showCover = Boolean(coverSrc && !broken)
+  const releaseCoverTrack = useRef<(() => void) | null>(null)
+
+  useEffect(() => {
+    if (!showCover || !coverSrc) {
+      releaseCoverTrack.current = null
+      return
+    }
+    let open = true
+    trackCoverStart()
+    const release = (): void => {
+      if (!open) return
+      open = false
+      trackCoverEnd()
+    }
+    releaseCoverTrack.current = release
+    return () => {
+      release()
+      if (releaseCoverTrack.current === release) releaseCoverTrack.current = null
+    }
+  }, [showCover, coverSrc])
 
   function previewFromX(clientX: number): number {
     const rect = coverRef.current?.getBoundingClientRect()
@@ -181,16 +228,32 @@ export default function GameCard({
           <div className="cover-fallback">No cover</div>
         ) : (
           <img
-            src={game.coverUrl}
+            key={`cover-${loadNonce}`}
+            src={coverSrc || undefined}
             alt=""
+            loading={coverEager ? 'eager' : 'lazy'}
+            fetchPriority="high"
+            decoding="async"
             draggable={false}
-            referrerPolicy="no-referrer"
-            onError={() => setBroken(true)}
+            onLoad={() => {
+              releaseCoverTrack.current?.()
+              enqueueLowPriorityScreens(previews)
+            }}
+            onError={() => {
+              releaseCoverTrack.current?.()
+              setBroken(true)
+            }}
           />
         )}
         {previewIndex != null && previews[previewIndex] ? (
           <div className="cover-preview">
-            <img src={previews[previewIndex]} alt="" referrerPolicy="no-referrer" draggable={false} />
+            <img
+              src={previews[previewIndex]}
+              alt=""
+              fetchPriority="high"
+              decoding="async"
+              draggable={false}
+            />
             {previews.length > 1 ? (
               <div className="cover-preview-dots" aria-hidden="true">
                 {previews.map((url, index) => (
@@ -390,3 +453,5 @@ export default function GameCard({
     </article>
   )
 }
+
+export default memo(GameCard)
