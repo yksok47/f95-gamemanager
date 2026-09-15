@@ -43,6 +43,31 @@ export function isDockP2pDownload(
   return isActiveP2pDownload(item, sharedContentHashes) || item.state === 'quarantined'
 }
 
+/** True when a HTTP/P2P row is the archive currently being extracted. */
+export function transferMatchesLibraryFile(
+  item: {
+    contentHash?: string
+    hash?: string
+    path?: string
+    savePath?: string
+    filename?: string
+    normalizedName?: string
+  },
+  file: { hash: string; archivePath: string; filename: string }
+): boolean {
+  const fileHash = file.hash.trim().toLowerCase()
+  const itemHash = (item.contentHash || item.hash || '').trim().toLowerCase()
+  if (fileHash && itemHash && fileHash === itemHash) return true
+  const filename = file.filename.trim().toLowerCase()
+  const archive = file.archivePath.replace(/\\/g, '/').toLowerCase()
+  const path = (item.path || item.savePath || '').replace(/\\/g, '/').toLowerCase()
+  if (archive && path && (path === archive || (filename && path.endsWith('/' + filename)))) {
+    return true
+  }
+  const itemName = (item.normalizedName || item.filename || '').trim().toLowerCase()
+  return Boolean(filename && itemName && filename === itemName)
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

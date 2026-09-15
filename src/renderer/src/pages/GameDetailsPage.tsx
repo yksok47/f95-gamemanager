@@ -64,7 +64,12 @@ import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import UserNotesPanel from '../components/UserNotesPanel'
 import { useCatalogPrefixes, useCatalogTags } from '../lib/catalog-prefixes'
-import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downloads'
+import {
+  formatBytes,
+  isActiveDownload,
+  isActiveP2pDownload,
+  transferMatchesLibraryFile
+} from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
@@ -1180,29 +1185,33 @@ function GameDetailsPage({
 
   const gameTransfers = useMemo(
     () =>
-      transfers.filter(
-        (item) =>
-          item.gameThreadId === summary.threadId &&
-          (isActiveDownload(item) ||
-            item.libraryStatus === 'hashing' ||
-            item.libraryStatus === 'pendingReview' ||
-            item.libraryStatus === 'error' ||
-            (item.status === 'completed' && item.libraryStatus !== 'indexed'))
-      ),
-    [transfers, summary.threadId]
+      transfers.filter((item) => {
+        if (item.gameThreadId !== summary.threadId) return false
+        if (installingFile && transferMatchesLibraryFile(item, installingFile)) return false
+        return (
+          isActiveDownload(item) ||
+          item.libraryStatus === 'hashing' ||
+          item.libraryStatus === 'pendingReview' ||
+          item.libraryStatus === 'error' ||
+          (item.status === 'completed' && item.libraryStatus !== 'indexed')
+        )
+      }),
+    [transfers, summary.threadId, installingFile]
   )
 
   const gameP2pTransfers = useMemo(
     () =>
       p2pEnabled
-        ? p2pTransfers.filter(
-            (item) =>
+        ? p2pTransfers.filter((item) => {
+            if (installingFile && transferMatchesLibraryFile(item, installingFile)) return false
+            return (
               isActiveP2pDownload(item, p2pSharedHashes) &&
               (item.f95ThreadId === summary.threadId ||
                 (item.gameName != null && item.gameName === title))
-          )
+            )
+          })
         : [],
-    [p2pEnabled, p2pTransfers, p2pSharedHashes, summary.threadId, title]
+    [p2pEnabled, p2pTransfers, p2pSharedHashes, summary.threadId, title, installingFile]
   )
 
   async function openUrl(url: string, entry?: DownloadEntry): Promise<void> {

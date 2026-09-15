@@ -95,6 +95,8 @@ const trackedListenerIds = new Set<string>()
 const finalizedContentHashes = new Set<string>()
 const torrentById = new Map<string, TorrentLike>()
 const pausedIds = new Set<string>()
+/** Torrents paused only so an archive can be read/extracted — keep reporting as seeds. */
+const archiveHoldIds = new Set<string>()
 const quarantineIds = new Set<string>()
 const quarantineMetaById = new Map<
   string,
@@ -238,6 +240,7 @@ function forgetTransfer(id: string): void {
   torrentById.delete(id)
   trackedListenerIds.delete(id)
   pausedIds.delete(id)
+  archiveHoldIds.delete(id)
   quarantineIds.delete(id)
   quarantineMetaById.delete(id)
   metaById.delete(id)
@@ -550,6 +553,11 @@ function torrentLooksComplete(torrent: TorrentLike): boolean {
 function liveTorrentState(id: string, torrent: TorrentLike): P2pTransferProgress['state'] {
   if (quarantineIds.has(id)) return 'quarantined'
   if (pausedIds.has(id)) return 'paused'
+  if (archiveHoldIds.has(id)) {
+    const prev = progressById.get(id)?.state
+    if (prev === 'seeding' || isSeedTransfer(id) || torrentLooksComplete(torrent)) return 'seeding'
+    return prev && prev !== 'paused' ? prev : 'seeding'
+  }
   if (isSeedTransfer(id)) {
     // Local share: create-torrent hashing has no infoHash yet. After metadata,
     // we already have the file — never label that as a download.
@@ -1254,17 +1262,22 @@ export async function waitForTorrentInfoHash(
 
 
 
-export async function p2pPause(id: string): Promise<P2pTransferProgress | null> {
+function pauseTorrentEngine(id: string): void {
   const torrent = torrentById.get(id)
-  const cur = progressById.get(id)
-  if (!cur) return null
-  pausedIds.add(id)
   try {
     torrent?.pause?.()
     if (torrent) disconnectTorrentPeers(torrent)
   } catch (error) {
     console.warn('[p2p] pause failed', error)
   }
+}
+
+export async function p2pPause(id: string): Promise<P2pTransferProgress | null> {
+  const cur = progressById.get(id)
+  if (!cur) return null
+  pausedIds.add(id)
+  archiveHoldIds.delete(id)
+  pauseTorrentEngine(id)
   const next = {
     ...cur,
     state: 'paused' as const,
@@ -1286,6 +1299,7 @@ export async function p2pResume(id: string): Promise<P2pTransferProgress | null>
   const cur = progressById.get(id)
   if (!cur) return null
   pausedIds.delete(id)
+  archiveHoldIds.delete(id)
   try {
     torrent?.resume?.()
     // pause() + wire teardown empties the peer set; force a tracker update so we
@@ -1343,17 +1357,30 @@ function transferIdsForArchive(
 /**
  * Pause any live torrent holding this archive so Windows can open/extract it.
  * Returns ids that were newly paused (already-paused transfers are left alone).
+ *
+ * `silent` keeps the transfer as a seed in the UI (used while extracting).
+ * Without it, the pause is user-visible so the file can stay unlocked in Explorer.
  */
 export async function pauseTorrentsForArchive(
   archivePath: string,
-  contentHash?: string | null
+  contentHash?: string | null,
+  opts?: { silent?: boolean }
 ): Promise<string[]> {
   const ids = transferIdsForArchive(archivePath, contentHash)
   const pausedByUs: string[] = []
+  const silent = Boolean(opts?.silent)
   for (const id of ids) {
     const cur = progressById.get(id)
     if (!cur || cur.state === 'paused' || pausedIds.has(id)) continue
-    await p2pPause(id)
+    if (silent) {
+      if (archiveHoldIds.has(id)) continue
+      archiveHoldIds.add(id)
+      pauseTorrentEngine(id)
+      refreshById.get(id)?.()
+      emit()
+    } else {
+      await p2pPause(id)
+    }
     pausedByUs.push(id)
   }
   return pausedByUs
@@ -1362,6 +1389,8 @@ export async function pauseTorrentsForArchive(
 /** Resume torrents previously paused by {@link pauseTorrentsForArchive}. */
 export async function resumeTorrentsByIds(ids: string[]): Promise<void> {
   for (const id of ids) {
+    archiveHoldIds.delete(id)
+    if (pausedIds.has(id) || quarantineIds.has(id)) continue
     try {
       await p2pResume(id)
     } catch (error) {
@@ -1497,6 +1526,7 @@ export async function destroyWebTorrent(): Promise<void> {
   torrentById.clear()
   finalizedContentHashes.clear()
   pausedIds.clear()
+  archiveHoldIds.clear()
   quarantineIds.clear()
   quarantineMetaById.clear()
   metaById.clear()

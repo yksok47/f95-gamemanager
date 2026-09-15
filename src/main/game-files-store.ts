@@ -646,7 +646,9 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     throw new Error('That archive is already being installed.')
   }
 
-  const pausedTorrentIds = await pauseTorrentsForArchive(file.archivePath, file.hash)
+  const pausedTorrentIds = await pauseTorrentsForArchive(file.archivePath, file.hash, {
+    silent: true
+  })
 
   const dest = installDest(file)
   installing.set(id, { percent: 0 })
@@ -760,7 +762,9 @@ export async function installUncensorPatch(
   const targetGameDir = gameDirFromRoot(gameRoot)
   const tempParent = join(getLibraryDirSync(), '.tmp-patches')
 
-  const pausedTorrentIds = await pauseTorrentsForArchive(sourcePath, patch.hash)
+  const pausedTorrentIds = await pauseTorrentsForArchive(sourcePath, patch.hash, {
+    silent: true
+  })
 
   installing.set(patchId, { percent: 0 })
   broadcast()
