@@ -1,8 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { FavoriteTag, FollowSyncStatus, HatedTag, ImportResult, Subscription } from '@shared/types'
+import type {
+  FavoriteTag,
+  FollowSyncStatus,
+  HatedTag,
+  ImportResult,
+  Subscription,
+  VersionPlayStatus
+} from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
-import { formatRelativeTime, gameUpdateState } from '@shared/updates'
+import { formatRelativeTime, hasPendingGameUpdate, usableVersion } from '@shared/updates'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
@@ -10,6 +17,7 @@ import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
 import { HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
+import ToolbarSearch from '../components/ToolbarSearch'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
@@ -37,6 +45,18 @@ function matchesQuery(game: Subscription, query: string): boolean {
   return haystack.includes(query)
 }
 
+function gameHasPendingUpdate(
+  game: Subscription,
+  libraryByThread: Map<number, { installedVersion: string | null }>
+): boolean {
+  return hasPendingGameUpdate({
+    latestVersion: game.version,
+    installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
+    lastPlayedVersion: game.lastPlayedVersion,
+    playedVersions: game.playedVersions
+  })
+}
+
 function compareGames(
   a: Subscription,
   b: Subscription,
@@ -62,10 +82,11 @@ function compareGames(
   return descending ? -result : result
 }
 
-type FollowedPageProps = {
+export type FollowedPageProps = {
   games: Subscription[]
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
+  mode?: 'followed' | 'updates'
   onRemove: (threadId: number) => Promise<void>
   onOpen: (game: Subscription) => void
   onImported: () => Promise<void>
@@ -86,6 +107,7 @@ export default function FollowedPage({
   games,
   favoriteTags,
   hatedTags,
+  mode = 'followed',
   onRemove,
   onOpen,
   onImported,
@@ -101,7 +123,7 @@ export default function FollowedPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
-  const [updatesOnly, setUpdatesOnly] = useState(false)
+  const updatesOnly = mode === 'updates'
   const [hideCompleted, setHideCompleted] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [hatedActive, setHatedActive] = useState(false)
@@ -150,6 +172,11 @@ export default function FollowedPage({
     for (const session of sessions) ids.add(session.threadId)
     return ids
   }, [sessions])
+  const pendingUpdates = useMemo(
+    () => games.filter((game) => gameHasPendingUpdate(game, libraryByThread)),
+    [games, libraryByThread]
+  )
+  const sourceCount = updatesOnly ? pendingUpdates.length : games.length
   const visible = useMemo(
     () =>
       games
@@ -161,14 +188,7 @@ export default function FollowedPage({
           if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
           if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
           if (!updatesOnly) return true
-          const lib = libraryByThread.get(game.threadId)
-          const flags = gameUpdateState({
-            latestVersion: game.version,
-            installedVersion: lib?.installedVersion,
-            lastPlayedVersion: game.lastPlayedVersion,
-            playedVersions: game.playedVersions
-          })
-          return flags.updateAvailable || flags.unplayedUpdate
+          return gameHasPendingUpdate(game, libraryByThread)
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
     [
@@ -199,6 +219,20 @@ export default function FollowedPage({
       }
       setError(text)
       throw err instanceof Error ? err : new Error(text)
+    }
+  }
+
+  async function setLatestVersionStatus(
+    game: Subscription,
+    status: VersionPlayStatus
+  ): Promise<void> {
+    const version = usableVersion(game.version)
+    if (!version) return
+    setError(null)
+    try {
+      await window.api.subscriptions.setVersionStatus(game.threadId, version, status)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update version status.')
     }
   }
 
@@ -249,16 +283,15 @@ export default function FollowedPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <input
-          className="toolbar-search"
+        <ToolbarSearch
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter followed"
+          onChange={setQuery}
+          placeholder={updatesOnly ? 'Filter updates' : 'Filter followed'}
         />
         <SelectMenu
           value={sort}
           options={SORTS}
-          ariaLabel="Sort followed"
+          ariaLabel={updatesOnly ? 'Sort updates' : 'Sort followed'}
           onChange={(next) => {
             setSort(next)
             setDescending(next !== 'title')
@@ -336,15 +369,6 @@ export default function FollowedPage({
         >
           <HateIcon />
         </button>
-        <button
-          className={updatesOnly ? 'ghost-btn nav-btn-active' : 'ghost-btn'}
-          type="button"
-          aria-pressed={updatesOnly}
-          title="Show only games with a newer thread version than the install or last play"
-          onClick={() => setUpdatesOnly((value) => !value)}
-        >
-          Updates
-        </button>
         <div className="toolbar-actions">
           <button
             className={sync?.running ? 'ghost-btn icon-btn sync-btn is-running' : 'ghost-btn icon-btn sync-btn'}
@@ -377,46 +401,50 @@ export default function FollowedPage({
             ) : null}
             <RefreshIcon spinning={Boolean(sync?.running)} />
           </button>
-          <div className="import-menu">
-            <button
-              ref={importBtnRef}
-              className="ghost-btn icon-btn"
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={importOpen}
-              aria-label={busy ? 'Importing' : 'Import'}
-              title={busy ? 'Importing…' : 'Import watched threads or bookmarks'}
-              disabled={busy !== null}
-              onClick={() => setImportOpen((open) => !open)}
-            >
-              <ImportIcon />
-            </button>
-            {importOpen && importBtnRef.current ? (
-              <MenuPopover
-                anchor={importBtnRef.current}
-                items={[
-                  {
-                    id: 'watched',
-                    label: 'Watched threads',
-                    onClick: () => void runImport('watched')
-                  },
-                  {
-                    id: 'bookmarks',
-                    label: 'Bookmarks',
-                    onClick: () => void runImport('bookmarks')
-                  }
-                ]}
-                onClose={() => setImportOpen(false)}
-              />
-            ) : null}
-          </div>
+          {updatesOnly ? null : (
+            <div className="import-menu">
+              <button
+                ref={importBtnRef}
+                className="ghost-btn icon-btn"
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded={importOpen}
+                aria-label={busy ? 'Importing' : 'Import'}
+                title={busy ? 'Importing…' : 'Import watched threads or bookmarks'}
+                disabled={busy !== null}
+                onClick={() => setImportOpen((open) => !open)}
+              >
+                <ImportIcon />
+              </button>
+              {importOpen && importBtnRef.current ? (
+                <MenuPopover
+                  anchor={importBtnRef.current}
+                  items={[
+                    {
+                      id: 'watched',
+                      label: 'Watched threads',
+                      onClick: () => void runImport('watched')
+                    },
+                    {
+                      id: 'bookmarks',
+                      label: 'Bookmarks',
+                      onClick: () => void runImport('bookmarks')
+                    }
+                  ]}
+                  onClose={() => setImportOpen(false)}
+                />
+              ) : null}
+            </div>
+          )}
         </div>
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || updatesOnly || hideCompleted || favoritesOnly || hatedActive
-            ? `${visible.length}/${games.length}`
-            : `${games.length} followed`}
+          {needle || hideCompleted || favoritesOnly || hatedActive
+            ? `${visible.length}/${sourceCount}`
+            : updatesOnly
+              ? `${visible.length} update${visible.length === 1 ? '' : 's'}`
+              : `${games.length} followed`}
         </span>
         {sync?.running ? (
           <span className="muted pager-label">
@@ -433,8 +461,9 @@ export default function FollowedPage({
       {sync?.lastError ? <p className="catalog-status error-text">{sync.lastError}</p> : null}
       {games.length === 0 ? (
         <div className="empty-state">
-          Nothing followed yet. Use Follow on a catalog card, or import watched threads and bookmarks
-          from your F95zone account.
+          {updatesOnly
+            ? 'Follow games to see available updates here.'
+            : 'Nothing followed yet. Use Follow on a catalog card, or import watched threads and bookmarks from your F95zone account.'}
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
@@ -471,6 +500,16 @@ export default function FollowedPage({
                 playing={playingByThread.has(game.threadId)}
                 prefixCatalog={prefixCatalog}
                 coverEager={index < EAGER_CARDS}
+                onMarkPlayed={
+                  updatesOnly && usableVersion(game.version)
+                    ? () => setLatestVersionStatus(game, 'played')
+                    : undefined
+                }
+                onIgnoreUpdate={
+                  updatesOnly && usableVersion(game.version)
+                    ? () => setLatestVersionStatus(game, 'skipped')
+                    : undefined
+                }
               />
             </LazyMount>
           ))}

@@ -1,4 +1,5 @@
 import { useMemo, useState, type JSX, type ReactNode } from 'react'
+import ToolbarSearch from './ToolbarSearch'
 
 const LETTERS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ']
 
@@ -53,10 +54,10 @@ export default function TagBrowser<T extends NamedTag>({
 
   return (
     <div className="tag-browser-wrap">
-      <input
+      <ToolbarSearch
         className="tag-search"
         value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
+        onChange={onQueryChange}
         placeholder={searchPlaceholder}
       />
       <div className="tag-alpha" role="tablist" aria-label="Browse tags by letter">

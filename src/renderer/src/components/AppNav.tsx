@@ -4,13 +4,14 @@ import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
 import { FullscreenIcon } from './ToolbarIcons'
 
-export type AppView = 'catalog' | 'followed' | 'library' | 'downloads' | 'uploads' | 'settings'
+export type AppView = 'catalog' | 'followed' | 'updates' | 'library' | 'downloads' | 'uploads' | 'settings'
 
 type AppNavProps = {
   view: AppView
   username: string | null
   userId: string | null
   followedCount: number
+  updatesCount: number
   libraryCount: number
   downloadCount: number
   uploadCount?: number
@@ -39,6 +40,7 @@ export default function AppNav({
   username,
   userId,
   followedCount,
+  updatesCount,
   libraryCount,
   downloadCount,
   uploadCount = 0,
@@ -73,6 +75,13 @@ export default function AppNav({
           onClick={() => onViewChange('followed')}
         >
           Followed{followedCount ? ` (${followedCount})` : ''}
+        </button>
+        <button
+          className={view === 'updates' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+          type="button"
+          onClick={() => onViewChange('updates')}
+        >
+          Updates{updatesCount ? ` (${updatesCount})` : ''}
         </button>
         <button
           className={view === 'library' ? 'nav-btn nav-btn-active' : 'nav-btn'}

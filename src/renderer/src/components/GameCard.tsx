@@ -51,6 +51,8 @@ type GameCardProps = {
   coverRetryKey?: string | number
   /** Force cover fetch so incoming page-turn cards are painted before they slide in. */
   coverEager?: boolean
+  onMarkPlayed?: () => void | Promise<void>
+  onIgnoreUpdate?: () => void | Promise<void>
 }
 
 function cardEngine(
@@ -80,10 +82,13 @@ function GameCard({
   playing = false,
   prefixCatalog,
   coverRetryKey,
-  coverEager = false
+  coverEager = false,
+  onMarkPlayed,
+  onIgnoreUpdate
 }: GameCardProps): JSX.Element {
   const [broken, setBroken] = useState(!game.coverUrl)
   const [loadNonce, setLoadNonce] = useState(0)
+  const [updateAction, setUpdateAction] = useState<'played' | 'ignore' | null>(null)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [starting, setStarting] = useState(false)
   const coverRef = useRef<HTMLDivElement>(null)
@@ -132,6 +137,19 @@ function GameCard({
   useEffect(() => {
     if (playing) setStarting(false)
   }, [playing])
+
+  async function runUpdateAction(
+    kind: 'played' | 'ignore',
+    action: (() => void | Promise<void>) | undefined
+  ): Promise<void> {
+    if (!action || updateAction) return
+    setUpdateAction(kind)
+    try {
+      await Promise.resolve(action())
+    } finally {
+      setUpdateAction(null)
+    }
+  }
 
   const coverSrc =
     game.coverUrl && loadNonce > 0
@@ -208,7 +226,7 @@ function GameCard({
   function onCardClick(event: MouseEvent): void {
     if (!onOpen) return
     const target = event.target as HTMLElement
-    if (target.closest('button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge, .update-chip')) return
+    if (target.closest('button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge, .update-chip, .card-update-actions')) return
     onOpen()
   }
 
@@ -401,6 +419,44 @@ function GameCard({
           ) : null}
         </div>
         <span className="muted">{game.creator || 'Unknown creator'}</span>
+        {onMarkPlayed || onIgnoreUpdate ? (
+          <div className="card-update-actions">
+            {onMarkPlayed ? (
+              <button
+                className="ghost-btn card-update-btn"
+                type="button"
+                disabled={updateAction !== null}
+                title={
+                  game.version
+                    ? `Mark ${game.version} as already played`
+                    : 'Mark this version as already played'
+                }
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void runUpdateAction('played', onMarkPlayed)
+                }}
+              >
+                {updateAction === 'played' ? 'Saving…' : 'Already played'}
+              </button>
+            ) : null}
+            {onIgnoreUpdate ? (
+              <button
+                className="ghost-btn card-update-btn"
+                type="button"
+                disabled={updateAction !== null}
+                title={
+                  game.version ? `Ignore update ${game.version}` : 'Ignore this update'
+                }
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void runUpdateAction('ignore', onIgnoreUpdate)
+                }}
+              >
+                {updateAction === 'ignore' ? 'Saving…' : 'Ignore update'}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="game-stats muted">
           <span className={ratingClass(game.rating)}>{formatRating(game.rating)}</span>
           {likes ? (

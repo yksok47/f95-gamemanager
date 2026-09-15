@@ -324,7 +324,11 @@ export function gameUpdateState(input: {
   if (latest) {
     const latestStat = (input.playedVersions || []).find((item) => item.version === latest)
     if (latestStat) {
-      unplayedUpdate = effectiveVersionStatus(latestStat) === 'unplayed'
+      const status = effectiveVersionStatus(latestStat)
+      if (status === 'skipped') {
+        return { updateAvailable: false, unplayedUpdate: false }
+      }
+      unplayedUpdate = status === 'unplayed'
     } else {
       const lastPlayed = usableVersion(input.lastPlayedVersion)
       // Never played, or a newer build than the last played one.
@@ -333,4 +337,23 @@ export function gameUpdateState(input: {
   }
 
   return { updateAvailable, unplayedUpdate }
+}
+
+function latestVersionStatus(
+  input: Parameters<typeof gameUpdateState>[0]
+): VersionPlayStatus | null {
+  const latest = usableVersion(input.latestVersion)
+  if (!latest) return null
+  const latestStat = (input.playedVersions || []).find((item) => item.version === latest)
+  if (!latestStat) return null
+  return effectiveVersionStatus(latestStat)
+}
+
+export function hasPendingGameUpdate(input: Parameters<typeof gameUpdateState>[0]): boolean {
+  const flags = gameUpdateState(input)
+  if (!flags.updateAvailable && !flags.unplayedUpdate) return false
+  const status = latestVersionStatus(input)
+  // Played or skipped latest builds drop off the Updates list even if an older install remains.
+  if (status === 'played' || status === 'skipped') return false
+  return true
 }

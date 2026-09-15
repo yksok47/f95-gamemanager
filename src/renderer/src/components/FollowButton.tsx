@@ -22,6 +22,20 @@ function EyeOpenIcon(): JSX.Element {
   )
 }
 
+function EyeClosedIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M3 10c2.4 2.7 5.4 4 9 4s6.6-1.3 9-4M3 14.5 5.4 11M21 14.5 18.6 11M9 17l.5-3.5M15 17l-.5-3.5"
+      />
+    </svg>
+  )
+}
+
 function EyeSlashIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -72,7 +86,14 @@ export default function FollowButton({
             </span>
           </>
         ) : (
-          <EyeOpenIcon />
+          <>
+            <span className="follow-icon-default">
+              <EyeClosedIcon />
+            </span>
+            <span className="follow-icon-hover">
+              <EyeOpenIcon />
+            </span>
+          </>
         )}
       </span>
       <span className="follow-label" aria-hidden="true">

@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent} from 'react'
+import { createPortal } from 'react-dom'
 import type {
   CatalogGame,
   DownloadEntry,
@@ -67,13 +68,14 @@ import { formatBytes, isActiveDownload, isActiveP2pDownload } from '../lib/downl
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
-import { PagerIcon } from '../components/ToolbarIcons'
+import { PagerIcon, RefreshIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { usePlaySessions } from '../lib/library'
 
 type DetailsTab =
   | 'overview'
   | 'about'
+  | 'changelog'
   | 'userNotes'
   | 'gallery'
   | 'downloads'
@@ -82,8 +84,18 @@ type DetailsTab =
   | 'renpy'
   | 'reviews'
 
-type AboutMode = 'description' | 'changelog' | 'notes'
+type AboutMode = 'description' | `note:${number}`
 type RenpyMode = 'unren' | 'options'
+
+function noteAboutMode(index: number): AboutMode {
+  return `note:${index}`
+}
+
+function noteIndexFromAboutMode(mode: AboutMode): number | null {
+  if (!mode.startsWith('note:')) return null
+  const index = Number(mode.slice(5))
+  return Number.isInteger(index) ? index : null
+}
 
 type GameDetailsPageProps = {
   summary: GameSummary
@@ -94,6 +106,7 @@ type GameDetailsPageProps = {
   onClose: () => void
   onMinimize: () => void
   onOpenThread: (threadId: number, title: string) => void
+  onApplyCatalogGame: (game: CatalogGame) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
   onSessionExpired: () => Promise<void>
@@ -317,6 +330,15 @@ function isGeneratedCover(url: string): boolean {
 }
 
 /** Follow / store metadata stays catalog-shaped; scrape only fills gaps (e.g. gallery). */
+function needsCatalogMetadata(summary: GameSummary): boolean {
+  return (
+    !summary.checkedAt &&
+    !summary.timestamp &&
+    !(summary.tags && summary.tags.length) &&
+    !(summary.prefixes && summary.prefixes.length)
+  )
+}
+
 function toCatalogGame(summary: GameSummary, details: ThreadDetails | null): CatalogGame {
   return {
     threadId: summary.threadId,
@@ -349,6 +371,7 @@ function GameDetailsPage({
   onClose,
   onMinimize,
   onOpenThread,
+  onApplyCatalogGame,
   onToggleFollow,
   onSetRarity,
   onSessionExpired,
@@ -361,6 +384,8 @@ function GameDetailsPage({
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const catalogLookupGen = useRef(0)
   const [tab, setTab] = useState<DetailsTab>('overview')
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('unren')
@@ -604,6 +629,34 @@ function GameDetailsPage({
         ? details.title
         : summary.title
   const creator = summary.creator || details?.creator || ''
+
+  async function refreshCatalogMetadata(force: boolean): Promise<void> {
+    if (!force && !needsCatalogMetadata(summary)) return
+    const gen = ++catalogLookupGen.current
+    setCatalogBusy(true)
+    try {
+      const game = await window.api.catalog.lookup({
+        threadId: summary.threadId,
+        title,
+        creator
+      })
+      if (gen !== catalogLookupGen.current) return
+      if (game) onApplyCatalogGame(game)
+    } catch (err) {
+      if (gen !== catalogLookupGen.current) return
+      const message = err instanceof Error ? err.message : ''
+      if (message.includes('Not logged in')) await onSessionExpired()
+    } finally {
+      if (gen === catalogLookupGen.current) setCatalogBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshCatalogMetadata(false)
+    // Auto-fill when opening from related-game links (no catalog row yet). Retry once
+    // creator/title arrive from the thread page so title+author filters can run.
+  }, [summary.threadId, title, creator, summary.checkedAt, summary.timestamp])
+
   const creatorLinks = useMemo(() => {
     const seen = new Set<string>()
     return (details?.creatorLinks ?? []).filter((link) => {
@@ -694,13 +747,16 @@ function GameDetailsPage({
 
   const aboutModes = useMemo(() => {
     const settled = !busy
-    const items: Array<{ id: AboutMode; label: string; count?: number; hidden?: boolean }> = [
+    const items: Array<{ id: AboutMode; label: string; hidden?: boolean }> = [
       { id: 'description', label: 'Description', hidden: settled && !details?.descriptionHtml },
-      { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
-      { id: 'notes', label: 'Notes', count: notes.length, hidden: settled && !notes.length }
+      ...notes.map((section, index) => ({
+        id: noteAboutMode(index),
+        label: section.title,
+        hidden: false as const
+      }))
     ]
     return items.filter((item) => !item.hidden)
-  }, [busy, details?.descriptionHtml, changelog.length, notes.length])
+  }, [busy, details?.descriptionHtml, notes])
 
   const tabs = useMemo(() => {
     const settled = !busy
@@ -716,6 +772,7 @@ function GameDetailsPage({
       },
       { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
       { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
+      { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
       { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
       { id: 'userNotes', label: 'Notes' },
       { id: 'renpy', label: 'Renpy', hidden: !isRenpy }
@@ -727,6 +784,7 @@ function GameDetailsPage({
     gallery.length,
     downloadCount,
     aboutModes.length,
+    changelog.length,
     files,
     isRenpy,
     isRpgMaker
@@ -1519,14 +1577,18 @@ function GameDetailsPage({
     totalPlaytimeMs ? `${formatPlaytime(totalPlaytimeMs)} total` : null,
     updatedLabel ? `Thread updated ${updatedLabel}` : null
   ].filter(Boolean) as string[]
-  const showCheckedStatus = Boolean(summary.checkedAt)
-  const showStatusLine = statusParts.length > 0 || showCheckedStatus
+  const noteIndex = noteIndexFromAboutMode(aboutMode)
+  const aboutNote = noteIndex != null ? notes[noteIndex] ?? null : null
 
   return (
     <div
       className="details-backdrop"
       onPointerDown={(event) => {
         backdropGesture.current = event.button === 0 && event.target === event.currentTarget
+        if (event.target === event.currentTarget) suppressMiddleAutoscroll(event)
+      }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) suppressMiddleAutoscroll(event)
       }}
       onClick={(event) => {
         if (event.target !== event.currentTarget) return
@@ -1537,8 +1599,7 @@ function GameDetailsPage({
       }}
       onAuxClick={(event) => {
         if (event.target !== event.currentTarget) return
-        if (lightbox != null) setLightbox(null)
-        else onMinimize()
+        closeOnMiddleButton(event)
       }}
       onContextMenu={(event) => {
         if (event.target !== event.currentTarget) return
@@ -1708,20 +1769,24 @@ function GameDetailsPage({
                   </button>
                 </div>
               </div>
-              {showStatusLine ? (
-                <p className="details-status muted">
+              <p className="details-status muted">
                   {statusParts.join(' · ')}
-                  {showCheckedStatus ? (
-                    <>
-                      {statusParts.length ? ' · ' : null}
-                      <span className="details-checked">
-                        Data checked{' '}
-                        {summary.checkedAt ? formatRelativeTime(summary.checkedAt) : 'never'}
-                      </span>
-                    </>
-                  ) : null}
+                  {statusParts.length ? ' · ' : null}
+                  <span className="details-checked">
+                    Data checked{' '}
+                    {summary.checkedAt ? formatRelativeTime(summary.checkedAt) : 'never'}
+                    <button
+                      className="details-checked-refresh"
+                      type="button"
+                      title="Refresh catalog metadata"
+                      aria-label="Refresh catalog metadata"
+                      disabled={catalogBusy}
+                      onClick={() => void refreshCatalogMetadata(true)}
+                    >
+                      <RefreshIcon spinning={catalogBusy} />
+                    </button>
+                  </span>
                 </p>
-              ) : null}
               {bannerTags.length ? (
                 <div className="details-tags">
                   {bannerTags.map((tag) => (
@@ -1862,7 +1927,6 @@ function GameDetailsPage({
                     onClick={() => setAboutMode(item.id)}
                   >
                     {item.label}
-                    {item.count ? <span className="details-tab-count">{item.count}</span> : null}
                   </button>
                 ))}
               </div>
@@ -1882,55 +1946,48 @@ function GameDetailsPage({
               )
             ) : null}
 
-            {aboutMode === 'notes' ? (
-              notes.length ? (
-                <div className="notes-list">
-                  {notes.map((section, index) => (
-                    <section key={`${section.title}-${index}`} className="notes-section">
-                      <h3 className="notes-title">{section.title}</h3>
-                      <div
-                        className="thread-prose"
-                        onClick={onProseClick}
-                        dangerouslySetInnerHTML={{ __html: section.html }}
-                      />
-                    </section>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted">{busy ? 'Loading notes…' : 'No notes were found in the first post.'}</p>
-              )
-            ) : null}
-
-            {aboutMode === 'changelog' ? (
-              changelog.length ? (
-                <div className="changelog-list">
-                  {changelog.map((entry, index) => {
-                    const open = Boolean(openVersions[index])
-                    return (
-                      <section key={`${entry.version}-${index}`} className="changelog-entry">
-                        <button
-                          className="changelog-toggle"
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => setOpenVersions((current) => ({ ...current, [index]: !open }))}
-                        >
-                          <span>{entry.version}</span>
-                          <span className="muted">{open ? 'Hide' : 'Show'}</span>
-                        </button>
-                        {open ? (
-                          <div className="changelog-body" onClick={onProseClick}>
-                            {entry.text}
-                          </div>
-                        ) : null}
-                      </section>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="muted">{busy ? 'Loading changelog…' : 'No changelog was found.'}</p>
-              )
+            {aboutNote ? (
+              <div className="notes-list">
+                <section className="notes-section">
+                  <div
+                    className="thread-prose"
+                    onClick={onProseClick}
+                    dangerouslySetInnerHTML={{ __html: aboutNote.html }}
+                  />
+                </section>
+              </div>
             ) : null}
           </div>
+        ) : null}
+
+        {tab === 'changelog' ? (
+          changelog.length ? (
+            <div className="changelog-list">
+              {changelog.map((entry, index) => {
+                const open = Boolean(openVersions[index])
+                return (
+                  <section key={`${entry.version}-${index}`} className="changelog-entry">
+                    <button
+                      className="changelog-toggle"
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => setOpenVersions((current) => ({ ...current, [index]: !open }))}
+                    >
+                      <span>{entry.version}</span>
+                      <span className="muted">{open ? 'Hide' : 'Show'}</span>
+                    </button>
+                    {open ? (
+                      <div className="changelog-body" onClick={onProseClick}>
+                        {entry.text}
+                      </div>
+                    ) : null}
+                  </section>
+                )
+              })}
+            </div>
+          ) : (
+            <p className="muted">{busy ? 'Loading changelog…' : 'No changelog was found.'}</p>
+          )
         ) : null}
 
         {tab === 'userNotes' ? <UserNotesPanel threadId={summary.threadId} /> : null}
@@ -2411,71 +2468,74 @@ function GameDetailsPage({
         ) : null}
       </div>
 
-      {lightbox != null && gallery[lightbox] ? (
-        <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
-          <div className="lightbox-stage" ref={lightboxStageRef}>
-            <img
-              src={gallery[lightbox]}
-              alt=""
-              referrerPolicy="no-referrer"
-              draggable={false}
-              onClick={(event) => event.stopPropagation()}
-            />
-            {gallery.length > 1 ? (
-              <>
-                <button
-                  className="lightbox-nav lightbox-prev"
-                  type="button"
-                  aria-label="Previous photo"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setLightbox((index) => (index == null ? 0 : (index - 1 + gallery.length) % gallery.length))
-                  }}
+      {lightbox != null && gallery[lightbox]
+        ? createPortal(
+            <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
+              <div className="lightbox-stage" ref={lightboxStageRef}>
+                <img
+                  src={gallery[lightbox]}
+                  alt=""
+                  referrerPolicy="no-referrer"
+                  draggable={false}
+                  onClick={(event) => event.stopPropagation()}
+                />
+                {gallery.length > 1 ? (
+                  <>
+                    <button
+                      className="lightbox-nav lightbox-prev"
+                      type="button"
+                      aria-label="Previous photo"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setLightbox((index) => (index == null ? 0 : (index - 1 + gallery.length) % gallery.length))
+                      }}
+                    >
+                      ‹
+                    </button>
+                    <button
+                      className="lightbox-nav lightbox-next"
+                      type="button"
+                      aria-label="Next photo"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setLightbox((index) => (index == null ? 0 : (index + 1) % gallery.length))
+                      }}
+                    >
+                      ›
+                    </button>
+                  </>
+                ) : null}
+              </div>
+              {gallery.length > 1 ? (
+                <div
+                  ref={lightboxThumbsRef}
+                  className="lightbox-thumbs"
+                  role="listbox"
+                  aria-label="Gallery thumbnails"
+                  onClick={(event) => event.stopPropagation()}
                 >
-                  ‹
-                </button>
-                <button
-                  className="lightbox-nav lightbox-next"
-                  type="button"
-                  aria-label="Next photo"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    setLightbox((index) => (index == null ? 0 : (index + 1) % gallery.length))
-                  }}
-                >
-                  ›
-                </button>
-              </>
-            ) : null}
-          </div>
-          {gallery.length > 1 ? (
-            <div
-              ref={lightboxThumbsRef}
-              className="lightbox-thumbs"
-              role="listbox"
-              aria-label="Gallery thumbnails"
-              onClick={(event) => event.stopPropagation()}
-            >
-              {gallery.map((url, index) => (
-                <button
-                  key={`${url}-${index}`}
-                  ref={(node) => {
-                    lightboxThumbRefs.current[index] = node
-                  }}
-                  className={index === lightbox ? 'lightbox-thumb is-active' : 'lightbox-thumb'}
-                  type="button"
-                  role="option"
-                  aria-selected={index === lightbox}
-                  title={`Photo ${index + 1} of ${gallery.length}`}
-                  onClick={() => setLightbox(index)}
-                >
-                  <img src={url} alt="" referrerPolicy="no-referrer" draggable={false} />
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+                  {gallery.map((url, index) => (
+                    <button
+                      key={`${url}-${index}`}
+                      ref={(node) => {
+                        lightboxThumbRefs.current[index] = node
+                      }}
+                      className={index === lightbox ? 'lightbox-thumb is-active' : 'lightbox-thumb'}
+                      type="button"
+                      role="option"
+                      aria-selected={index === lightbox}
+                      title={`Photo ${index + 1} of ${gallery.length}`}
+                      onClick={() => setLightbox(index)}
+                    >
+                      <img src={url} alt="" referrerPolicy="no-referrer" draggable={false} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>,
+            document.body
+          )
+        : null}
         </div>
         </div>
         </div>

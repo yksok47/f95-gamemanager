@@ -25,6 +25,7 @@ import CatalogPageTurn, {
 import { selectTagsForQuery } from '../lib/favorites'
 import { ClearIcon, FilterIcon, HateIcon, PagerIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
+import ToolbarSearch from '../components/ToolbarSearch'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type CatalogViewProps = {
@@ -487,10 +488,9 @@ export default function CatalogPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <input
-          className="toolbar-search"
+        <ToolbarSearch
           value={searchInput}
-          onChange={(event) => setSearchInput(event.target.value)}
+          onChange={setSearchInput}
           placeholder="Search games"
         />
         <SelectMenu

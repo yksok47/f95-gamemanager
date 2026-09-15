@@ -4,6 +4,7 @@ import type {
   AuthSession,
   CatalogFilters,
   CatalogGame,
+  CatalogLookupQuery,
   CatalogPage,
   CatalogQuery,
   DownloadRecord,
@@ -55,7 +56,9 @@ const api = {
   catalog: {
     list: (query: CatalogQuery = {}): Promise<CatalogPage> =>
       ipcRenderer.invoke('catalog:list', query),
-    filters: (): Promise<CatalogFilters> => ipcRenderer.invoke('catalog:filters')
+    filters: (): Promise<CatalogFilters> => ipcRenderer.invoke('catalog:filters'),
+    lookup: (query: CatalogLookupQuery): Promise<CatalogGame | null> =>
+      ipcRenderer.invoke('catalog:lookup', query)
   },
   subscriptions: {
     list: (): Promise<Subscription[]> => ipcRenderer.invoke('subscriptions:list'),

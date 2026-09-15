@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import type {
   AppSettings,
   CatalogGame,
+  CatalogLookupQuery,
   CatalogQuery,
   GameFileContext,
   GameRarity,
@@ -29,6 +30,7 @@ import { F95Error } from './f95/http'
 import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importWatchedThreads } from './f95/import'
+import { lookupCatalogGame } from './f95/lookup'
 import { fetchThreadDetails, fetchThreadReviews } from './f95/thread'
 import {
   applyThreadMetadata,
@@ -202,6 +204,27 @@ export function registerIpc(): void {
   ipcMain.handle('catalog:filters', async () => {
     try {
       return await fetchCatalogFilters()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('catalog:lookup', async (_event, query: CatalogLookupQuery) => {
+    try {
+      const threadId = Number(query?.threadId)
+      const title = String(query?.title || '')
+      const creator = typeof query?.creator === 'string' ? query.creator : undefined
+      if (!Number.isFinite(threadId) || threadId <= 0) return null
+      const game = await lookupCatalogGame(threadId, title, creator)
+      if (game) {
+        void applyCatalogGames([game]).catch((error) =>
+          console.warn('Could not refresh followed game from catalog lookup', error)
+        )
+        void applyLibraryCatalogScreens([game]).catch((error) =>
+          console.warn('Could not store library preview screens from catalog lookup', error)
+        )
+      }
+      return game
     } catch (error) {
       throw toIpcError(error)
     }

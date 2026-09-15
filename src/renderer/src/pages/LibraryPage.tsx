@@ -7,6 +7,7 @@ import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
 import { HateIcon, HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
+import ToolbarSearch from '../components/ToolbarSearch'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import {
@@ -165,12 +166,7 @@ export default function LibraryPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <input
-          className="toolbar-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Filter library"
-        />
+        <ToolbarSearch value={query} onChange={setQuery} placeholder="Filter library" />
         <SelectMenu
           value={sort}
           options={SORTS}

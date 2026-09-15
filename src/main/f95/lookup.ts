@@ -2,6 +2,7 @@ import { load } from "cheerio";
 import { parseCountText, saneLikeCount, saneViewCount } from "@shared/counts";
 import type { CatalogGame } from "@shared/types";
 import { fetchCatalog } from "./catalog";
+import { catalogLookupAttempts } from "./catalog-lookup-attempts";
 import { f95Fetch } from "./http";
 import { parseGameTitle } from "./parse";
 
@@ -96,10 +97,6 @@ export function isWeakCover(url: string | null | undefined): boolean {
   );
 }
 
-function firstWords(text: string, count: number): string {
-  return text.split(/\s+/).filter(Boolean).slice(0, count).join(" ");
-}
-
 function absolutize(url: string | undefined | null): string | null {
   if (!url) return null;
   try {
@@ -192,28 +189,17 @@ async function scrapeThread(threadId: number): Promise<GameDetails | null> {
   };
 }
 
-async function findInCatalog(
+export async function lookupCatalogGame(
   threadId: number,
   title: string,
   creator?: string,
 ): Promise<CatalogGame | null> {
-  const parsed = parseGameTitle(title);
-  const needles = [
-    ...new Set(
-      [
-        parsed.title,
-        firstWords(parsed.title, 4),
-        firstWords(parsed.title, 2),
-      ].filter((needle) => needle.length >= 2),
-    ),
-  ];
-
-  for (const needle of needles) {
+  for (const attempt of catalogLookupAttempts(title, creator)) {
     try {
       const page = await fetchCatalog({
-        search: needle,
-        creator: creator?.trim() || undefined,
-        rows: 20,
+        search: attempt.search,
+        creator: attempt.creator,
+        rows: 90,
         page: 1,
       });
       const match = page.games.find((game) => game.threadId === threadId);
@@ -230,27 +216,16 @@ export async function lookupGame(
   title: string,
   creator?: string,
 ): Promise<GameDetails | null> {
-  const parsed = parseGameTitle(title);
-  const catalogHit = await findInCatalog(threadId, parsed.title);
+  const catalogHit = await lookupCatalogGame(threadId, title, creator);
   if (catalogHit) return detailsFromCatalog(catalogHit);
-
-  const creatorHint = parsed.creator || creator;
-  if (creatorHint?.trim()) {
-    const withCreator = await findInCatalog(
-      threadId,
-      parsed.title,
-      creatorHint,
-    );
-    if (withCreator) return detailsFromCatalog(withCreator);
-  }
 
   try {
     const scraped = await scrapeThread(threadId);
     if (!scraped) return null;
-    const retry = await findInCatalog(
+    const retry = await lookupCatalogGame(
       threadId,
-      scraped.title || parsed.title,
-      scraped.creator || creatorHint,
+      scraped.title || title,
+      scraped.creator || creator,
     );
     if (retry) return detailsFromCatalog(retry);
     return scraped;

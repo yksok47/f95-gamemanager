@@ -169,10 +169,61 @@ button {
   padding-right: 26px;
 }
 
-.toolbar-search {
+.toolbar-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 120px;
   max-width: 280px;
+}
+
+.toolbar-search-wrap .toolbar-search {
+  width: 100%;
+  max-width: none;
+}
+
+.tag-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.tag-search-wrap .tag-search {
+  width: 100%;
+}
+
+.toolbar-search-wrap.has-clear .toolbar-search,
+.tag-search-wrap.has-clear .tag-search {
+  padding-right: 28px;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.search-clear-btn svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.search-clear-btn:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
 }
 
 .toolbar-select {
@@ -583,17 +634,20 @@ button {
 }
 
 .follow-btn-compact {
+  flex-direction: row-reverse;
   gap: 0;
   border-radius: 999px;
   padding: 6px;
   overflow: hidden;
-  background: rgba(18, 20, 26, 0.82);
+  background: rgba(18, 20, 26, 0.28);
+  color: rgba(154, 163, 184, 0.55);
   font-size: 0.78rem;
 }
 
 .follow-btn-compact:hover {
-  padding-right: 10px;
-  transform: scale(1.04);
+  padding-left: 10px;
+  background: rgba(18, 20, 26, 0.82);
+  color: var(--text);
 }
 
 .follow-btn-compact .follow-label {
@@ -601,7 +655,7 @@ button {
   opacity: 0;
   overflow: hidden;
   white-space: nowrap;
-  margin-left: 0;
+  margin-right: 0;
   transition:
     max-width 0.2s ease,
     opacity 0.15s ease,
@@ -611,7 +665,7 @@ button {
 .follow-btn-compact:hover .follow-label {
   max-width: 5.5rem;
   opacity: 1;
-  margin-left: 6px;
+  margin-right: 6px;
 }
 
 .follow-btn-modal {
@@ -675,11 +729,30 @@ button {
   grid-area: 1 / 1;
   display: grid;
   place-items: center;
-  transition: opacity 0.15s ease;
+  transform-origin: center;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease;
+}
+
+.follow-icon-default {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
 }
 
 .follow-icon-hover {
   opacity: 0;
+  transform: scale(0.65) rotate(-12deg);
+}
+
+.follow-btn:hover .follow-icon-default {
+  opacity: 0;
+  transform: scale(0.65) rotate(12deg);
+}
+
+.follow-btn:hover .follow-icon-hover {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
 }
 
 .follow-label {
@@ -708,12 +781,13 @@ button {
 }
 
 .follow-btn-on {
-  background: var(--accent);
-  color: #1a1406;
+  color: var(--accent);
 }
 
 .follow-btn-compact.follow-btn-on {
   border: 0;
+  background: rgba(18, 20, 26, 0.82);
+  color: var(--accent);
 }
 
 .follow-btn-modal.follow-btn-on {
@@ -726,22 +800,18 @@ button {
 }
 
 .follow-btn-on:hover {
-  background: var(--danger);
-  color: #fff;
+  color: var(--danger);
+}
+
+.follow-btn-compact.follow-btn-on:hover {
+  background: rgba(18, 20, 26, 0.82);
+  color: var(--danger);
 }
 
 .follow-btn-modal.follow-btn-on:hover {
   border-color: color-mix(in srgb, var(--danger) 55%, transparent);
   background: color-mix(in srgb, var(--danger) 90%, #1a1406);
   color: #fff;
-}
-
-.follow-btn-on:hover .follow-icon-default {
-  opacity: 0;
-}
-
-.follow-btn-on:hover .follow-icon-hover {
-  opacity: 1;
 }
 
 .card-menu {
@@ -1201,7 +1271,8 @@ button {
   gap: 8px;
 }
 
-.tag-browser-wrap .tag-search {
+.tag-browser-wrap .tag-search,
+.tag-browser-wrap .tag-search-wrap {
   width: 100%;
   max-width: none;
 }
@@ -1732,6 +1803,21 @@ button {
   font-size: 0.7rem;
 }
 
+.card-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.card-update-btn {
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
 .cover-wrap {
   position: relative;
   aspect-ratio: 16 / 9;
@@ -2085,7 +2171,8 @@ button {
 
 .game-card.is-previewing .follow-btn,
 .game-card.is-previewing .library-badge,
-.game-card.is-previewing .cover-bl {
+.game-card.is-previewing .cover-bl,
+.game-card.is-previewing .card-update-actions {
   visibility: hidden;
 }
 
@@ -2865,6 +2952,31 @@ button.details-pill {
   gap: 4px;
 }
 
+.details-checked-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.details-checked-refresh:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.details-checked-refresh svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+}
+
 .details-transfers {
   display: grid;
   gap: 8px;
@@ -3620,23 +3732,25 @@ body.is-details-modal-dragging .details-modal-shell * {
 .lightbox {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 90;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  background: rgba(8, 10, 14, 0.86);
-  padding: 24px 32px 20px;
+  align-items: stretch;
+  gap: 10px;
+  background: rgba(8, 10, 14, 0.92);
+  padding: 10px 12px 12px;
+  overflow: hidden;
 }
 
 .lightbox-stage {
   position: relative;
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   width: 100%;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   touch-action: pan-y;
   user-select: none;
   cursor: grab;
@@ -3647,10 +3761,12 @@ body.is-details-modal-dragging .details-modal-shell * {
 }
 
 .lightbox-stage img {
-  max-width: min(92vw, 1200px);
-  max-height: calc(100vh - 168px);
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
-  border-radius: 10px;
+  border-radius: 8px;
   will-change: transform;
 }
 
@@ -3670,17 +3786,19 @@ body.is-details-modal-dragging .details-modal-shell * {
 }
 
 .lightbox-prev {
-  left: 18px;
+  left: 12px;
 }
 
 .lightbox-next {
-  right: 18px;
+  right: 12px;
 }
 
 .lightbox-thumbs {
   display: flex;
+  flex: 0 0 auto;
+  align-self: center;
   gap: 8px;
-  max-width: min(92vw, 1200px);
+  max-width: 100%;
   overflow-x: auto;
   padding: 6px;
   border-radius: 14px;
@@ -4173,6 +4291,9 @@ body.is-details-modal-dragging .details-modal-shell * {
 .renpy-tab .match-toggle,
 .about-tab .match-toggle {
   justify-self: start;
+  flex-wrap: wrap;
+  max-width: 100%;
+  border-radius: 18px;
 }
 
 .renpy-tab .match-toggle button,

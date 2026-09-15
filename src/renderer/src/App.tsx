@@ -23,13 +23,14 @@ import {
   type TorrentMapEntry
 } from '@shared/p2p'
 import FollowedPage from './pages/FollowedPage'
+import UpdatesPage from './pages/UpdatesPage'
 import LibraryPage from './pages/LibraryPage'
 import GameDetailsPage from './pages/GameDetailsPage'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
-import { mergeVersionPlayStats } from '@shared/updates'
+import { hasPendingGameUpdate, mergeVersionPlayStats } from '@shared/updates'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
@@ -84,6 +85,27 @@ function summaryFromThread(
   }
 }
 
+function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSummary {
+  return {
+    ...existing,
+    title: game.title || existing.title,
+    creator: game.creator || existing.creator,
+    version: game.version || existing.version,
+    coverUrl: game.coverUrl || existing.coverUrl,
+    rating: game.rating || existing.rating,
+    likes: game.likes || existing.likes,
+    views: game.views || existing.views,
+    threadUrl: game.threadUrl || existing.threadUrl,
+    updatedAt: game.updatedAt || existing.updatedAt,
+    timestamp: game.timestamp || existing.timestamp,
+    prefixes: game.prefixes?.length ? game.prefixes : existing.prefixes,
+    tags: game.tags?.length ? game.tags : existing.tags,
+    engine: game.engine || existing.engine,
+    screens: game.screens?.length ? game.screens : existing.screens,
+    checkedAt: Date.now()
+  }
+}
+
 export default function App(): JSX.Element {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [busy, setBusy] = useState(false)
@@ -122,6 +144,18 @@ export default function App(): JSX.Element {
   const uploadCount = p2pEnabled ? p2pShared.length : 0
   const libraryByThread = useLibraryByThread()
   const libraryCount = libraryByThread.size
+  const updatesCount = useMemo(
+    () =>
+      subscriptions.filter((game) =>
+        hasPendingGameUpdate({
+          latestVersion: game.version,
+          installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
+          lastPlayedVersion: game.lastPlayedVersion,
+          playedVersions: game.playedVersions
+        })
+      ).length,
+    [subscriptions, libraryByThread]
+  )
 
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
@@ -377,6 +411,16 @@ export default function App(): JSX.Element {
     setActiveThreadId(game.threadId)
   }, [])
 
+  const applyCatalogToDetails = useCallback((game: CatalogGame) => {
+    setDetailsWindows((windows) => {
+      const index = windows.findIndex((item) => item.threadId === game.threadId)
+      if (index === -1) return windows
+      const next = windows.slice()
+      next[index] = mergeCatalogSummary(next[index], game)
+      return next
+    })
+  }, [])
+
   const closeDetailsWindow = useCallback((threadId: number) => {
     setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
     setActiveThreadId((current) => (current === threadId ? null : current))
@@ -435,6 +479,7 @@ export default function App(): JSX.Element {
         username={session.username}
         userId={session.userId}
         followedCount={subscriptions.length}
+        updatesCount={updatesCount}
         libraryCount={libraryCount}
         downloadCount={activeDownloadCount}
         uploadCount={uploadCount}
@@ -512,6 +557,16 @@ export default function App(): JSX.Element {
           onImported={loadSubscriptions}
           onSessionExpired={handleSessionExpired}
         />
+      ) : view === 'updates' ? (
+        <UpdatesPage
+          games={subscriptions}
+          favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
+          onRemove={handleRemove}
+          onOpen={(game) => openDetailsWindow(toSummary(game))}
+          onImported={loadSubscriptions}
+          onSessionExpired={handleSessionExpired}
+        />
       ) : view === 'library' ? (
         <LibraryPage
           subscriptions={subscriptions}
@@ -550,7 +605,8 @@ export default function App(): JSX.Element {
               detailsFollowed?.playedVersions,
               details.playedVersions
             ),
-            checkedAt: detailsFollowed?.checkedAt ?? details.checkedAt,
+            checkedAt:
+              Math.max(detailsFollowed?.checkedAt || 0, details.checkedAt || 0) || undefined,
             screens: detailsFollowed?.screens?.length ? detailsFollowed.screens : details.screens
           }}
           subscribed={followedIds.has(details.threadId)}
@@ -563,6 +619,7 @@ export default function App(): JSX.Element {
             if (threadId === details.threadId) return
             openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
           }}
+          onApplyCatalogGame={applyCatalogToDetails}
           onToggleFollow={handleToggleFollow}
           onSetRarity={handleSetRarity}
           onSessionExpired={handleSessionExpired}

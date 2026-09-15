@@ -138,9 +138,18 @@ function isDownloadsMarker(raw: string): boolean {
   return /^(downloads?|download links?|download here|download now|mirrors?|links?)$/i.test(text)
 }
 
+function hasPlatformToken(raw: string): boolean {
+  return tokenizeLabel(raw).some((token) => PLATFORM_TOKENS.has(token))
+}
+
 function opensDownloadArea(raw: string): boolean {
   const text = labelText(raw)
-  return isDownloadsMarker(text) || /^downloads?\b|^download links?\b/i.test(text)
+  if (isDownloadsMarker(text) || /^downloads?\b|^download links?\b/i.test(text)) return true
+  if (!text || text.length > 80 || isMetaFieldLabel(text) || isDecorationLabel(text)) return false
+  const section = classifySection(text)
+  if (section && section !== 'downloads') return false
+  // Platform line next to mirrors, even when the post never wrote DOWNLOAD.
+  return hasPlatformToken(text)
 }
 
 function isDecorationLabel(text: string): boolean {
@@ -359,7 +368,10 @@ function scanPostImages($: CheerioAPI, root: Cheerio<AnyNode>): { all: string[];
         continue
       }
 
-      if (el.is('a[href]') && isDownloadUrl(absolutize(el.attr('href')) || '')) continue
+      if (el.is('a[href]') && isDownloadUrl(absolutize(el.attr('href')) || '')) {
+        if (!isNonGalleryLabel(lastLabel)) pastDownloads = true
+        continue
+      }
 
       if (el.is('.bbCodeSpoiler')) {
         const title = spoilerTitle($, node as Element)

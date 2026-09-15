@@ -94,6 +94,10 @@ function isDownloadsMarker(raw: string): boolean {
   return /^(downloads?|download links?|download here|download now|mirrors?|links?)$/i.test(text)
 }
 
+function hasPlatformToken(raw: string): boolean {
+  return tokenizeLabel(raw).some((token) => PLATFORM_TOKENS.has(token))
+}
+
 function opensDownloadArea(raw: string): boolean {
   const text = labelText(raw)
   if (isDownloadsMarker(text) || /^download links?\b/i.test(text)) return true
@@ -201,30 +205,80 @@ function contentAfter(
   return nodes
 }
 
-function findDownloadsMarker($: CheerioAPI, root: Cheerio<AnyNode>): AnyNode | null {
-  let found: AnyNode | null = null
+function nodeHasDownloadLinks($: CheerioAPI, node: AnyNode): boolean {
+  const el = $(node)
+  const parent = el.parent()
+  const scope = parent.length ? parent : el
+  return scope.find('a[href]').toArray().some((item) => isDownloadUrl($(item).attr('href') || ''))
+}
 
-  function walk(list: AnyNode[]): void {
+function isImplicitDownloadHeading(raw: string): boolean {
+  const text = labelText(raw)
+  if (!text || text.length > 80) return false
+  if (isMetaFieldLabel(text) || isForeignSectionLabel(text)) return false
+  // Bare "Win/Linux" / "Mac", or a release line that still names a platform
+  // ("Final Mix Win/Linux", "Chapter 5 Win/Linux") sitting next to hoster links.
+  return hasPlatformToken(text)
+}
+
+function previousContentSibling(node: AnyNode): AnyNode | null {
+  let sibling = node.prev
+  while (sibling) {
+    if (sibling.type === 'text' && !normalize(sibling.data || '')) {
+      sibling = sibling.prev
+      continue
+    }
+    if (sibling.type === 'tag' && (sibling as { name?: string }).name === 'br') {
+      sibling = sibling.prev
+      continue
+    }
+    return sibling
+  }
+  return null
+}
+
+/** Prefer a release title immediately above the first platform+mirrors line. */
+function expandImplicitMarker($: CheerioAPI, marker: AnyNode): AnyNode {
+  const previous = previousContentSibling(marker)
+  if (!previous) return marker
+  const label = sectionLabel($, previous)
+  if (!label || isForeignSectionLabel(label) || hasPlatformToken(label) || isDownloadGroupTitle(label)) {
+    return marker
+  }
+  return previous
+}
+
+function findDownloadsMarker($: CheerioAPI, root: Cheerio<AnyNode>): AnyNode | null {
+  let explicit: AnyNode | null = null
+  let implicit: AnyNode | null = null
+
+  function walk(list: AnyNode[], inSpoiler: boolean): void {
     for (const node of list) {
-      if (found) return
+      if (explicit) return
       if (node.type === 'text') {
         // Bare text only when it is exactly a downloads header — not "Download Google Keyboard".
-        if (isDownloadsMarker(normalize(node.data || ''))) found = node
+        if (isDownloadsMarker(normalize(node.data || ''))) explicit = node
         continue
       }
       if (node.type !== 'tag') continue
       const el = $(node)
       if (el.is('.bbCodeSpoiler-button, a, img')) continue
-      if (el.is(LABEL_SELECTOR) && opensDownloadArea(elementText(el))) {
-        found = node
-        continue
+      if (el.is(LABEL_SELECTOR)) {
+        const text = elementText(el)
+        if (opensDownloadArea(text)) {
+          explicit = node
+          continue
+        }
+        if (!implicit && !inSpoiler && isImplicitDownloadHeading(text) && nodeHasDownloadLinks($, node)) {
+          implicit = expandImplicitMarker($, node)
+        }
       }
-      walk(node.children ?? [])
+      walk(node.children ?? [], inSpoiler || el.is('.bbCodeSpoiler'))
     }
   }
 
-  walk(root.contents().toArray())
-  return found
+  walk(root.contents().toArray(), false)
+  return explicit || implicit
 }
 
 /** Prefer a real element so serialization includes the DOWNLOAD header markup. */

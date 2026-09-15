@@ -23,6 +23,12 @@ export type CatalogQuery = {
   creator?: string
 }
 
+export type CatalogLookupQuery = {
+  threadId: number
+  title: string
+  creator?: string
+}
+
 export type CatalogGame = {
   threadId: number
   title: string
