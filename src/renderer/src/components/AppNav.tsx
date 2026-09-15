@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
-import { FullscreenIcon } from './ToolbarIcons'
+import { DownloadIcon, FullscreenIcon, UploadIcon } from './ToolbarIcons'
 
-export type AppView = 'catalog' | 'followed' | 'updates' | 'library' | 'downloads' | 'uploads' | 'settings'
+export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'downloads' | 'uploads' | 'settings'
 
 type AppNavProps = {
   view: AppView
@@ -12,6 +12,7 @@ type AppNavProps = {
   userId: string | null
   followedCount: number
   updatesCount: number
+  rosterCount: number
   libraryCount: number
   downloadCount: number
   uploadCount?: number
@@ -41,6 +42,7 @@ export default function AppNav({
   userId,
   followedCount,
   updatesCount,
+  rosterCount,
   libraryCount,
   downloadCount,
   uploadCount = 0,
@@ -84,31 +86,44 @@ export default function AppNav({
           Updates{updatesCount ? ` (${updatesCount})` : ''}
         </button>
         <button
+          className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+          type="button"
+          onClick={() => onViewChange('roster')}
+        >
+          Roster{rosterCount ? ` (${rosterCount})` : ''}
+        </button>
+        <button
           className={view === 'library' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
           onClick={() => onViewChange('library')}
         >
           Library{libraryCount ? ` (${libraryCount})` : ''}
         </button>
-        <button
-          className={view === 'downloads' ? 'nav-btn nav-btn-active' : 'nav-btn'}
-          type="button"
-          onClick={() => onViewChange('downloads')}
-        >
-          Downloads{downloadCount ? ` (${downloadCount})` : ''}
-        </button>
-        {showUploads ? (
-          <button
-            className={view === 'uploads' ? 'nav-btn nav-btn-active' : 'nav-btn'}
-            type="button"
-            onClick={() => onViewChange('uploads')}
-          >
-            Uploads{uploadCount ? ` (${uploadCount})` : ''}
-          </button>
-        ) : null}
       </div>
       <ToolbarSlot />
       <div className="app-nav-user">
+        <button
+          className={view === 'downloads' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          title="Downloads"
+          aria-label={downloadCount ? `Downloads (${downloadCount})` : 'Downloads'}
+          onClick={() => onViewChange('downloads')}
+        >
+          <DownloadIcon />
+          {downloadCount ? <span className="icon-btn-badge">{downloadCount}</span> : null}
+        </button>
+        {showUploads ? (
+          <button
+            className={view === 'uploads' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+            type="button"
+            title="Uploads"
+            aria-label={uploadCount ? `Uploads (${uploadCount})` : 'Uploads'}
+            onClick={() => onViewChange('uploads')}
+          >
+            <UploadIcon />
+            {uploadCount ? <span className="icon-btn-badge">{uploadCount}</span> : null}
+          </button>
+        ) : null}
         <button
           className={fullscreen ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"

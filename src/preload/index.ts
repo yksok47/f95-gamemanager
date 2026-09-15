@@ -18,6 +18,7 @@ import type {
   RenpyStatus,
   RenpyToolId,
   RpgMakerInfo,
+  RosterGame,
   Subscription,
   ThreadDetails,
   ThreadReviewsPage,
@@ -101,6 +102,18 @@ const api = {
     details: (threadId: number): Promise<ThreadDetails> => ipcRenderer.invoke('threads:details', threadId),
     reviews: (threadId: number, page = 1): Promise<ThreadReviewsPage> =>
       ipcRenderer.invoke('threads:reviews', threadId, page)
+  },
+  roster: {
+    list: (): Promise<RosterGame[]> => ipcRenderer.invoke('roster:list'),
+    toggle: (game: CatalogGame): Promise<RosterGame[]> => ipcRenderer.invoke('roster:toggle', game),
+    remove: (threadId: number): Promise<RosterGame[]> => ipcRenderer.invoke('roster:remove', threadId),
+    onChange: (listener: (items: RosterGame[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: RosterGame[]): void => listener(items)
+      ipcRenderer.on('roster:changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('roster:changed', wrapped)
+      }
+    }
   },
   gameNotes: {
     get: (threadId: number): Promise<string> => ipcRenderer.invoke('gameNotes:get', threadId),
@@ -192,6 +205,8 @@ const api = {
       ipcRenderer.invoke('renpy:setTool', fileId, tool, enabled),
     setAllOptions: (fileId: string, enabled: boolean): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:setAllOptions', fileId, enabled),
+    setOptionsGlobal: (fileId: string, enabled: boolean): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:setOptionsGlobal', fileId, enabled),
     openSaves: (fileId: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:openSaves', fileId, title),
     chooseSaveDirectory: (fileId: string, title = ''): Promise<RenpyInfo> =>

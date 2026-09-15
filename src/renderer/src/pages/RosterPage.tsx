@@ -1,5 +1,12 @@
 import { useMemo, useState, type JSX } from 'react'
-import type { CatalogGame, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
+import type {
+  CatalogGame,
+  FavoriteTag,
+  HatedTag,
+  GameRarity,
+  RosterGame,
+  Subscription
+} from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
@@ -11,19 +18,13 @@ import ToolbarSearch from '../components/ToolbarSearch'
 import { toCatalogGame } from '../lib/catalog-game'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
-import {
-  groupLibraryGames,
-  summarizeLibrary,
-  useLibraryFiles,
-  usePlaySessions,
-  type LibraryGame
-} from '../lib/library'
+import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
-type LibrarySort = 'title' | 'played' | 'added' | 'rating' | 'likes' | 'views'
+type RosterSort = 'added' | 'title' | 'date' | 'rating' | 'likes' | 'views'
 
-const SORTS: Array<{ value: LibrarySort; label: string }> = [
-  { value: 'played', label: 'Last played' },
+const SORTS: Array<{ value: RosterSort; label: string }> = [
   { value: 'added', label: 'Added' },
+  { value: 'date', label: 'Updated' },
   { value: 'title', label: 'Name' },
   { value: 'rating', label: 'Rating' },
   { value: 'likes', label: 'Likes' },
@@ -32,25 +33,25 @@ const SORTS: Array<{ value: LibrarySort; label: string }> = [
 
 const EAGER_CARDS = 18
 
-type LibraryPageProps = {
+type RosterPageProps = {
+  games: RosterGame[]
   subscriptions: Subscription[]
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
   rarityById: Map<number, GameRarity>
-  rosterIds: Set<number>
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onToggleRoster: (game: CatalogGame) => Promise<void>
-  onOpen: (game: LibraryGame) => void
+  onOpen: (game: RosterGame) => void
   onSessionExpired: () => Promise<void>
 }
 
-function matchesQuery(game: LibraryGame, query: string): boolean {
+function matchesQuery(game: RosterGame, query: string): boolean {
   if (!query) return true
   const haystack = `${game.title} ${game.creator} ${game.version}`.toLowerCase()
   return haystack.includes(query)
 }
 
-function compareGames(a: LibraryGame, b: LibraryGame, sort: LibrarySort, descending: boolean): number {
+function compareGames(a: RosterGame, b: RosterGame, sort: RosterSort, descending: boolean): number {
   let result = 0
   if (sort === 'title') {
     result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
@@ -61,43 +62,75 @@ function compareGames(a: LibraryGame, b: LibraryGame, sort: LibrarySort, descend
     result = (a.likes || 0) - (b.likes || 0)
   } else if (sort === 'views') {
     result = (a.views || 0) - (b.views || 0)
-  } else if (sort === 'played') {
-    result = (a.lastPlayedAt || 0) - (b.lastPlayedAt || 0)
-    if (!result) result = a.downloadedAt - b.downloadedAt
+  } else if (sort === 'date') {
+    result = (a.timestamp || 0) - (b.timestamp || 0)
   } else {
-    result = a.downloadedAt - b.downloadedAt
+    result = a.addedAt - b.addedAt
   }
-  if (!result) result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+  if (!result) result = b.addedAt - a.addedAt
   return descending ? -result : result
 }
 
-export default function LibraryPage({
+function overlayRosterGame(entry: RosterGame, followed?: Subscription): RosterGame & {
+  lastPlayedVersion?: string
+  lastPlayedAt?: number
+  playtimeMs?: number
+  playedVersions?: Subscription['playedVersions']
+  rarity?: GameRarity
+} {
+  if (!followed) return entry
+  return {
+    ...entry,
+    title: followed.title || entry.title,
+    creator: followed.creator || entry.creator,
+    version: followed.version || entry.version,
+    coverUrl: followed.coverUrl || entry.coverUrl,
+    rating: followed.rating || entry.rating,
+    likes: followed.likes || entry.likes,
+    views: followed.views || entry.views,
+    updatedAt: followed.updatedAt || entry.updatedAt,
+    timestamp: followed.timestamp || entry.timestamp,
+    prefixes: followed.prefixes?.length ? followed.prefixes : entry.prefixes,
+    tags: followed.tags?.length ? followed.tags : entry.tags,
+    screens: followed.screens?.length ? followed.screens : entry.screens,
+    engine: followed.engine || entry.engine,
+    lastPlayedVersion: followed.lastPlayedVersion,
+    lastPlayedAt: followed.lastPlayedAt,
+    playtimeMs: followed.playtimeMs,
+    playedVersions: followed.playedVersions,
+    rarity: followed.rarity
+  }
+}
+
+export default function RosterPage({
+  games,
   subscriptions,
   favoriteTags,
   hatedTags,
   rarityById,
-  rosterIds,
   onToggleFollow,
   onToggleRoster,
   onOpen,
   onSessionExpired
-}: LibraryPageProps): JSX.Element {
-  const files = useLibraryFiles()
+}: RosterPageProps): JSX.Element {
+  const libraryByThread = useLibraryByThread()
   const sessions = usePlaySessions()
   const prefixCatalog = useCatalogPrefixes()
   const [query, setQuery] = useState('')
-  const [sort, setSort] = useState<LibrarySort>('played')
+  const [sort, setSort] = useState<RosterSort>('added')
   const [descending, setDescending] = useState(true)
   const [hideCompleted, setHideCompleted] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [hatedActive, setHatedActive] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const followedIds = useMemo(
-    () => new Set(subscriptions.map((game) => game.threadId)),
+  const followedById = useMemo(
+    () => new Map(subscriptions.map((game) => [game.threadId, game])),
     [subscriptions]
   )
-  const libraryByThread = useMemo(() => summarizeLibrary(files), [files])
-  const games = useMemo(() => groupLibraryGames(files, subscriptions), [files, subscriptions])
+  const presented = useMemo(
+    () => games.map((game) => overlayRosterGame(game, followedById.get(game.threadId))),
+    [games, followedById]
+  )
   const needle = query.trim().toLowerCase()
   const playingByThread = useMemo(() => {
     const ids = new Set<number>()
@@ -106,7 +139,7 @@ export default function LibraryPage({
   }, [sessions])
   const visible = useMemo(
     () =>
-      games
+      presented
         .filter((game) => matchesQuery(game, needle))
         .filter((game) => {
           if (hideCompleted && isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog))) {
@@ -117,10 +150,21 @@ export default function LibraryPage({
           return true
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, hatedActive, hatedTags, prefixCatalog]
+    [
+      presented,
+      needle,
+      sort,
+      descending,
+      hideCompleted,
+      favoritesOnly,
+      favoriteTags,
+      hatedActive,
+      hatedTags,
+      prefixCatalog
+    ]
   )
 
-  async function playThread(game: LibraryGame): Promise<void> {
+  async function playThread(game: RosterGame): Promise<void> {
     setError(null)
     try {
       await window.api.library.playLatest(game.threadId, game.engine)
@@ -150,11 +194,11 @@ export default function LibraryPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <ToolbarSearch value={query} onChange={setQuery} placeholder="Filter library" />
+        <ToolbarSearch value={query} onChange={setQuery} placeholder="Filter roster" />
         <SelectMenu
           value={sort}
           options={SORTS}
-          ariaLabel="Sort library"
+          ariaLabel="Sort roster"
           onChange={(next) => {
             setSort(next)
             setDescending(next !== 'title')
@@ -237,7 +281,7 @@ export default function LibraryPage({
         <span className="muted pager-label">
           {needle || hideCompleted || favoritesOnly || hatedActive
             ? `${visible.length}/${games.length}`
-            : `${games.length} in library`}
+            : `${games.length} on roster`}
         </span>
       </FooterPortal>
 
@@ -245,29 +289,29 @@ export default function LibraryPage({
 
       {games.length === 0 ? (
         <div className="empty-state">
-          Nothing in the library yet. Download or install a game from a thread and it will show up
-          here, even if you are not following it.
+          Nothing on the roster yet. Use Add to roster on any game tile, including catalog games you
+          are not following.
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
           {favoritesOnly && !needle
-            ? 'No library games match your favorite tags.'
+            ? 'No roster games match your favorite tags.'
             : hatedActive && !needle
-              ? 'No library games remain after hiding hated tags.'
-              : 'No library games match that filter.'}
+              ? 'No roster games remain after hiding hated tags.'
+              : 'No roster games match that filter.'}
         </div>
       ) : (
         <div className="catalog-grid">
           {visible.map((game, index) => {
-            const subscribed = followedIds.has(game.threadId)
+            const catalog = toCatalogGame(game)
             return (
               <LazyMount key={game.threadId} eager={index < EAGER_CARDS}>
                 <GameCard
-                  game={{ ...game, rarity: rarityById.get(game.threadId) }}
-                  subscribed={subscribed}
+                  game={{ ...game, rarity: rarityById.get(game.threadId) ?? game.rarity }}
+                  subscribed={followedById.has(game.threadId)}
                   favoriteTags={favoriteTags}
                   hatedTags={hatedTags}
-                  onToggle={() => void onToggleFollow(toCatalogGame(game))}
+                  onToggle={() => void onToggleFollow(catalog)}
                   onOpen={() => onOpen(game)}
                   onPlay={
                     libraryByThread.get(game.threadId)?.isInstalled
@@ -283,8 +327,8 @@ export default function LibraryPage({
                   playing={playingByThread.has(game.threadId)}
                   prefixCatalog={prefixCatalog}
                   coverEager={index < EAGER_CARDS}
-                  inRoster={rosterIds.has(game.threadId)}
-                  onToggleRoster={() => onToggleRoster(toCatalogGame(game))}
+                  inRoster
+                  onToggleRoster={() => onToggleRoster(catalog)}
                 />
               </LazyMount>
             )

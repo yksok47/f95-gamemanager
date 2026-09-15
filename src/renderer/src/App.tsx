@@ -6,6 +6,7 @@ import type {
   DownloadRecord,
   GameRarity,
   GameSummary,
+  RosterGame,
   Subscription
 } from '@shared/types'
 import AppNav, { type AppView } from './components/AppNav'
@@ -24,20 +25,22 @@ import {
 } from '@shared/p2p'
 import FollowedPage from './pages/FollowedPage'
 import UpdatesPage from './pages/UpdatesPage'
+import RosterPage from './pages/RosterPage'
 import LibraryPage from './pages/LibraryPage'
 import GameDetailsPage from './pages/GameDetailsPage'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
-import { hasPendingGameUpdate, mergeVersionPlayStats } from '@shared/updates'
+import { toCatalogGame } from './lib/catalog-game'
+import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
 }
 
 function toSummary(
-  game: CatalogGame | Subscription | LibraryGame,
+  game: CatalogGame | Subscription | LibraryGame | RosterGame,
   rarity?: GameRarity
 ): GameSummary {
   return {
@@ -112,6 +115,7 @@ export default function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<AppView>('catalog')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
+  const [roster, setRoster] = useState<RosterGame[]>([])
   const [settings, setSettings] = useState<AppSettings>({
     favoriteTags: [],
     hatedTags: [],
@@ -144,17 +148,21 @@ export default function App(): JSX.Element {
   const uploadCount = p2pEnabled ? p2pShared.length : 0
   const libraryByThread = useLibraryByThread()
   const libraryCount = libraryByThread.size
+  const rosterIds = useMemo(() => new Set(roster.map((game) => game.threadId)), [roster])
   const updatesCount = useMemo(
     () =>
       subscriptions.filter((game) =>
-        hasPendingGameUpdate({
-          latestVersion: game.version,
-          installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
-          lastPlayedVersion: game.lastPlayedVersion,
-          playedVersions: game.playedVersions
-        })
+        shouldListOnUpdatesPage(
+          {
+            latestVersion: game.version,
+            installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
+            lastPlayedVersion: game.lastPlayedVersion,
+            playedVersions: game.playedVersions
+          },
+          rosterIds.has(game.threadId)
+        )
       ).length,
-    [subscriptions, libraryByThread]
+    [subscriptions, libraryByThread, rosterIds]
   )
 
   const followedIds = useMemo(
@@ -177,6 +185,10 @@ export default function App(): JSX.Element {
 
   const loadSubscriptions = useCallback(async (): Promise<void> => {
     setSubscriptions(await window.api.subscriptions.list())
+  }, [])
+
+  const loadRoster = useCallback(async (): Promise<void> => {
+    setRoster(await window.api.roster.list())
   }, [])
 
   const loadSettings = useCallback(async (): Promise<void> => {
@@ -204,6 +216,10 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     return window.api.subscriptions.onChange(setSubscriptions)
+  }, [])
+
+  useEffect(() => {
+    return window.api.roster.onChange(setRoster)
   }, [])
 
   const handleCancelDownload = useCallback(async (id: string): Promise<void> => {
@@ -321,13 +337,15 @@ export default function App(): JSX.Element {
       try {
         const next = await window.api.auth.getSession()
         if (next.loggedIn) {
-          const [games, nextSettings] = await Promise.all([
+          const [games, nextSettings, nextRoster] = await Promise.all([
             window.api.subscriptions.list(),
-            window.api.settings.get()
+            window.api.settings.get(),
+            window.api.roster.list()
           ])
           if (!cancelled) {
             setSubscriptions(games)
             setSettings(nextSettings)
+            setRoster(nextRoster)
             setSession(next)
             void window.api.subscriptions.startSync().catch(() => undefined)
           }
@@ -354,7 +372,7 @@ export default function App(): JSX.Element {
     try {
       const next = await window.api.auth.login({ username, password })
       setSession(next)
-      await Promise.all([loadSubscriptions(), loadSettings()])
+      await Promise.all([loadSubscriptions(), loadSettings(), loadRoster()])
       void window.api.subscriptions.startSync().catch(() => undefined)
     } catch (err) {
       setError(errorMessage(err))
@@ -374,6 +392,7 @@ export default function App(): JSX.Element {
     const next = await window.api.auth.logout()
     setSession(next)
     setSubscriptions([])
+    setRoster([])
     setView('catalog')
     setDetailsWindows([])
     setActiveThreadId(null)
@@ -381,6 +400,7 @@ export default function App(): JSX.Element {
 
   const handleSessionExpired = useCallback(async (): Promise<void> => {
     setSubscriptions([])
+    setRoster([])
     setView('catalog')
     setDetailsWindows([])
     setActiveThreadId(null)
@@ -390,6 +410,10 @@ export default function App(): JSX.Element {
 
   const handleToggleFollow = useCallback(async (game: CatalogGame): Promise<void> => {
     setSubscriptions(await window.api.subscriptions.toggle(game))
+  }, [])
+
+  const handleToggleRoster = useCallback(async (game: CatalogGame): Promise<void> => {
+    setRoster(await window.api.roster.toggle(game))
   }, [])
 
   const handleRemove = useCallback(async (threadId: number): Promise<void> => {
@@ -480,6 +504,7 @@ export default function App(): JSX.Element {
         userId={session.userId}
         followedCount={subscriptions.length}
         updatesCount={updatesCount}
+        rosterCount={roster.length}
         libraryCount={libraryCount}
         downloadCount={activeDownloadCount}
         uploadCount={uploadCount}
@@ -507,7 +532,9 @@ export default function App(): JSX.Element {
           rarityById={rarityById}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
+          rosterIds={rosterIds}
           onToggleFollow={handleToggleFollow}
+          onToggleRoster={handleToggleRoster}
           onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />
@@ -552,7 +579,9 @@ export default function App(): JSX.Element {
           games={subscriptions}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
+          rosterIds={rosterIds}
           onRemove={handleRemove}
+          onToggleRoster={(game) => handleToggleRoster(toCatalogGame(game))}
           onOpen={(game) => openDetailsWindow(toSummary(game))}
           onImported={loadSubscriptions}
           onSessionExpired={handleSessionExpired}
@@ -562,9 +591,23 @@ export default function App(): JSX.Element {
           games={subscriptions}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
+          rosterIds={rosterIds}
           onRemove={handleRemove}
+          onToggleRoster={(game) => handleToggleRoster(toCatalogGame(game))}
           onOpen={(game) => openDetailsWindow(toSummary(game))}
           onImported={loadSubscriptions}
+          onSessionExpired={handleSessionExpired}
+        />
+      ) : view === 'roster' ? (
+        <RosterPage
+          games={roster}
+          subscriptions={subscriptions}
+          favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
+          rarityById={rarityById}
+          onToggleFollow={handleToggleFollow}
+          onToggleRoster={handleToggleRoster}
+          onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />
       ) : view === 'library' ? (
@@ -573,7 +616,9 @@ export default function App(): JSX.Element {
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
           rarityById={rarityById}
+          rosterIds={rosterIds}
           onToggleFollow={handleToggleFollow}
+          onToggleRoster={handleToggleRoster}
           onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />

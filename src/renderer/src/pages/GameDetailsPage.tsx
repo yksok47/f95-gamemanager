@@ -393,7 +393,7 @@ function GameDetailsPage({
   const catalogLookupGen = useRef(0)
   const [tab, setTab] = useState<DetailsTab>('overview')
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
-  const [renpyMode, setRenpyMode] = useState<RenpyMode>('unren')
+  const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
   const [lightbox, setLightbox] = useState<number | null>(null)
   const lightboxThumbRefs = useRef<Array<HTMLButtonElement | null>>([])
@@ -2269,22 +2269,22 @@ function GameDetailsPage({
             <div className="match-toggle" role="group" aria-label="Renpy tools">
               <button
                 type="button"
-                className={renpyMode === 'unren' ? 'is-active' : undefined}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setRenpyMode('unren')}
-              >
-                UnRen
-              </button>
-              <button
-                type="button"
                 className={renpyMode === 'options' ? 'is-active' : undefined}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setRenpyMode('options')}
               >
                 Options
               </button>
+              <button
+                type="button"
+                className={renpyMode === 'unren' ? 'is-active' : undefined}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setRenpyMode('unren')}
+              >
+                UnRen
+              </button>
             </div>
-            {renpyMode === 'unren' ? <UnRenPanel files={files} /> : <OptionsPanel files={files} />}
+            {renpyMode === 'options' ? <OptionsPanel files={files} /> : <UnRenPanel files={files} />}
           </div>
         ) : null}
 

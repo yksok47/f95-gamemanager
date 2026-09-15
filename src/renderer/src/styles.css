@@ -1805,9 +1805,63 @@ button {
 
 .card-update-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.game-creator-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-creator-row > .muted {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-tile-action {
+  width: 26px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ghost-btn.card-tile-action {
+  padding: 0;
+}
+
+.card-tile-action svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+.card-tile-action.is-on,
+.card-tile-action[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 22%, #1b1f2a);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.card-tile-action-busy {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: spin 0.7s linear infinite;
 }
 
 .card-update-btn {
@@ -4688,6 +4742,12 @@ body.is-save-dragging * {
 .renpy-tools {
   display: grid;
   gap: 10px;
+}
+
+.renpy-global-option {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
 .renpy-tool {

@@ -14,12 +14,21 @@ export const EMPTY_OPTIONS: Record<RenpyToolId, boolean> = {
   skip: false,
   rollback: true,
   transitions: false,
-  'after-choices': false
+  'after-choices': false,
+  fullscreen: false
 }
 
-const OPTION_IDS: RenpyToolId[] = ['console', 'quick', 'skip', 'rollback', 'transitions', 'after-choices']
+export const OPTION_IDS: RenpyToolId[] = [
+  'console',
+  'quick',
+  'skip',
+  'rollback',
+  'transitions',
+  'after-choices',
+  'fullscreen'
+]
 
-type OptionValues = Record<RenpyToolId, boolean>
+export type OptionValues = Record<RenpyToolId, boolean>
 
 function managedPath(gameDir: string): string {
   return join(gameDir, MANAGED_OPTIONS_FILE)
@@ -137,6 +146,14 @@ function parseSource(source: string): Partial<OptionValues> {
   )
   if (afterChoices != null) next['after-choices'] = afterChoices
 
+  const fullscreen = parseBool(
+    lastMatch(
+      source,
+      /(?:(?:renpy\.game\.)?(?:_preferences|preferences)\.fullscreen\s*=\s*|config\.default_fullscreen\s*=\s*|_f95gm_pref\(\s*['"]fullscreen['"]\s*,\s*)(True|False|true|false)/
+    )
+  )
+  if (fullscreen != null) next.fullscreen = fullscreen
+
   const quick = parseQuick(source)
   if (quick != null) next.quick = quick
   return next
@@ -200,6 +217,7 @@ function preferenceLines(id: RenpyToolId, enabled: boolean): string[] {
   if (id === 'skip') return [`        _f95gm_pref('skip_unseen', ${pyBool(enabled)})`]
   if (id === 'transitions') return [`        _f95gm_pref('transitions', ${enabled ? 0 : 2})`]
   if (id === 'after-choices') return [`        _f95gm_pref('skip_after_choices', ${pyBool(enabled)})`]
+  if (id === 'fullscreen') return [`        _f95gm_pref('fullscreen', ${pyBool(enabled)})`]
   return []
 }
 
@@ -382,6 +400,8 @@ function parseSavedPreferences(data: Buffer): Partial<OptionValues> {
     if (transitions?.int != null && transitions.int >= 0 && transitions.int <= 2) {
       next.transitions = transitions.int === 0
     }
+    const fullscreen = lastKeyedScalar(payload, 'fullscreen')
+    if (fullscreen?.bool != null) next.fullscreen = fullscreen.bool
   }
   return next
 }

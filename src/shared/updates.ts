@@ -357,3 +357,12 @@ export function hasPendingGameUpdate(input: Parameters<typeof gameUpdateState>[0
   if (status === 'played' || status === 'skipped') return false
   return true
 }
+
+/** Roster games stay off Updates until the user removes them without playing/skipping. */
+export function shouldListOnUpdatesPage(
+  input: Parameters<typeof gameUpdateState>[0],
+  inRoster = false
+): boolean {
+  if (inRoster) return false
+  return hasPendingGameUpdate(input)
+}

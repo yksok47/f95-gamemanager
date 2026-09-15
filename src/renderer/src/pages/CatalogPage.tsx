@@ -34,7 +34,9 @@ type CatalogViewProps = {
   rarityById: Map<number, GameRarity>
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
+  rosterIds: Set<number>
   onToggleFollow: (game: CatalogGame) => Promise<void>
+  onToggleRoster: (game: CatalogGame) => Promise<void>
   onOpen: (game: CatalogGame) => void
   onSessionExpired: () => Promise<void>
 }
@@ -65,7 +67,9 @@ export default function CatalogPage({
   rarityById,
   favoriteTags,
   hatedTags,
+  rosterIds,
   onToggleFollow,
+  onToggleRoster,
   onOpen,
   onSessionExpired
 }: CatalogViewProps): JSX.Element {
@@ -394,6 +398,8 @@ export default function CatalogPage({
                 prefixCatalog={filters.prefixes}
                 coverRetryKey={`${pageNum}-${reloadToken}`}
                 coverEager={eagerCovers || eager}
+                inRoster={rosterIds.has(game.threadId)}
+                onToggleRoster={() => onToggleRoster(game)}
               />
             </LazyMount>
           )

@@ -95,6 +95,28 @@ export function ImportIcon(): JSX.Element {
   )
 }
 
+export function DownloadIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 1.5a.75.75 0 0 1 .75.75v6.19l1.97-1.97a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.53a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.25A.75.75 0 0 1 8 1.5ZM3.5 12.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75Z"
+      />
+    </svg>
+  )
+}
+
+export function UploadIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 14.5a.75.75 0 0 1-.75-.75V7.56L5.28 9.53a.75.75 0 1 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.56v6.19A.75.75 0 0 1 8 14.5ZM3.5 3.75a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75Z"
+      />
+    </svg>
+  )
+}
+
 type PagerIconKind = 'first' | 'prev' | 'next' | 'last'
 
 const PAGER_CHEVRON = 'M5.8 2.7 11.2 8 5.8 13.3'

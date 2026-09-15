@@ -272,7 +272,14 @@ export type PlaySessionStatus = {
 
 export type UnRenAction = 'extract' | 'decompile'
 
-export type RenpyToolId = 'console' | 'quick' | 'skip' | 'rollback' | 'transitions' | 'after-choices'
+export type RenpyToolId =
+  | 'console'
+  | 'quick'
+  | 'skip'
+  | 'rollback'
+  | 'transitions'
+  | 'after-choices'
+  | 'fullscreen'
 
 export type RenpySaveKind = 'slot' | 'auto' | 'quick' | 'persistent' | 'other'
 
@@ -341,6 +348,8 @@ export type RenpyInfo = {
   savePathExists: boolean
   saveFolderBytes: number
   optionsFound: boolean
+  /** When true, option toggles follow the global Ren'Py prefs (per-game overrides locked). */
+  optionsGlobal: boolean
   tools: Record<RenpyToolId, boolean>
   saves: RenpySaveFile[]
   scripts: RenpyScriptStatus | null
@@ -430,6 +439,26 @@ export type Subscription = {
   playedVersions: VersionPlayStat[]
   checkedAt: number
   screens: string[]
+}
+
+/** Games the user currently intends to play (independent of follow). */
+export type RosterGame = {
+  threadId: number
+  title: string
+  creator: string
+  version: string
+  coverUrl: string | null
+  rating: number
+  likes: number
+  views: number
+  updatedAt: string
+  timestamp: number
+  threadUrl: string
+  prefixes: number[]
+  tags: number[]
+  screens: string[]
+  engine?: string
+  addedAt: number
 }
 
 export type ImportResult = {

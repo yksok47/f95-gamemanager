@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { gameUpdateState, hasPendingGameUpdate } from './updates'
+import { gameUpdateState, hasPendingGameUpdate, shouldListOnUpdatesPage } from './updates'
 import type { VersionPlayStat } from './types'
 
 function stat(
@@ -47,6 +47,22 @@ describe('hasPendingGameUpdate', () => {
         playedVersions: [stat('1.0', 'played', { lastPlayedAt: 1 }), stat('1.1', 'skipped')]
       })
     ).toBe(false)
+  })
+})
+
+describe('shouldListOnUpdatesPage', () => {
+  const pending = {
+    latestVersion: '1.1',
+    lastPlayedVersion: '1.0',
+    playedVersions: [stat('1.0', 'played', { lastPlayedAt: 1 })]
+  }
+
+  test('hides a pending update while the game is on the roster', () => {
+    expect(shouldListOnUpdatesPage(pending, true)).toBe(false)
+  })
+
+  test('shows the pending update again after leaving the roster unplayed', () => {
+    expect(shouldListOnUpdatesPage(pending, false)).toBe(true)
   })
 })
 

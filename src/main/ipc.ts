@@ -51,6 +51,7 @@ import {
   uninstallGameFile
 } from './game-files-store'
 import { getGameNote, setGameNote } from './game-notes-store'
+import { applyCatalogGamesToRoster, listRoster, removeFromRoster, toggleRoster } from './roster-store'
 import { listPlaySessions, stopPlaySession } from './play-sessions'
 import {
   deleteRpgMakerSaves,
@@ -69,6 +70,7 @@ import {
   renumberRenpyPage,
   runRenpyAction,
   setAllRenpyToolsForFile,
+  setRenpyOptionsGlobalForFile,
   setRenpyToolForFile,
   showRenpySave
 } from './renpy/saves'
@@ -192,6 +194,9 @@ export function registerIpc(): void {
       void applyCatalogGames(page.games, { advanceLastSeen }).catch((error) =>
         console.warn('Could not refresh followed games from catalog page', error)
       )
+      void applyCatalogGamesToRoster(page.games).catch((error) =>
+        console.warn('Could not refresh roster games from catalog page', error)
+      )
       void applyLibraryCatalogScreens(page.games).catch((error) =>
         console.warn('Could not store library preview screens', error)
       )
@@ -219,6 +224,9 @@ export function registerIpc(): void {
       if (game) {
         void applyCatalogGames([game]).catch((error) =>
           console.warn('Could not refresh followed game from catalog lookup', error)
+        )
+        void applyCatalogGamesToRoster([game]).catch((error) =>
+          console.warn('Could not refresh roster game from catalog lookup', error)
         )
         void applyLibraryCatalogScreens([game]).catch((error) =>
           console.warn('Could not store library preview screens from catalog lookup', error)
@@ -340,6 +348,30 @@ export function registerIpc(): void {
   ipcMain.handle('threads:reviews', async (_event, threadId: number, page: number) => {
     try {
       return await fetchThreadReviews(Number(threadId), Number(page) || 1)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('roster:list', async () => {
+    try {
+      return await listRoster()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('roster:toggle', async (_event, game: CatalogGame) => {
+    try {
+      return await toggleRoster(game)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('roster:remove', async (_event, threadId: number) => {
+    try {
+      return await removeFromRoster(Number(threadId))
     } catch (error) {
       throw toIpcError(error)
     }
@@ -674,6 +706,14 @@ export function registerIpc(): void {
   ipcMain.handle('renpy:setAllOptions', async (_event, id: string, enabled: boolean) => {
     try {
       return await setAllRenpyToolsForFile(String(id), Boolean(enabled))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('renpy:setOptionsGlobal', async (_event, id: string, enabled: boolean) => {
+    try {
+      return await setRenpyOptionsGlobalForFile(String(id), Boolean(enabled))
     } catch (error) {
       throw toIpcError(error)
     }

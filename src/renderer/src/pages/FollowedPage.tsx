@@ -9,7 +9,7 @@ import type {
 } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
 import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
-import { formatRelativeTime, hasPendingGameUpdate, usableVersion } from '@shared/updates'
+import { formatRelativeTime, shouldListOnUpdatesPage, usableVersion } from '@shared/updates'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
@@ -47,14 +47,18 @@ function matchesQuery(game: Subscription, query: string): boolean {
 
 function gameHasPendingUpdate(
   game: Subscription,
-  libraryByThread: Map<number, { installedVersion: string | null }>
+  libraryByThread: Map<number, { installedVersion: string | null }>,
+  rosterIds: Set<number>
 ): boolean {
-  return hasPendingGameUpdate({
-    latestVersion: game.version,
-    installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
-    lastPlayedVersion: game.lastPlayedVersion,
-    playedVersions: game.playedVersions
-  })
+  return shouldListOnUpdatesPage(
+    {
+      latestVersion: game.version,
+      installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
+      lastPlayedVersion: game.lastPlayedVersion,
+      playedVersions: game.playedVersions
+    },
+    rosterIds.has(game.threadId)
+  )
 }
 
 function compareGames(
@@ -87,7 +91,9 @@ export type FollowedPageProps = {
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
   mode?: 'followed' | 'updates'
+  rosterIds: Set<number>
   onRemove: (threadId: number) => Promise<void>
+  onToggleRoster: (game: Subscription) => Promise<void>
   onOpen: (game: Subscription) => void
   onImported: () => Promise<void>
   onSessionExpired: () => Promise<void>
@@ -108,7 +114,9 @@ export default function FollowedPage({
   favoriteTags,
   hatedTags,
   mode = 'followed',
+  rosterIds,
   onRemove,
+  onToggleRoster,
   onOpen,
   onImported,
   onSessionExpired
@@ -173,8 +181,8 @@ export default function FollowedPage({
     return ids
   }, [sessions])
   const pendingUpdates = useMemo(
-    () => games.filter((game) => gameHasPendingUpdate(game, libraryByThread)),
-    [games, libraryByThread]
+    () => games.filter((game) => gameHasPendingUpdate(game, libraryByThread, rosterIds)),
+    [games, libraryByThread, rosterIds]
   )
   const sourceCount = updatesOnly ? pendingUpdates.length : games.length
   const visible = useMemo(
@@ -188,7 +196,7 @@ export default function FollowedPage({
           if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
           if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
           if (!updatesOnly) return true
-          return gameHasPendingUpdate(game, libraryByThread)
+          return gameHasPendingUpdate(game, libraryByThread, rosterIds)
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
     [
@@ -203,6 +211,7 @@ export default function FollowedPage({
       hatedActive,
       hatedTags,
       libraryByThread,
+      rosterIds,
       prefixCatalog
     ]
   )
@@ -500,6 +509,8 @@ export default function FollowedPage({
                 playing={playingByThread.has(game.threadId)}
                 prefixCatalog={prefixCatalog}
                 coverEager={index < EAGER_CARDS}
+                inRoster={rosterIds.has(game.threadId)}
+                onToggleRoster={() => onToggleRoster(game)}
                 onMarkPlayed={
                   updatesOnly && usableVersion(game.version)
                     ? () => setLatestVersionStatus(game, 'played')

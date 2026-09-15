@@ -672,6 +672,12 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     await writeStore(files)
     installing.delete(id)
     await syncRpgMakerForFile(file, 'merge')
+    try {
+      const { ensureRenpyOptionsForLibraryFile } = await import('./renpy/options-prefs')
+      await ensureRenpyOptionsForLibraryFile(file)
+    } catch (error) {
+      console.warn('Could not apply Ren\'Py options', error)
+    }
     broadcast()
     return present(file)
   } catch (error) {

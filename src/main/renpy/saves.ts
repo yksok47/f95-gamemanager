@@ -8,7 +8,14 @@ import { findRenpyGameRoot } from '../launch'
 import { folderBytes } from '../disk-usage'
 import { listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
 import { findNamedFiles, gameDirFromRoot, scanScripts } from './scan'
-import { EMPTY_OPTIONS, readRenpyOptions, setAllRenpyOptions, setRenpyOption } from './options'
+import { EMPTY_OPTIONS, readRenpyOptions } from './options'
+import {
+  ensureDesiredOnGameDir,
+  setRenpyOptionsGlobalMode,
+  setStoredAllRenpyOptions,
+  setStoredRenpyOption
+} from './options-prefs'
+import { isRenpyOptionsGlobalEnabled } from './options-prefs-store'
 import { removeLegacyUnrenTools } from './tools'
 import { attachSaveMeta, invalidateSaveMeta } from './save-meta'
 import { matchRenpySaveFolder } from './save-folder-match'
@@ -389,6 +396,12 @@ export async function getRenpyInfo(fileId: string, prepare = false, title = ''):
   if (file) replayUnRenStatus(file.id)
   const gameDir = gameRoot ? gameDirFromRoot(gameRoot) : null
   if (gameDir) await removeLegacyUnrenTools(gameDir)
+  const threadId = file?.threadId || 0
+  const tools = threadId
+    ? await ensureDesiredOnGameDir(threadId, gameDir, savePath)
+    : gameDir
+      ? readRenpyOptions(gameDir, savePath)
+      : { ...EMPTY_OPTIONS }
 
   return {
     fileId: lookup.fileId,
@@ -398,7 +411,8 @@ export async function getRenpyInfo(fileId: string, prepare = false, title = ''):
     savePathExists: Boolean(savePath && pathExists(savePath)),
     saveFolderBytes: savePath && pathExists(savePath) ? folderBytes(savePath) : 0,
     optionsFound: Boolean(options),
-    tools: gameDir ? readRenpyOptions(gameDir, savePath) : { ...EMPTY_OPTIONS },
+    optionsGlobal: await isRenpyOptionsGlobalEnabled(),
+    tools,
     saves,
     scripts,
     lastRun: file ? getLastUnRenRun(file.id) : null,
@@ -414,16 +428,29 @@ export async function runRenpyAction(fileId: string, action: UnRenAction): Promi
 }
 
 export async function setRenpyToolForFile(fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> {
+  if (await isRenpyOptionsGlobalEnabled()) {
+    throw new Error("Per-game Ren'Py options are locked while global settings are on.")
+  }
   const file = await getGameFile(fileId)
-  const gameRoot = requireRenpyRoot(file.installPath)
-  await setRenpyOption(gameDirFromRoot(gameRoot), tool, enabled)
+  requireRenpyRoot(file.installPath)
+  const info = await getRenpyInfo(fileId, false)
+  await setStoredRenpyOption(file.threadId, info.tools, tool, enabled)
   return getRenpyInfo(fileId, false)
 }
 
 export async function setAllRenpyToolsForFile(fileId: string, enabled: boolean): Promise<RenpyInfo> {
+  if (await isRenpyOptionsGlobalEnabled()) {
+    throw new Error("Per-game Ren'Py options are locked while global settings are on.")
+  }
   const file = await getGameFile(fileId)
-  const gameRoot = requireRenpyRoot(file.installPath)
-  await setAllRenpyOptions(gameDirFromRoot(gameRoot), enabled)
+  requireRenpyRoot(file.installPath)
+  await setStoredAllRenpyOptions(file.threadId, enabled)
+  return getRenpyInfo(fileId, false)
+}
+
+export async function setRenpyOptionsGlobalForFile(fileId: string, enabled: boolean): Promise<RenpyInfo> {
+  const info = await getRenpyInfo(fileId, false)
+  await setRenpyOptionsGlobalMode(enabled, info.tools)
   return getRenpyInfo(fileId, false)
 }
 
