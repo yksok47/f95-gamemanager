@@ -88,6 +88,36 @@ function summaryFromThread(
   }
 }
 
+/** Re-opening from downloads/uploads only has threadId+title — keep catalog fields already fetched. */
+function mergeOpenSummary(existing: GameSummary, incoming: GameSummary): GameSummary {
+  const incomingTitle =
+    incoming.title && !/^Thread \d+$/i.test(incoming.title) ? incoming.title : ''
+  return {
+    ...existing,
+    ...incoming,
+    title: incomingTitle || existing.title,
+    creator: incoming.creator || existing.creator,
+    version: incoming.version || existing.version,
+    coverUrl: incoming.coverUrl || existing.coverUrl,
+    rating: incoming.rating || existing.rating,
+    likes: incoming.likes || existing.likes,
+    views: incoming.views || existing.views,
+    threadUrl: incoming.threadUrl || existing.threadUrl,
+    updatedAt: incoming.updatedAt || existing.updatedAt,
+    timestamp: incoming.timestamp || existing.timestamp,
+    prefixes: incoming.prefixes?.length ? incoming.prefixes : existing.prefixes,
+    tags: incoming.tags?.length ? incoming.tags : existing.tags,
+    engine: incoming.engine || existing.engine,
+    screens: incoming.screens?.length ? incoming.screens : existing.screens,
+    rarity: incoming.rarity ?? existing.rarity,
+    lastPlayedVersion: incoming.lastPlayedVersion || existing.lastPlayedVersion,
+    lastPlayedAt: incoming.lastPlayedAt || existing.lastPlayedAt,
+    playtimeMs: incoming.playtimeMs || existing.playtimeMs,
+    playedVersions: mergeVersionPlayStats(incoming.playedVersions, existing.playedVersions),
+    checkedAt: incoming.checkedAt || existing.checkedAt
+  }
+}
+
 function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSummary {
   return {
     ...existing,
@@ -429,7 +459,7 @@ export default function App(): JSX.Element {
       const index = windows.findIndex((item) => item.threadId === game.threadId)
       if (index === -1) return [...windows, game]
       const next = windows.slice()
-      next[index] = { ...next[index], ...game }
+      next[index] = mergeOpenSummary(next[index], game)
       return next
     })
     setActiveThreadId(game.threadId)

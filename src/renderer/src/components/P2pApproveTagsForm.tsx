@@ -12,7 +12,12 @@ import {
   type UIEvent
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { PackageConsensus, PackageInstallTags, PackageVersionWeight } from '@shared/p2p'
+import type {
+  PackageConsensus,
+  PackageInstallTags,
+  PackageMetadata,
+  PackageVersionWeight
+} from '@shared/p2p'
 import {
   CONTENT_KIND_BY_ID,
   CONTENT_KIND_IDS,
@@ -41,6 +46,8 @@ export type P2pApproveTagsFormProps = {
   onSubmit: (tags: PackageInstallTags) => void
   /** Fires when required fields become complete / incomplete so parents can disable Approve. */
   onReadyChange?: (ready: boolean) => void
+  /** Size / finished time shown on the same row as install/flag stats. */
+  statsPrefix?: string
   className?: string
 }
 
@@ -499,6 +506,47 @@ function VersionRatchet({ options, value, onPick, onCollapse }: VersionRatchetPr
   )
 }
 
+function flagCountsOf(pkg: PackageMetadata): { broken: number; harmful: number; total: number } {
+  const broken = Math.max(0, pkg.flagCounts?.broken ?? 0)
+  const harmful = Math.max(0, pkg.flagCounts?.harmful ?? 0)
+  return { broken, harmful, total: broken + harmful }
+}
+
+function trustLevel(pkg: PackageMetadata): 'good' | 'uncertain' | 'caution' | 'bad' | 'none' {
+  const installs = Math.max(0, pkg.installCount ?? 0)
+  const flags = flagCountsOf(pkg).total
+  if (flags === 0 && installs === 0) return 'none'
+  if (flags === 0) return 'good'
+  if (flags > installs) return 'bad'
+  const ratio = installs / flags
+  if (ratio >= 10) return 'good'
+  if (ratio > 2) return 'uncertain'
+  return 'caution'
+}
+
+function formatFirstRecorded(iso?: string | null): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return `First recorded ${d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
+}
+
+function installFlagLabel(pkg: PackageMetadata): string {
+  const installs = Math.max(0, pkg.installCount ?? 0)
+  const flags = flagCountsOf(pkg).total
+  const installBit = `${installs} install${installs === 1 ? '' : 's'}`
+  if (flags === 0) return `${installBit} · no flags`
+  return `${installBit} · ${flags} flag${flags === 1 ? '' : 's'}`
+}
+
+function flagDetail(pkg: PackageMetadata): string | null {
+  const { harmful, broken, total } = flagCountsOf(pkg)
+  if (total === 0) return null
+  return [harmful > 0 ? `harmful ×${harmful}` : null, broken > 0 ? `broken ×${broken}` : null]
+    .filter(Boolean)
+    .join(', ')
+}
+
 /** Inline OS / content-kind / version fields for quarantine approval (one-step, no modal). */
 export default function P2pApproveTagsForm({
   formId,
@@ -508,6 +556,7 @@ export default function P2pApproveTagsForm({
   versions: versionsProp,
   onSubmit,
   onReadyChange,
+  statsPrefix,
   className
 }: P2pApproveTagsFormProps): JSX.Element {
   const [os, setOs] = useState<number[]>([])
@@ -518,6 +567,7 @@ export default function P2pApproveTagsForm({
   const [versionOpen, setVersionOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pkgMeta, setPkgMeta] = useState<PackageMetadata | null>(null)
   const [kindOpen, setKindOpen] = useState(false)
   const [osOpen, setOsOpen] = useState(false)
   const kindAnchorRef = useRef<HTMLButtonElement>(null)
@@ -527,6 +577,7 @@ export default function P2pApproveTagsForm({
   useEffect(() => {
     let cancelled = false
     setError(null)
+    setPkgMeta(null)
     setLoading(true)
 
     const initialConsensus = consensus
@@ -562,12 +613,14 @@ export default function P2pApproveTagsForm({
       try {
         const pkg = await window.api.p2p.getPackage(hash)
         if (cancelled) return
+        setPkgMeta(pkg)
         prefill(
           pkg?.consensus ?? initialConsensus ?? linkFallback,
           pkg?.versions ?? initialVersions
         )
       } catch {
         if (!cancelled) {
+          setPkgMeta(null)
           prefill(initialConsensus ?? linkFallback, initialVersions)
           setError('Could not refresh metadata prefill')
         }
@@ -591,6 +644,10 @@ export default function P2pApproveTagsForm({
   const requiresOs = contentKind != null && contentKindRequiresOs(contentKind)
   const requiresVersion = contentKind != null && contentKindRequiresVersion(contentKind)
   const normalizedVersion = normalizeVersionInput(version)
+  const trustLevelValue = pkgMeta ? trustLevel(pkgMeta) : null
+  const trustLabel = pkgMeta ? installFlagLabel(pkgMeta) : null
+  const flagsLabel = pkgMeta ? flagDetail(pkgMeta) : null
+  const firstRecorded = pkgMeta ? formatFirstRecorded(pkgMeta.createdAt) : null
 
   const ready =
     contentKind != null &&
@@ -664,7 +721,35 @@ export default function P2pApproveTagsForm({
       className={className ? `p2p-approve-panel ${className}` : 'p2p-approve-panel'}
       onSubmit={handleSubmit}
     >
-      {loading ? <span className="muted p2p-approve-loading">Loading…</span> : null}
+      {statsPrefix || loading || (pkgMeta && trustLevelValue && trustLabel) ? (
+        <p
+          className="p2p-approve-trust"
+          aria-label={[statsPrefix, trustLabel, flagsLabel, firstRecorded].filter(Boolean).join('. ')}
+        >
+          {statsPrefix ? <span className="p2p-approve-trust-prefix">{statsPrefix}</span> : null}
+          {loading && !pkgMeta ? <span className="muted p2p-approve-loading">Loading…</span> : null}
+          {pkgMeta && trustLevelValue && trustLabel ? (
+            <>
+              <span
+                className={`p2p-trust-badge p2p-trust-${trustLevelValue}`}
+                title="Installs vs flags (unique reports)"
+              >
+                {trustLabel}
+              </span>
+              {flagsLabel ? (
+                <span className={`p2p-approve-trust-flags${trustLevelValue === 'bad' ? ' is-bad' : ''}`}>
+                  {flagsLabel}
+                </span>
+              ) : null}
+              {firstRecorded ? (
+                <span className="p2p-approve-trust-date" title={pkgMeta.createdAt}>
+                  {firstRecorded}
+                </span>
+              ) : null}
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       <div className="p2p-approve-fields">
         <div className="p2p-approve-field">

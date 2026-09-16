@@ -81,6 +81,10 @@ export default function DownloadRow({
           ? `Cancelled ${formatRelativeTime(finishedAt)}`
           : formatRelativeTime(finishedAt)
       : ''
+  const showApproveForm = needsReview && Boolean(onApprove) && !deferReviewToDownloads
+  const finishedMeta = [formatBytes(item.totalBytes || item.receivedBytes), finishedLabel]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <article
@@ -113,11 +117,7 @@ export default function DownloadRow({
             {canOpenGame ? item.filename : item.url}
           </p>
         )}
-        {needsReview ? (
-          <p className="muted download-meta">
-            Saved to untrusted quarantine — review tags before opening or adding to your library.
-          </p>
-        ) : active ? (
+        {needsReview ? null : active ? (
           <div
             className={percent == null ? 'download-progress download-progress-unknown' : 'download-progress'}
             role="progressbar"
@@ -128,14 +128,19 @@ export default function DownloadRow({
             <span style={percent == null ? undefined : { width: `${percent}%` }} />
           </div>
         ) : null}
-        <p className="muted download-meta">
-          {active
-            ? [size, percent != null ? `${percent}%` : '', speed, eta].filter(Boolean).join(' · ')
-            : [formatBytes(item.totalBytes || item.receivedBytes), finishedLabel]
-                .filter(Boolean)
-                .join(' · ')}
-        </p>
+        {showApproveForm ? null : (
+          <p className="muted download-meta">
+            {active
+              ? [size, percent != null ? `${percent}%` : '', speed, eta].filter(Boolean).join(' · ')
+              : finishedMeta}
+          </p>
+        )}
       </div>
+      {needsReview ? (
+        <p className="muted download-quarantine-note">
+          Saved to untrusted quarantine — review tags before opening or adding to your library.
+        </p>
+      ) : null}
       <div className="download-row-actions">
         {needsReview ? (
           deferReviewToDownloads ? (
@@ -216,13 +221,14 @@ export default function DownloadRow({
           </>
         )}
       </div>
-      {needsReview && onApprove && !deferReviewToDownloads ? (
+      {showApproveForm ? (
         <P2pApproveTagsForm
           formId={approveFormId}
           contentHash={item.hash}
           fallbackConsensus={fallbackConsensus}
+          statsPrefix={finishedMeta}
           onReadyChange={setApproveReady}
-          onSubmit={(tags) => onApprove(item.id, tags)}
+          onSubmit={(tags) => onApprove!(item.id, tags)}
         />
       ) : null}
     </article>

@@ -88,6 +88,24 @@ export default function P2pTransferRow({
     item.normalizedName || shortHash(item.contentHash) || shortHash(item.infoHash) || item.id
   const titleLabel = compact ? packageLabel : gameLabel
   const canOpenGame = !compact && Boolean(onOpenGame && item.f95ThreadId != null)
+  const showApproveForm = isQuarantined && !deferReviewToDownloads
+  const transferMeta = isQuarantined
+    ? [formatBytes(item.length || item.downloaded), shortHash(item.contentHash)]
+        .filter(Boolean)
+        .join(' · ')
+    : isChecking
+      ? [item.length > 0 ? formatBytes(item.length) : formatBytes(item.downloaded), 'preparing to share']
+          .filter(Boolean)
+          .join(' · ')
+      : [
+          size,
+          down,
+          up,
+          item.state === 'connecting'
+            ? 'finding peers'
+            : `${item.numActivePeers ?? 0} active / ${item.numPeers} connected`,
+          `${percent}%`
+        ].join(' · ')
 
   return (
     <article
@@ -120,11 +138,7 @@ export default function P2pTransferRow({
             {packageLabel}
           </p>
         )}
-        {isQuarantined ? (
-          <p className="muted download-meta">
-            Saved to untrusted quarantine — review before opening or installing.
-          </p>
-        ) : isChecking ? null : (
+        {isQuarantined || isChecking ? null : (
           <div
             className="download-progress"
             role="progressbar"
@@ -135,29 +149,18 @@ export default function P2pTransferRow({
             <span style={{ width: `${percent}%` }} />
           </div>
         )}
-        <p className="muted download-meta">
-          {isQuarantined
-            ? [formatBytes(item.length || item.downloaded), shortHash(item.contentHash)]
-                .filter(Boolean)
-                .join(' · ')
-            : isChecking
-              ? [item.length > 0 ? formatBytes(item.length) : formatBytes(item.downloaded), 'preparing to share']
-                  .filter(Boolean)
-                  .join(' · ')
-              : [
-                  size,
-                  down,
-                  up,
-                  item.state === 'connecting'
-                    ? 'finding peers'
-                    : `${item.numActivePeers ?? 0} active / ${item.numPeers} connected`,
-                  `${percent}%`
-                ].join(' · ')}
-        </p>
+        {showApproveForm ? null : (
+          <p className="muted download-meta">{transferMeta}</p>
+        )}
         {isQuarantined || compact ? null : (
           <PackageMetaTags consensus={item.consensus} versionFallback={item.gameVersion} />
         )}
       </div>
+      {isQuarantined ? (
+        <p className="muted download-quarantine-note">
+          Saved to untrusted quarantine — review before opening or installing.
+        </p>
+      ) : null}
       <div className="download-row-actions">
         {isQuarantined ? (
           deferReviewToDownloads ? (
@@ -218,12 +221,13 @@ export default function P2pTransferRow({
           </>
         )}
       </div>
-      {isQuarantined && !deferReviewToDownloads ? (
+      {showApproveForm ? (
         <P2pApproveTagsForm
           formId={approveFormId}
           contentHash={item.contentHash}
           consensus={item.consensus}
           versions={versions}
+          statsPrefix={transferMeta}
           onReadyChange={setApproveReady}
           onSubmit={(tags) => onApproveQuarantine?.(item.id, tags)}
         />
