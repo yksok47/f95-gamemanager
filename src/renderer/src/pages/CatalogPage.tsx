@@ -26,6 +26,7 @@ import { selectTagsForQuery } from '../lib/favorites'
 import { ClearIcon, FilterIcon, HateIcon, PagerIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
+import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type CatalogViewProps = {
@@ -82,7 +83,6 @@ export default function CatalogPage({
   const [displayGames, setDisplayGames] = useState<CatalogGame[] | null>(null)
   const [incomingGames, setIncomingGames] = useState<CatalogGame[] | null>(null)
   const [busy, setBusy] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [turn, setTurn] = useState<CatalogPageTurnState>(null)
   const pendingRevertRef = useRef<number | null>(null)
   const turnLockRef = useRef(false)
@@ -195,7 +195,6 @@ export default function CatalogPage({
   }
 
   async function playThread(game: CatalogGame): Promise<void> {
-    setError(null)
     try {
       await window.api.library.playLatest(game.threadId, game.engine)
     } catch (err) {
@@ -204,20 +203,19 @@ export default function CatalogPage({
         await onSessionExpired()
         throw err
       }
-      setError(text)
+      notifyCaught(err, 'Could not start the game.')
       throw err instanceof Error ? err : new Error(text)
     }
   }
 
   async function stopThread(threadId: number): Promise<void> {
-    setError(null)
     try {
       const active = sessions.filter((session) => session.threadId === threadId)
       for (const session of active) {
         await window.api.library.stop(session.fileId)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not stop the game.')
+      notifyCaught(err, 'Could not stop the game.')
     }
   }
 
@@ -245,7 +243,6 @@ export default function CatalogPage({
 
     async function load(): Promise<void> {
       setBusy(true)
-      setError(null)
       try {
         const result = await window.api.catalog.list({
           page,
@@ -287,7 +284,10 @@ export default function CatalogPage({
           await onSessionExpired()
           return
         }
-        setError(message)
+        notifyError(message, {
+          label: 'Retry',
+          onClick: () => setReloadToken((value) => value + 1)
+        })
       } finally {
         if (!cancelled) setBusy(false)
       }
@@ -674,7 +674,6 @@ export default function CatalogPage({
         </div>
       ) : null}
 
-      {error ? <p className="catalog-status error-text">{error}</p> : null}
       {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
 
       {displayGames && displayGames.length === 0 && !turn ? (

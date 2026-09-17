@@ -11,6 +11,7 @@ import type {
   GameFileContext,
   GameLibraryFile,
   GameRarity,
+  LibraryStorageStats,
   ImportResult,
   LoginPayload,
   PlaySessionStatus,
@@ -157,6 +158,18 @@ const api = {
       ipcRenderer.invoke('library:list', threadId),
     diskUsage: (threadId: number): Promise<{ archiveBytes: number; installBytes: number }> =>
       ipcRenderer.invoke('library:diskUsage', threadId),
+    storageStats: (): Promise<LibraryStorageStats> => ipcRenderer.invoke('library:storageStats'),
+    clearSaves: (threadId: number, savePath?: string): Promise<void> =>
+      ipcRenderer.invoke('library:clearSaves', threadId, savePath),
+    openSaveFolder: (savePath: string): Promise<void> =>
+      ipcRenderer.invoke('library:openSaveFolder', savePath),
+    identifySaveFolder: (savePath: string): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:identifySaveFolder', savePath),
+    assignSaveFolder: (
+      savePath: string,
+      game: { threadId: number; title: string; coverUrl?: string | null }
+    ): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:assignSaveFolder', savePath, game),
     install: (id: string, engine?: string): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:install', id, engine),
     installUncensorPatch: (patchId: string, targetFileId: string): Promise<GameLibraryFile> =>
@@ -197,8 +210,8 @@ const api = {
     }
   },
   renpy: {
-    info: (fileId: string, prepare = false, title = ''): Promise<RenpyInfo> =>
-      ipcRenderer.invoke('renpy:info', fileId, prepare, title),
+    info: (fileId: string, prepare = false, title = '', threadId = 0): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:info', fileId, prepare, title, threadId),
     run: (fileId: string, action: UnRenAction): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:run', fileId, action),
     setTool: (fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> =>
@@ -207,12 +220,12 @@ const api = {
       ipcRenderer.invoke('renpy:setAllOptions', fileId, enabled),
     setOptionsGlobal: (fileId: string, enabled: boolean): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:setOptionsGlobal', fileId, enabled),
-    openSaves: (fileId: string, title = ''): Promise<void> =>
-      ipcRenderer.invoke('renpy:openSaves', fileId, title),
-    chooseSaveDirectory: (fileId: string, title = ''): Promise<RenpyInfo> =>
-      ipcRenderer.invoke('renpy:chooseSaveDirectory', fileId, title),
-    clearSaveDirectory: (fileId: string, title = ''): Promise<RenpyInfo> =>
-      ipcRenderer.invoke('renpy:clearSaveDirectory', fileId, title),
+    openSaves: (fileId: string, title = '', threadId = 0): Promise<void> =>
+      ipcRenderer.invoke('renpy:openSaves', fileId, title, threadId),
+    chooseSaveDirectory: (fileId: string, title = '', threadId = 0): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:chooseSaveDirectory', fileId, title, threadId),
+    clearSaveDirectory: (fileId: string, title = '', threadId = 0): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:clearSaveDirectory', fileId, title, threadId),
     showSave: (fileId: string, savePath: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:showSave', fileId, savePath, title),
     deleteSave: (fileId: string, savePath: string, title = ''): Promise<RenpyInfo> =>

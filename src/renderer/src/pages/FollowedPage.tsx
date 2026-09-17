@@ -18,6 +18,7 @@ import FooterPortal from '../components/FooterPortal'
 import { HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
+import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
@@ -127,7 +128,6 @@ export default function FollowedPage({
   const [busy, setBusy] = useState<'watched' | 'bookmarks' | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
@@ -150,10 +150,13 @@ export default function FollowedPage({
     }
   }, [])
 
+  useEffect(() => {
+    if (sync?.lastError) notifyError(sync.lastError)
+  }, [sync?.lastError])
+
   async function runImport(kind: 'watched' | 'bookmarks'): Promise<void> {
     setImportOpen(false)
     setBusy(kind)
-    setError(null)
     setMessage(null)
     try {
       const result =
@@ -168,7 +171,7 @@ export default function FollowedPage({
         await onSessionExpired()
         return
       }
-      setError(text)
+      notifyError(text)
     } finally {
       setBusy(null)
     }
@@ -217,7 +220,6 @@ export default function FollowedPage({
   )
 
   async function playThread(game: Subscription): Promise<void> {
-    setError(null)
     try {
       await window.api.library.playLatest(game.threadId, game.engine)
     } catch (err) {
@@ -226,7 +228,7 @@ export default function FollowedPage({
         await onSessionExpired()
         throw err
       }
-      setError(text)
+      notifyCaught(err, 'Could not start the game.')
       throw err instanceof Error ? err : new Error(text)
     }
   }
@@ -237,23 +239,21 @@ export default function FollowedPage({
   ): Promise<void> {
     const version = usableVersion(game.version)
     if (!version) return
-    setError(null)
     try {
       await window.api.subscriptions.setVersionStatus(game.threadId, version, status)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update version status.')
+      notifyCaught(err, 'Could not update version status.')
     }
   }
 
   async function stopThread(threadId: number): Promise<void> {
-    setError(null)
     try {
       const active = sessions.filter((session) => session.threadId === threadId)
       for (const session of active) {
         await window.api.library.stop(session.fileId)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not stop the game.')
+      notifyCaught(err, 'Could not stop the game.')
     }
   }
 
@@ -262,7 +262,6 @@ export default function FollowedPage({
       await window.api.subscriptions.cancelSync()
       return
     }
-    setError(null)
     try {
       const next = await window.api.subscriptions.sync()
       setSync(next)
@@ -285,7 +284,7 @@ export default function FollowedPage({
         await onSessionExpired()
         return
       }
-      setError(text)
+      notifyError(text)
     }
   }
 
@@ -465,9 +464,6 @@ export default function FollowedPage({
       </FooterPortal>
 
       {message ? <p className="catalog-status muted">{message}</p> : null}
-      {error ? <p className="catalog-status error-text">{error}</p> : null}
-
-      {sync?.lastError ? <p className="catalog-status error-text">{sync.lastError}</p> : null}
       {games.length === 0 ? (
         <div className="empty-state">
           {updatesOnly

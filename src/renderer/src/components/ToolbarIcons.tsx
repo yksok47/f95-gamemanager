@@ -5,7 +5,7 @@ export function ClearIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M4.2 3.1 8 6.9l3.8-3.8 1.1 1.1L9.1 8l3.8 3.8-1.1 1.1L8 9.1l-3.8 3.8-1.1-1.1L6.9 8 3.1 4.2z"
+        d="M3.05 2 8 6.95 12.95 2 14 3.05 9.05 8 14 12.95 12.95 14 8 9.05 3.05 14 2 12.95 6.95 8 2 3.05z"
       />
     </svg>
   )
@@ -17,12 +17,12 @@ export function FullscreenIcon({ active = false }: { active?: boolean }): JSX.El
       {active ? (
         <path
           fill="currentColor"
-          d="M6.2 1.6v4.2H2V4.4h2.8V1.6zm3.6 0h2.4v2.8H14.8v1.4H9.8zm-7.8 8.4h4.2V14.2H4.4v-2.8H2zm7.8 0h4.8v1.4h-2.8v2.8H9.8z"
+          d="M6.25 1.4v4.55H1.7V4.15h2.75V1.4zm3.5 0h2.75v2.75H15.3v1.8H9.75zM1.7 9.85h4.55v4.75H4.45v-2.95H1.7zm8.05 0H15.3v1.8h-2.8v2.95H9.75z"
         />
       ) : (
         <path
           fill="currentColor"
-          d="M2 6.2V2h4.2v1.4H3.4v2.8zm7.8-4.2h4.2v4.2h-1.4V3.4H9.8zM2 9.8h1.4v2.8h2.8V14.2H2zm8.4 2.8h2.8V9.8H14.2v4.4h-4.2z"
+          d="M1.7 6.35V1.4h4.95v1.8H3.5v3.15zm8.05-4.95H14.7v4.95h-1.8V3.2H9.75zM1.7 9.65h1.8v3.15h3.15v1.8H1.7zm9.2 3.15h3.15V9.65h1.8v4.95H9.75z"
         />
       )}
     </svg>
@@ -32,10 +32,7 @@ export function FullscreenIcon({ active = false }: { active?: boolean }): JSX.El
 export function FilterIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M2.2 3.2h11.6l-4.4 5.1v3.3L7 13.2V8.3z"
-      />
+      <path fill="currentColor" d="M1.5 2h13l-4.7 5.7v4.4L6.2 14.3V7.7z" />
     </svg>
   )
 }
@@ -45,7 +42,11 @@ export function RefreshIcon({ spinning = false }: { spinning?: boolean }): JSX.E
     <svg className={spinning ? 'is-spinning' : undefined} viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M13.4 8A5.4 5.4 0 1 1 8 2.6V1l2.6 2.2L8 5.4V4.2A3.8 3.8 0 1 0 11.8 8h1.6z"
+        d="M8 1.4A6.6 6.6 0 1 0 13.95 5.35a1.05 1.05 0 0 0-1.89.92A4.5 4.5 0 1 1 8 3.5z"
+      />
+      <path
+        fill="currentColor"
+        d="M8 1.15V.35c0-.38.44-.58.73-.33l2.9 2.22c.28.21.28.62 0 .83L8.73 5.3A.45.45 0 0 1 8 4.96z"
       />
     </svg>
   )
@@ -56,7 +57,7 @@ export function StarIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="m8 2.2 1.7 3.5 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6z"
+        d="M8 1.15 9.86 5.7l4.9.42-3.74 3.22 1.12 4.8L8 11.72l-4.14 2.42 1.12-4.8L1.24 6.12l4.9-.42z"
       />
     </svg>
   )
@@ -64,10 +65,10 @@ export function StarIcon(): JSX.Element {
 
 export function HateIcon(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
+    <svg viewBox="1 2.4 22 21" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M8 1.4A6.6 6.6 0 1 0 14.6 8 6.6 6.6 0 0 0 8 1.4m3.7 3.1L4.5 11.7A5 5 0 0 1 4.3 4.3 5 5 0 0 1 11.7 4.5"
+        d="M15 3H6c-.83 0-1.54.5-1.84 1.22L1.14 11.27c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57c-.02.1-.03.2-.03.31 0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2m4 0h4v12h-4z"
       />
     </svg>
   )
@@ -77,8 +78,12 @@ export function HideCompletedIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
-        fill="currentColor"
-        d="M6.4 12.2 2.6 8.4l1.3-1.3 2.5 2.5 5.7-5.7 1.3 1.3z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M2.35 8.2 6.2 12 13.6 3.85"
       />
     </svg>
   )
@@ -89,7 +94,7 @@ export function ImportIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M7.2 2h1.6v6.2l2-2L12 7.4 8 11.4 4 7.4l1.2-1.2 2 2zm-4 8.8h9.6V14H3.2z"
+        d="M7.1 1.45h1.8v6.45l2.4-2.4 1.35 1.35L8 11.7 3.35 7.05l1.35-1.35 2.4 2.4zm-4.7 9.3h11.2v3.05H2.4z"
       />
     </svg>
   )
@@ -100,7 +105,7 @@ export function DownloadIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M8 1.5a.75.75 0 0 1 .75.75v6.19l1.97-1.97a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.53a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.25A.75.75 0 0 1 8 1.5ZM3.5 12.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75Z"
+        d="M7.1 1.45h1.8v6.45l2.4-2.4 1.35 1.35L8 11.7 3.35 7.05l1.35-1.35 2.4 2.4zm-4.7 9.3h11.2v2.15H2.4z"
       />
     </svg>
   )
@@ -111,7 +116,30 @@ export function UploadIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M8 14.5a.75.75 0 0 1-.75-.75V7.56L5.28 9.53a.75.75 0 1 1-1.06-1.06l3.25-3.25a.75.75 0 0 1 1.06 0l3.25 3.25a.75.75 0 1 1-1.06 1.06L8.75 7.56v6.19A.75.75 0 0 1 8 14.5ZM3.5 3.75a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75Z"
+        d="M8 4.3 12.65 8.95l-1.35 1.35-2.4-2.4v6.45H7.1V7.9l-2.4 2.4-1.35-1.35zm-5.6-2.85h11.2v2.15H2.4z"
+      />
+    </svg>
+  )
+}
+
+export function StorageIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M1.7 3.45c0-1.05 2.8-1.85 6.3-1.85s6.3.8 6.3 1.85v1.2c0 1.05-2.8 1.85-6.3 1.85s-6.3-.8-6.3-1.85zm0 3.35v1.45c0 1.05 2.8 1.85 6.3 1.85s6.3-.8 6.3-1.85V6.8c-1 .7-3.4 1.15-6.3 1.15s-5.3-.45-6.3-1.15zm0 3.55v2.2c0 1.05 2.8 1.85 6.3 1.85s6.3-.8 6.3-1.85v-2.2c-1 .7-3.4 1.15-6.3 1.15s-5.3-.45-6.3-1.15z"
+      />
+    </svg>
+  )
+}
+
+export function SettingsIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M6.25 1.35h3.5l.32 1.72c.46.16.88.4 1.26.7l1.64-.64 1.75 3.03-1.34 1.05c.07.35.11.72.11 1.09s-.04.74-.11 1.09l1.34 1.05-1.75 3.03-1.64-.64c-.38.3-.8.54-1.26.7l-.32 1.72h-3.5l-.32-1.72a5.3 5.3 0 0 1-1.26-.7l-1.64.64-1.75-3.03 1.34-1.05A5.1 5.1 0 0 1 2.72 8c0-.37.04-.74.11-1.09L1.49 5.86l1.75-3.03 1.64.64c.38-.3.8-.54 1.26-.7zm1.75 4.45A2.2 2.2 0 1 0 10.2 8a2.2 2.2 0 0 0-2.2-2.2"
       />
     </svg>
   )
@@ -119,8 +147,11 @@ export function UploadIcon(): JSX.Element {
 
 type PagerIconKind = 'first' | 'prev' | 'next' | 'last'
 
-const PAGER_CHEVRON = 'M5.8 2.7 11.2 8 5.8 13.3'
-const PAGER_CHEVRONS = ['M1.7 3.1 6.3 8 1.7 12.9', 'M8.5 3.1 13.1 8 8.5 12.9'] as const
+const PAGER_CHEVRON = 'M4.6 2 12.2 8 4.6 14 2.9 12.3 8.5 8 2.9 3.7z'
+const PAGER_CHEVRONS = [
+  'M1.35 2.15 6.6 8 1.35 13.85 0 12.25 4.2 8 0 3.75z',
+  'M8.4 2.15 13.65 8 8.4 13.85 7.05 12.25 11.25 8 7.05 3.75z'
+] as const
 
 export function PagerIcon({ kind }: { kind: PagerIconKind }): JSX.Element {
   const flip = kind === 'first' || kind === 'prev'
@@ -132,15 +163,7 @@ export function PagerIcon({ kind }: { kind: PagerIconKind }): JSX.Element {
       style={flip ? { transform: 'scaleX(-1)' } : undefined}
     >
       {(doubles ? PAGER_CHEVRONS : [PAGER_CHEVRON]).map((d) => (
-        <path
-          key={d}
-          d={d}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.05"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <path key={d} d={d} fill="currentColor" />
       ))}
     </svg>
   )

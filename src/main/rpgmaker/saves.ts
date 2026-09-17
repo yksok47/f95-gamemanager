@@ -21,6 +21,30 @@ export function rpgMakerBackupDir(threadId: number): string {
   return join(rpgMakerSavesRoot(), String(threadId))
 }
 
+export type RpgMakerDiskSaveFolder = {
+  threadId: number
+  name: string
+  path: string
+  bytes: number
+}
+
+export function listRpgMakerBackupFolders(): RpgMakerDiskSaveFolder[] {
+  const root = rpgMakerSavesRoot()
+  if (!pathExists(root)) return []
+  return listDirents(root)
+    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+    .map((entry) => {
+      const folderPath = join(root, entry.name)
+      return {
+        threadId: Number(entry.name),
+        name: entry.name,
+        path: folderPath,
+        bytes: folderBytes(folderPath)
+      }
+    })
+    .filter((folder) => folder.bytes > 0)
+}
+
 export type RpgMakerSyncMode = 'merge' | 'backup'
 
 export type RpgMakerSyncInput = {
@@ -366,4 +390,32 @@ export async function deleteRpgMakerSaves(
     }
   }
   return getRpgMakerInfo(input)
+}
+
+export function measureRpgMakerSaveBytes(input: {
+  installPath?: string | null
+  threadId: number
+}): number {
+  const threadId = Number(input.threadId)
+  if (!threadId) return 0
+  const backupPath = rpgMakerBackupDir(threadId)
+  const gameSavePath = findRpgMakerGameSaveDir(input.installPath)
+  return (gameSavePath ? folderBytes(gameSavePath) : 0) + folderBytes(backupPath)
+}
+
+export async function clearRpgMakerSaveFiles(input: {
+  installPath?: string | null
+  threadId: number
+}): Promise<void> {
+  const threadId = Number(input.threadId)
+  if (!threadId) throw new Error('Missing game id.')
+  const dirs = [findRpgMakerGameSaveDir(input.installPath), rpgMakerBackupDir(threadId)].filter(
+    Boolean
+  ) as string[]
+  for (const dir of dirs) {
+    if (!pathExists(dir)) continue
+    for (const name of listSaveNames(dir)) {
+      await rm(toFsPath(childPath(dir, name)), { force: true })
+    }
+  }
 }

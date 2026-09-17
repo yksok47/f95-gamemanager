@@ -1024,6 +1024,32 @@ export async function setRenpySaveDirectory(id: string, saveDirectory: string | 
   broadcast()
 }
 
+export async function setRenpySaveDirectoryForThread(
+  threadId: number,
+  saveDirectory: string | null | undefined
+): Promise<void> {
+  if (!threadId) return
+  const files = await readStore()
+  let changed = false
+  for (const file of files) {
+    if (file.threadId !== threadId) continue
+    if (file.engine && engineKind(file.engine) === 'rpgmaker') continue
+    if (saveDirectory === undefined) {
+      if (file.renpySaveDirectory === undefined) continue
+      delete file.renpySaveDirectory
+      changed = true
+      continue
+    }
+    if (file.renpySaveDirectory !== saveDirectory) {
+      file.renpySaveDirectory = saveDirectory
+      changed = true
+    }
+  }
+  if (!changed) return
+  await writeStore(files)
+  broadcast()
+}
+
 function isInside(target: string, root: string): boolean {
   const resolved = resolve(target)
   const base = resolve(root)

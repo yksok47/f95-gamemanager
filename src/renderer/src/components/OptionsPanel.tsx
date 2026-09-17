@@ -18,7 +18,7 @@ const OPTIONS: Array<{ id: RenpyToolId; label: string; hint: string }> = [
 ]
 
 export default function OptionsPanel({ files }: OptionsPanelProps): JSX.Element {
-  const { installed, activeId, setFileId, info, error, busy, running, withInfo } = useRenpySession(files, {
+  const { installed, activeId, setFileId, info, busy, running, withInfo } = useRenpySession(files, {
     installedOnly: true
   })
   const useGlobal = Boolean(info?.optionsGlobal)
@@ -132,7 +132,6 @@ export default function OptionsPanel({ files }: OptionsPanelProps): JSX.Element 
             )
           })}
         </div>
-        {error ? <p className="error-text">{error}</p> : null}
       </section>
     </div>
   )

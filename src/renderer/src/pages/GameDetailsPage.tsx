@@ -55,6 +55,7 @@ import DownloadRow from '../components/DownloadRow'
 import GameP2pSection from '../components/GameP2pSection'
 import P2pTransferRow from '../components/P2pTransferRow'
 import { confirm } from '../components/ConfirmDialog'
+import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import UncensorInstallButton from '../components/UncensorInstallButton'
 import UncensorRemoveButton from '../components/UncensorRemoveButton'
@@ -118,6 +119,8 @@ type GameDetailsPageProps = {
   /** When false/undefined, P2P section is hidden */
   p2pEnabled?: boolean
   p2pSharedHashes?: ReadonlySet<string>
+  initialTab?: DetailsTab
+  initialTabKey?: number
 }
 
 function formatDate(value: string): string {
@@ -381,17 +384,18 @@ function GameDetailsPage({
   onSetRarity,
   onSessionExpired,
   p2pEnabled = false,
-  p2pSharedHashes
+  p2pSharedHashes,
+  initialTab,
+  initialTabKey = 0
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
   const tagCatalog = useCatalogTags()
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalogBusy, setCatalogBusy] = useState(false)
   const catalogLookupGen = useRef(0)
-  const [tab, setTab] = useState<DetailsTab>('overview')
+  const [tab, setTab] = useState<DetailsTab>(initialTab ?? 'overview')
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
@@ -441,8 +445,6 @@ function GameDetailsPage({
   const [transfers, setTransfers] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [threadIdCopied, setThreadIdCopied] = useState(false)
-  const [installError, setInstallError] = useState<string | null>(null)
-  const [playError, setPlayError] = useState<string | null>(null)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -456,7 +458,6 @@ function GameDetailsPage({
   useEffect(() => {
     let cancelled = false
     setBusy(true)
-    setError(null)
     setDetails(null)
     setTab('overview')
     setAboutMode('description')
@@ -485,7 +486,10 @@ function GameDetailsPage({
           await onSessionExpired()
           return
         }
-        setError(message)
+        notifyError(message, {
+          label: 'Retry',
+          onClick: () => setReloadToken((value) => value + 1)
+        })
       } finally {
         if (!cancelled) setBusy(false)
       }
@@ -534,6 +538,10 @@ function GameDetailsPage({
           return
         }
         setReviewsError(message)
+        notifyError(message, {
+          label: 'Retry',
+          onClick: () => setReviewsReload((value) => value + 1)
+        })
       })
       .finally(() => {
         if (!cancelled) setReviewsBusy(false)
@@ -555,8 +563,6 @@ function GameDetailsPage({
       }
     }
 
-    setInstallError(null)
-    setPlayError(null)
     setFilesReady(false)
     void refreshFiles()
     const stopLibrary = window.api.library.onChange(() => {
@@ -590,6 +596,19 @@ function GameDetailsPage({
       stopP2p()
     }
   }, [summary.threadId])
+
+  const installErrorsByFile = useRef(new Map<string, string>())
+  useEffect(() => {
+    const next = new Map<string, string>()
+    for (const file of files) {
+      if (!file.installError) continue
+      next.set(file.id, file.installError)
+      if (installErrorsByFile.current.get(file.id) !== file.installError) {
+        notifyError(file.installError)
+      }
+    }
+    installErrorsByFile.current = next
+  }, [files])
 
   const installSignature = files
     .filter((file) => file.isInstalled && file.installPath)
@@ -796,8 +815,19 @@ function GameDetailsPage({
   ])
 
   useEffect(() => {
-    if (!tabs.some((item) => item.id === tab)) setTab(tabs[0]?.id ?? 'overview')
-  }, [tabs, tab])
+    if (!initialTab) return
+    if (tabs.some((item) => item.id === initialTab)) setTab(initialTab)
+  }, [initialTab, initialTabKey, tabs])
+
+  useEffect(() => {
+    if (tabs.some((item) => item.id === tab)) return
+    if (initialTab && tabs.some((item) => item.id === initialTab)) {
+      setTab(initialTab)
+      return
+    }
+    if (initialTab && !filesReady) return
+    setTab(tabs[0]?.id ?? 'overview')
+  }, [tabs, tab, initialTab, filesReady])
 
   useEffect(() => {
     if (!aboutModes.some((item) => item.id === aboutMode)) {
@@ -1289,25 +1319,22 @@ function GameDetailsPage({
   }
 
   async function installFile(id: string): Promise<void> {
-    setInstallError(null)
     try {
       await window.api.library.install(id, engine)
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not install that archive.')
+      notifyCaught(err, 'Could not install that archive.')
     }
   }
 
   async function installUncensorPatch(patchId: string, targetFileId: string): Promise<void> {
-    setInstallError(null)
     try {
       await window.api.library.installUncensorPatch(patchId, targetFileId)
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not install that uncensor patch.')
+      notifyCaught(err, 'Could not install that uncensor patch.')
     }
   }
 
   async function uninstallUncensorPatch(gameFileId: string, patch: InstalledPatchRef): Promise<void> {
-    setInstallError(null)
     try {
       await window.api.library.uninstallUncensorPatch(gameFileId, {
         patchId: patch.patchId,
@@ -1315,45 +1342,41 @@ function GameDetailsPage({
         uninstallSlot: patch.uninstallSlot
       })
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not remove that uncensor patch.')
+      notifyCaught(err, 'Could not remove that uncensor patch.')
     }
   }
 
   async function playFile(id: string): Promise<void> {
-    setPlayError(null)
     try {
       await window.api.library.play(id, engine)
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not start the game.')
+      notifyCaught(err, 'Could not start the game.')
     }
   }
 
   async function playLatest(): Promise<void> {
-    setPlayError(null)
     try {
       await window.api.library.playLatest(summary.threadId, engine)
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not start the game.')
+      notifyCaught(err, 'Could not start the game.')
     }
   }
 
   async function stopFile(id: string): Promise<void> {
-    setPlayError(null)
     try {
       await window.api.library.stop(id)
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not stop the game.')
+      notifyCaught(err, 'Could not stop the game.')
     }
   }
 
   async function stopThread(): Promise<void> {
-    setPlayError(null)
     try {
       for (const session of threadSessions) {
         await window.api.library.stop(session.fileId)
       }
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not stop the game.')
+      notifyCaught(err, 'Could not stop the game.')
     }
   }
 
@@ -1366,21 +1389,19 @@ function GameDetailsPage({
   }
 
   async function changeExecutable(id: string): Promise<void> {
-    setPlayError(null)
     try {
       await window.api.library.pickExecutable(id)
     } catch (err) {
-      setPlayError(err instanceof Error ? err.message : 'Could not set the executable.')
+      notifyCaught(err, 'Could not set the executable.')
     }
   }
 
   async function uninstallFile(id: string): Promise<void> {
     if (!(await confirm({ title: 'Uninstall version', message: 'Uninstall this version? The extracted folder will be deleted.', confirmLabel: 'Uninstall', danger: true }))) return
-    setInstallError(null)
     try {
       await window.api.library.uninstall(id)
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not uninstall that version.')
+      notifyCaught(err, 'Could not uninstall that version.')
     }
   }
 
@@ -1388,11 +1409,10 @@ function GameDetailsPage({
     if (!(await confirm({ title: 'Remove', message: 'Remove this version? The archive and the extracted folder will both be deleted.', confirmLabel: 'Remove', danger: true }))) {
       return
     }
-    setInstallError(null)
     try {
       setFiles(await window.api.library.removeVersion(id))
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : 'Could not remove that version.')
+      notifyCaught(err, 'Could not remove that version.')
     }
   }
 
@@ -1401,7 +1421,7 @@ function GameDetailsPage({
     try {
       await window.api.subscriptions.setVersionStatus(summary.threadId, versionName, status)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update version status.')
+      notifyCaught(err, 'Could not update version status.')
     }
   }
 
@@ -1848,8 +1868,6 @@ function GameDetailsPage({
                   />
                 ) : null}
               </div>
-              {playError ? <p className="error-text">{playError}</p> : null}
-              {installError ? <p className="error-text">{installError}</p> : null}
             </div>
           </div>
           {gameTransfers.length || gameP2pTransfers.length ? (
@@ -1886,15 +1904,6 @@ function GameDetailsPage({
               ))}
             </div>
           ) : null}
-
-      {error ? (
-        <p className="catalog-status error-text">
-          {error}{' '}
-          <button className="ghost-btn" type="button" onClick={() => setReloadToken((value) => value + 1)}>
-            Retry
-          </button>
-        </p>
-      ) : null}
 
       <div className="details-tabs details-drag-handle" role="tablist" onPointerDown={onModalDragPointerDown}>
         {tabs.map((item) => (
@@ -2049,7 +2058,6 @@ function GameDetailsPage({
         {tab === 'files' ? (
           files.length ? (
             <div className="library-file-list">
-              {installError ? <p className="error-text">{installError}</p> : null}
               {libraryFileSections.map((section) => (
                 <section key={section.kind} className="library-file-section">
                   <h3 className="library-file-section-title">{section.label}</h3>
@@ -2156,7 +2164,6 @@ function GameDetailsPage({
                                 <span style={{ width: `${file.installPercent}%` }} />
                               </div>
                             ) : null}
-                            {file.installError ? <p className="error-text">{file.installError}</p> : null}
                           </div>
                           <div className="library-file-actions">
                             {file.isInstalled ? (
@@ -2261,7 +2268,7 @@ function GameDetailsPage({
           saveKind === 'rpgmaker' ? (
             <RpgMakerSavesPanel files={files} threadId={summary.threadId} title={title} />
           ) : (
-            <RenpySavesPanel files={files} title={title} />
+            <RenpySavesPanel files={files} title={title} threadId={summary.threadId} />
           )
         ) : null}
         {tab === 'renpy' ? (
@@ -2292,8 +2299,7 @@ function GameDetailsPage({
           reviewItems.length || reviewsTotalPages > 1 || reviewsBusy || reviewsError ? (
             <div className="review-list">
               {reviewsError ? (
-                <p className="error-text">
-                  {reviewsError}{' '}
+                <p className="muted">
                   <button className="ghost-btn" type="button" onClick={() => setReviewsReload((value) => value + 1)}>
                     Retry
                   </button>

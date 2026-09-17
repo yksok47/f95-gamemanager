@@ -75,6 +75,8 @@ import {
   showRenpySave
 } from './renpy/saves'
 import { getAppPaths } from './paths'
+import { clearGameSaves, libraryStorageStats } from './storage-stats'
+import { assignSaveFolder, identifySaveFolder, openManagedSaveFolder } from './save-folders'
 import { getSettings, saveSettings } from './settings-store'
 import {
   applyCatalogGames,
@@ -567,6 +569,55 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('library:storageStats', async () => {
+    try {
+      return await libraryStorageStats()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:clearSaves', async (_event, threadId: number, savePath?: string) => {
+    try {
+      await clearGameSaves(Number(threadId) || 0, savePath ? String(savePath) : undefined)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:openSaveFolder', async (_event, savePath: string) => {
+    try {
+      await openManagedSaveFolder(String(savePath || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:identifySaveFolder', async (_event, savePath: string) => {
+    try {
+      await identifySaveFolder(String(savePath || ''))
+      return await libraryStorageStats()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'library:assignSaveFolder',
+    async (
+      _event,
+      savePath: string,
+      game: { threadId: number; title: string; coverUrl?: string | null }
+    ) => {
+      try {
+        await assignSaveFolder(String(savePath || ''), game || { threadId: 0, title: '' })
+        return await libraryStorageStats()
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
   ipcMain.handle('library:install', async (_event, id: string, engine?: string) => {
     try {
       return await installGameFile(String(id), engine)
@@ -679,9 +730,14 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('renpy:info', async (_event, id: string, prepare?: boolean, title?: string) => {
+  ipcMain.handle('renpy:info', async (_event, id: string, prepare?: boolean, title?: string, threadId?: number) => {
     try {
-      return await getRenpyInfo(String(id || ''), Boolean(prepare), String(title || ''))
+      return await getRenpyInfo(
+        String(id || ''),
+        Boolean(prepare),
+        String(title || ''),
+        Number(threadId) || 0
+      )
     } catch (error) {
       throw toIpcError(error)
     }
@@ -719,33 +775,44 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('renpy:openSaves', async (_event, id: string, title?: string) => {
+  ipcMain.handle('renpy:openSaves', async (_event, id: string, title?: string, threadId?: number) => {
     try {
-      await openRenpySaves(String(id || ''), String(title || ''))
+      await openRenpySaves(String(id || ''), String(title || ''), Number(threadId) || 0)
     } catch (error) {
       throw toIpcError(error)
     }
   })
 
-  ipcMain.handle('renpy:chooseSaveDirectory', async (event, id: string, title?: string) => {
-    try {
-      return await chooseRenpySaveDirectory(
-        String(id || ''),
-        String(title || ''),
-        BrowserWindow.fromWebContents(event.sender)
-      )
-    } catch (error) {
-      throw toIpcError(error)
+  ipcMain.handle(
+    'renpy:chooseSaveDirectory',
+    async (event, id: string, title?: string, threadId?: number) => {
+      try {
+        return await chooseRenpySaveDirectory(
+          String(id || ''),
+          String(title || ''),
+          BrowserWindow.fromWebContents(event.sender),
+          Number(threadId) || 0
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
     }
-  })
+  )
 
-  ipcMain.handle('renpy:clearSaveDirectory', async (_event, id: string, title?: string) => {
-    try {
-      return await clearRenpySaveDirectory(String(id || ''), String(title || ''))
-    } catch (error) {
-      throw toIpcError(error)
+  ipcMain.handle(
+    'renpy:clearSaveDirectory',
+    async (_event, id: string, title?: string, threadId?: number) => {
+      try {
+        return await clearRenpySaveDirectory(
+          String(id || ''),
+          String(title || ''),
+          Number(threadId) || 0
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
     }
-  })
+  )
 
   ipcMain.handle('renpy:showSave', async (_event, id: string, savePath: string, title?: string) => {
     try {

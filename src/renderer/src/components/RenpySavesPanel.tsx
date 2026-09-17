@@ -16,6 +16,7 @@ import { useRenpySession } from '../lib/renpy'
 type RenpySavesPanelProps = {
   files: GameLibraryFile[]
   title?: string
+  threadId?: number
 }
 
 type DragSave = { kind: 'save'; path: string; page: string; slot: number }
@@ -185,9 +186,23 @@ function PageCheck({
   )
 }
 
-export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelProps): JSX.Element {
-  const { installed, activeId, lookupTitle, setFileId, info, error, setError, busy, running, withInfo } =
-    useRenpySession(files, { title })
+export default function RenpySavesPanel({
+  files,
+  title = '',
+  threadId = 0
+}: RenpySavesPanelProps): JSX.Element {
+  const {
+    installed,
+    activeId,
+    lookupTitle,
+    threadId: lookupThreadId,
+    setFileId,
+    info,
+    setError,
+    busy,
+    running,
+    withInfo
+  } = useRenpySession(files, { title, threadId })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [slotsInput, setSlotsInput] = useState<number | null>(null)
   const [drag, setDrag] = useState<DragItem | null>(null)
@@ -474,7 +489,6 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
         </label>
       ) : null}
 
-      {error ? <p className="error-text">{error}</p> : null}
       {info?.message ? <p className="muted">{info.message}</p> : null}
 
       <section className="renpy-section">
@@ -495,7 +509,7 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
               className="ghost-btn saves-toolbar-btn"
               type="button"
               disabled={busy || running}
-              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle))}
+              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId))}
             >
               Refresh
             </button>
@@ -520,7 +534,7 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
                 className="ghost-btn saves-toolbar-btn"
                 type="button"
                 disabled={busy || running || !activeId}
-                onClick={() => void withInfo(() => window.api.renpy.chooseSaveDirectory(activeId, lookupTitle))}
+                onClick={() => void withInfo(() => window.api.renpy.chooseSaveDirectory(activeId, lookupTitle, lookupThreadId))}
               >
                 {info?.savePath ? 'Change' : 'Browse'}
               </button>
@@ -529,7 +543,7 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
                 type="button"
                 disabled={busy || running || !info?.savePath}
                 onClick={() =>
-                  void window.api.renpy.openSaves(activeId, lookupTitle).catch((err) => {
+                  void window.api.renpy.openSaves(activeId, lookupTitle, lookupThreadId).catch((err) => {
                     setError(err instanceof Error ? err.message : 'Could not open the save folder.')
                   })
                 }
@@ -542,7 +556,7 @@ export default function RenpySavesPanel({ files, title = '' }: RenpySavesPanelPr
                   type="button"
                   disabled={busy || running || !activeId}
                   title="Clear the saved location and try auto-detection again"
-                  onClick={() => void withInfo(() => window.api.renpy.clearSaveDirectory(activeId, lookupTitle))}
+                  onClick={() => void withInfo(() => window.api.renpy.clearSaveDirectory(activeId, lookupTitle, lookupThreadId))}
                 >
                   Auto-detect
                 </button>

@@ -34,6 +34,7 @@ import {
   type OsKind
 } from '@shared/types'
 import { KindIcon, OsIcon } from './TagIcons'
+import { notifyError } from './ErrorNotifications'
 
 export type P2pApproveTagsFormProps = {
   /** Stable id so the Approve button can submit this form via the HTML `form` attribute. */
@@ -566,7 +567,6 @@ export default function P2pApproveTagsForm({
   const [customVersion, setCustomVersion] = useState(false)
   const [versionOpen, setVersionOpen] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [pkgMeta, setPkgMeta] = useState<PackageMetadata | null>(null)
   const [kindOpen, setKindOpen] = useState(false)
   const [osOpen, setOsOpen] = useState(false)
@@ -576,7 +576,6 @@ export default function P2pApproveTagsForm({
 
   useEffect(() => {
     let cancelled = false
-    setError(null)
     setPkgMeta(null)
     setLoading(true)
 
@@ -622,7 +621,7 @@ export default function P2pApproveTagsForm({
         if (!cancelled) {
           setPkgMeta(null)
           prefill(initialConsensus ?? linkFallback, initialVersions)
-          setError('Could not refresh metadata prefill')
+          notifyError('Could not refresh metadata prefill')
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -686,32 +685,31 @@ export default function P2pApproveTagsForm({
   function handleSubmit(e: FormEvent): void {
     e.preventDefault()
     if (contentKind == null || !Number.isFinite(contentKind) || !(contentKind in CONTENT_KIND_BY_ID)) {
-      setError('Choose a content type')
+      notifyError('Choose a content type')
       return
     }
     const allowOs = contentKindAllowsOs(contentKind)
     const allowVer = contentKindAllowsVersion(contentKind)
     const submitOs = allowOs ? os : []
     if (contentKindRequiresOs(contentKind) && submitOs.length === 0) {
-      setError('Select at least one OS')
+      notifyError('Select at least one OS')
       return
     }
     for (const id of submitOs) {
       if (!(id in OS_KIND_BY_ID)) {
-        setError('Invalid OS selection')
+        notifyError('Invalid OS selection')
         return
       }
     }
     const ver = allowVer ? normalizeVersionInput(version) : ''
     if (contentKindRequiresVersion(contentKind) && !ver) {
-      setError('Version is required')
+      notifyError('Version is required')
       return
     }
     if (ver && [...ver].length > VERSION_NAME_MAX_LEN) {
-      setError(`Version must be at most ${VERSION_NAME_MAX_LEN} characters`)
+      notifyError(`Version must be at most ${VERSION_NAME_MAX_LEN} characters`)
       return
     }
-    setError(null)
     onSubmit({ os: submitOs, contentKind, version: ver })
   }
 
@@ -932,8 +930,6 @@ export default function P2pApproveTagsForm({
           </div>
         ) : null}
       </div>
-
-      {error ? <p className="error-text">{error}</p> : null}
     </form>
   )
 }

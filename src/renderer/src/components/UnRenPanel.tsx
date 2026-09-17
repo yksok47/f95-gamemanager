@@ -187,9 +187,8 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
           </div>
         ) : null}
         {info?.lastRun && !running ? (
-          <p className={info.lastRun.ok ? 'muted' : 'error-text'}>{lastRunLine(info.lastRun)}</p>
+          <p className="muted">{lastRunLine(info.lastRun)}</p>
         ) : null}
-        {error ? <p className="error-text">{error}</p> : null}
         {log.trim() || running ? (
           <details
             className="renpy-fold"

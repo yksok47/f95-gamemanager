@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX } from 'react'
 import { TAGS_PER_TIER_LIMIT, TAG_TIERS, type CatalogTag, type FavoriteTag, type TagTier } from '@shared/types'
 import { sortFavoriteTags } from '../lib/favorites'
 import TagBrowser from './TagBrowser'
+import { notifyError } from './ErrorNotifications'
 
 function tierLabel(tier: TagTier): string {
   return tier[0].toUpperCase() + tier.slice(1)
@@ -30,7 +31,6 @@ export default function RankedTagsEditor({
 }: RankedTagsEditorProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [addAs, setAddAs] = useState<TagTier>('gold')
-  const [limitHint, setLimitHint] = useState<string | null>(null)
 
   const grouped = useMemo(() => {
     const byTier: Record<TagTier, FavoriteTag[]> = { gold: [], silver: [], bronze: [] }
@@ -43,15 +43,13 @@ export default function RankedTagsEditor({
   function assignTag(tag: CatalogTag, tier: TagTier): void {
     const current = selected.filter((item) => item.id !== tag.id)
     if (current.filter((item) => item.tier === tier).length >= TAGS_PER_TIER_LIMIT) {
-      setLimitHint(`${tierLabel(tier)} is full (${TAGS_PER_TIER_LIMIT} tags).`)
+      notifyError(`${tierLabel(tier)} is full (${TAGS_PER_TIER_LIMIT} tags).`)
       return
     }
-    setLimitHint(null)
     onChange([...current, { id: tag.id, name: tag.name, tier }])
   }
 
   function removeTag(id: number): void {
-    setLimitHint(null)
     onChange(selected.filter((tag) => tag.id !== id))
   }
 
@@ -61,7 +59,6 @@ export default function RankedTagsEditor({
         {hint}
         {saving ? ' Saving…' : ''}
       </p>
-      {limitHint ? <p className="error-text">{limitHint}</p> : null}
       <div className="favorite-tiers">
         {TAG_TIERS.map((tier) => (
           <div

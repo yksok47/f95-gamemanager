@@ -13,6 +13,7 @@ import {
 import { FOOTER_DOCK_ID } from './FooterPortal'
 import DownloadRow from './DownloadRow'
 import P2pTransferRow from './P2pTransferRow'
+import { DownloadIcon } from './ToolbarIcons'
 
 type DownloadsDockProps = {
   items: DownloadRecord[]
@@ -48,17 +49,6 @@ function overallPercent(regular: DownloadRecord[], p2p: P2pTransferProgress[]): 
   }
   if (!percents.length) return null
   return Math.round(percents.reduce((sum, value) => sum + value, 0) / percents.length)
-}
-
-function DownloadIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M8 1.5a.75.75 0 0 1 .75.75v6.19l1.97-1.97a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.53a.75.75 0 0 1 1.06-1.06l1.97 1.97V2.25A.75.75 0 0 1 8 1.5ZM3.5 12.25a.75.75 0 0 1 .75-.75h7.5a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1-.75-.75Z"
-      />
-    </svg>
-  )
 }
 
 export default function DownloadsDock({

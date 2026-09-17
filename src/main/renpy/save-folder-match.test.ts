@@ -1,7 +1,9 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'bun:test'
 import {
   folderAcronymKey,
+  folderSearchQueries,
   matchRenpySaveFolder,
+  matchSaveFoldersToGames,
   scoreSaveFolder,
   titleAcronyms
 } from './save-folder-match'
@@ -44,5 +46,43 @@ describe('folderAcronymKey', () => {
   test('strips RenPy timestamp suffix', () => {
     expect(folderAcronymKey('MBDK-1749650324')).toBe('mbdk')
     expect(folderAcronymKey('MBDS2-1749650324')).toBe('mbds2')
+  })
+})
+
+describe('matchSaveFoldersToGames', () => {
+  const games = [
+    { threadId: 1, title: 'My Bimbo Dream: Kingpin [v0.11.5] [MBD]' },
+    { threadId: 2, title: 'My Bimbo Dream S2 [v2.0.7] [MBD]' },
+    { threadId: 3, title: 'Unrelated Title' }
+  ]
+
+  test('assigns each folder to a unique game', () => {
+    const matched = matchSaveFoldersToGames(
+      ['MBDK-1749650324', 'MBDS2-1749650324', 'nope'],
+      games
+    )
+    const byFolder = Object.fromEntries(matched.map((item) => [item.folderName, item.game.threadId]))
+    expect(byFolder).toEqual({
+      'MBDK-1749650324': 1,
+      'MBDS2-1749650324': 2
+    })
+  })
+
+  test('leaves a folder unmatched when two titles tie', () => {
+    const matched = matchSaveFoldersToGames(['MCG-1749650324'], [
+      { threadId: 1, title: 'My Cool Game' },
+      { threadId: 2, title: 'My Cool Gameplay' }
+    ])
+    expect(matched).toEqual([])
+  })
+})
+
+describe('folderSearchQueries', () => {
+  test('strips timestamps and splits camel case', () => {
+    expect(folderSearchQueries('BeingADik-1749650324')).toContain('Being A Dik')
+  })
+
+  test('keeps acronym folders searchable', () => {
+    expect(folderSearchQueries('MBDK-1749650324')).toEqual(['MBDK'])
   })
 })

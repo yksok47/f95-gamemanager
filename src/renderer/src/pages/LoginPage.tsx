@@ -3,11 +3,10 @@ import appIcon from '../assets/icon.png'
 
 type LoginPageProps = {
   busy: boolean
-  error: string | null
   onSubmit: (username: string, password: string) => Promise<void>
 }
 
-export default function LoginPage({ busy, error, onSubmit }: LoginPageProps): JSX.Element {
+export default function LoginPage({ busy, onSubmit }: LoginPageProps): JSX.Element {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
@@ -44,7 +43,6 @@ export default function LoginPage({ busy, error, onSubmit }: LoginPageProps): JS
               required
             />
           </label>
-          {error ? <p className="error-text">{error}</p> : null}
           <button className="primary-btn" type="submit" disabled={busy}>
             {busy ? 'Signing in…' : 'Sign in'}
           </button>

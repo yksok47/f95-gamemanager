@@ -262,6 +262,59 @@ export type GameLibraryFile = {
   packageTags?: PackageTagHint
 }
 
+export type LibraryStorageKind = 'archive' | 'install' | 'saves'
+
+export type LibraryStorageItem = {
+  id: string
+  kind: LibraryStorageKind
+  threadId: number
+  title: string
+  creator: string
+  version: string
+  filename: string
+  coverUrl: string | null
+  engine: string
+  bytes: number
+  fileId: string | null
+  hasArchive: boolean
+  isInstalled: boolean
+  /** Absolute path to the save folder, when this row is a save entry. */
+  savePath?: string | null
+  /** Directory name under the engine saves root (or a short label). */
+  saveFolderName?: string | null
+  inLibrary?: boolean
+  inFollowed?: boolean
+  /** We know which game this folder belongs to (live match or stored). */
+  identified?: boolean
+  /** Identify was tried and did not find a unique game. */
+  identifyFailed?: boolean
+}
+
+export type LibraryStorageGame = {
+  threadId: number
+  title: string
+  creator: string
+  coverUrl: string | null
+  engine: string
+  archiveBytes: number
+  installBytes: number
+  saveBytes: number
+  totalBytes: number
+  archiveIds: string[]
+  installIds: string[]
+  saveFileId: string | null
+  savePath?: string | null
+}
+
+export type LibraryStorageStats = {
+  archiveBytes: number
+  installBytes: number
+  saveBytes: number
+  totalBytes: number
+  games: LibraryStorageGame[]
+  items: LibraryStorageItem[]
+}
+
 export type PlaySessionStatus = {
   fileId: string
   threadId: number

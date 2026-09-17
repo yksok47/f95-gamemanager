@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
+import { ErrorNotificationHost, errorMessage, notifyError } from './components/ErrorNotifications'
 import DownloadsDock from './components/DownloadsDock'
 import { FooterDockSlot, FooterSlot } from './components/FooterPortal'
 import GameTaskbar, { type GameTaskbarItem } from './components/GameTaskbar'
@@ -27,6 +28,7 @@ import FollowedPage from './pages/FollowedPage'
 import UpdatesPage from './pages/UpdatesPage'
 import RosterPage from './pages/RosterPage'
 import LibraryPage from './pages/LibraryPage'
+import StoragePage, { type StorageOpenTab } from './pages/StoragePage'
 import GameDetailsPage from './pages/GameDetailsPage'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
@@ -34,10 +36,6 @@ import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Something went wrong.'
-}
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -142,7 +140,6 @@ function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSumm
 export default function App(): JSX.Element {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<AppView>('catalog')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [roster, setRoster] = useState<RosterGame[]>([])
@@ -159,6 +156,11 @@ export default function App(): JSX.Element {
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
+  const [detailsOpenTab, setDetailsOpenTab] = useState<{
+    threadId: number
+    tab: StorageOpenTab
+    key: number
+  } | null>(null)
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
@@ -385,7 +387,7 @@ export default function App(): JSX.Element {
       } catch (err) {
         if (!cancelled) {
           setSession({ loggedIn: false, userId: null, username: null })
-          setError(errorMessage(err))
+          notifyError(errorMessage(err))
         }
       }
     }
@@ -398,14 +400,13 @@ export default function App(): JSX.Element {
 
   async function handleLogin(username: string, password: string): Promise<void> {
     setBusy(true)
-    setError(null)
     try {
       const next = await window.api.auth.login({ username, password })
       setSession(next)
       await Promise.all([loadSubscriptions(), loadSettings(), loadRoster()])
       void window.api.subscriptions.startSync().catch(() => undefined)
     } catch (err) {
-      setError(errorMessage(err))
+      notifyError(errorMessage(err))
     } finally {
       setBusy(false)
     }
@@ -418,7 +419,6 @@ export default function App(): JSX.Element {
   }, [view, p2pEnabled])
 
   const handleLogout = useCallback(async (): Promise<void> => {
-    setError(null)
     const next = await window.api.auth.logout()
     setSession(next)
     setSubscriptions([])
@@ -435,7 +435,7 @@ export default function App(): JSX.Element {
     setDetailsWindows([])
     setActiveThreadId(null)
     setSession({ loggedIn: false, userId: null, username: null })
-    setError('The saved F95zone session could not be used. Please log in again.')
+    notifyError('The saved F95zone session could not be used. Please log in again.')
   }, [])
 
   const handleToggleFollow = useCallback(async (game: CatalogGame): Promise<void> => {
@@ -454,7 +454,7 @@ export default function App(): JSX.Element {
     setSubscriptions(await window.api.subscriptions.setRarity(threadId, rarity))
   }, [])
 
-  const openDetailsWindow = useCallback((game: GameSummary) => {
+  const openDetailsWindow = useCallback((game: GameSummary, tab?: StorageOpenTab) => {
     setDetailsWindows((windows) => {
       const index = windows.findIndex((item) => item.threadId === game.threadId)
       if (index === -1) return [...windows, game]
@@ -463,6 +463,7 @@ export default function App(): JSX.Element {
       return next
     })
     setActiveThreadId(game.threadId)
+    if (tab) setDetailsOpenTab({ threadId: game.threadId, tab, key: Date.now() })
   }, [])
 
   const applyCatalogToDetails = useCallback((game: CatalogGame) => {
@@ -513,19 +514,13 @@ export default function App(): JSX.Element {
     [detailsWindows, subscriptions]
   )
 
-  if (!session) {
-    return (
-      <div className="center-screen">
-        <p className="muted">Checking saved session…</p>
-      </div>
-    )
-  }
-
-  if (!session.loggedIn) {
-    return <LoginPage busy={busy} error={error} onSubmit={handleLogin} />
-  }
-
-  return (
+  const body = !session ? (
+    <div className="center-screen">
+      <p className="muted">Checking saved session…</p>
+    </div>
+  ) : !session.loggedIn ? (
+    <LoginPage busy={busy} onSubmit={handleLogin} />
+  ) : (
     <div className={view !== 'downloads' && activeDownloadCount ? 'app-shell app-shell-dock' : 'app-shell'}>
       <ConfirmHost />
       <AppNav
@@ -652,6 +647,23 @@ export default function App(): JSX.Element {
           onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
         />
+      ) : view === 'storage' ? (
+        <StoragePage
+          onOpen={(game, tab) => {
+            const known = summaryFromThread(game.threadId, game.title, subscriptions)
+            openDetailsWindow(
+              {
+                ...known,
+                title: game.title || known.title,
+                creator: game.creator || known.creator,
+                coverUrl: game.coverUrl || known.coverUrl,
+                engine: game.engine || known.engine,
+                version: game.version || known.version
+              },
+              tab
+            )
+          }}
+        />
       ) : (
         <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
       )}
@@ -700,6 +712,12 @@ export default function App(): JSX.Element {
           onSessionExpired={handleSessionExpired}
           p2pEnabled={p2pEnabled}
           p2pSharedHashes={p2pSharedHashes}
+          initialTab={
+            detailsOpenTab?.threadId === details.threadId ? detailsOpenTab.tab : undefined
+          }
+          initialTabKey={
+            detailsOpenTab?.threadId === details.threadId ? detailsOpenTab.key : 0
+          }
         />
       ) : null}
       {view === 'downloads' ? null : (
@@ -723,5 +741,12 @@ export default function App(): JSX.Element {
         />
       )}
     </div>
+  )
+
+  return (
+    <>
+      <ErrorNotificationHost />
+      {body}
+    </>
   )
 }

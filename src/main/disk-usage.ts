@@ -9,6 +9,18 @@ function fileSize(filePath: string): number {
   }
 }
 
+export function fileBytes(filePath: string): number {
+  if (!filePath || !pathExists(filePath)) return 0
+  try {
+    const info = statSync(toFsPath(filePath))
+    if (info.isFile()) return info.size
+    if (info.isDirectory()) return folderBytes(filePath)
+  } catch {
+    return 0
+  }
+  return 0
+}
+
 export function folderBytes(dir: string): number {
   if (!dir || !pathExists(dir)) return 0
   let total = 0

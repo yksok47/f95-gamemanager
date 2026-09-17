@@ -15,6 +15,7 @@ import SelectMenu from '../components/SelectMenu'
 import { HateIcon, HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
+import { notifyCaught } from '../components/ErrorNotifications'
 import { toCatalogGame } from '../lib/catalog-game'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
@@ -122,7 +123,6 @@ export default function RosterPage({
   const [hideCompleted, setHideCompleted] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [hatedActive, setHatedActive] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const followedById = useMemo(
     () => new Map(subscriptions.map((game) => [game.threadId, game])),
     [subscriptions]
@@ -165,7 +165,6 @@ export default function RosterPage({
   )
 
   async function playThread(game: RosterGame): Promise<void> {
-    setError(null)
     try {
       await window.api.library.playLatest(game.threadId, game.engine)
     } catch (err) {
@@ -174,20 +173,19 @@ export default function RosterPage({
         await onSessionExpired()
         throw err
       }
-      setError(text)
+      notifyCaught(err, 'Could not start the game.')
       throw err instanceof Error ? err : new Error(text)
     }
   }
 
   async function stopThread(threadId: number): Promise<void> {
-    setError(null)
     try {
       const active = sessions.filter((session) => session.threadId === threadId)
       for (const session of active) {
         await window.api.library.stop(session.fileId)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not stop the game.')
+      notifyCaught(err, 'Could not stop the game.')
     }
   }
 
@@ -284,8 +282,6 @@ export default function RosterPage({
             : `${games.length} on roster`}
         </span>
       </FooterPortal>
-
-      {error ? <p className="catalog-status error-text">{error}</p> : null}
 
       {games.length === 0 ? (
         <div className="empty-state">

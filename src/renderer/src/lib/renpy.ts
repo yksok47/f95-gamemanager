@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GameLibraryFile, RenpyInfo, RenpyStatus } from '@shared/types'
+import { notifyError } from '../components/ErrorNotifications'
 
 export function formatBytes(size: number): string {
   if (size < 1024) return `${size} B`
@@ -10,19 +11,26 @@ export function formatBytes(size: number): string {
 type UseRenpySessionOptions = {
   prepare?: boolean
   title?: string
+  threadId?: number
   installedOnly?: boolean
 }
 
 export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessionOptions = {}) {
   const prepare = options.prepare ?? false
   const fallbackTitle = options.title || ''
+  const threadId = options.threadId || 0
   const installed = useMemo(() => files.filter((file) => file.isInstalled), [files])
   const sources = options.installedOnly || installed.length ? installed : files
   const [fileId, setFileId] = useState(sources[0]?.id || '')
   const [info, setInfo] = useState<RenpyInfo | null>(null)
   const [status, setStatus] = useState<RenpyStatus | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setErrorState] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  function setError(message: string | null): void {
+    setErrorState(message)
+    if (message) notifyError(message)
+  }
 
   const selected = sources.find((file) => file.id === fileId) || sources[0] || null
   const activeId = selected?.id || ''
@@ -41,7 +49,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
   }, [activeId])
 
   useEffect(() => {
-    if (!activeId && !lookupTitle) {
+    if (!activeId && !lookupTitle && !threadId) {
       setInfo(null)
       setError(null)
       return
@@ -50,11 +58,11 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     setBusy(true)
     setError(null)
     void window.api.renpy
-      .info(activeId, prepare, lookupTitle)
+      .info(activeId, prepare, lookupTitle, threadId)
       .then((next) => {
         if (cancelled) return
         setInfo(next)
-        if (next.lastRun?.error) setError(next.lastRun.error)
+        if (next.lastRun?.error) setErrorState(next.lastRun.error)
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : "Could not read Ren'Py data.")
@@ -65,7 +73,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     return () => {
       cancelled = true
     }
-  }, [activeId, prepare, lookupTitle])
+  }, [activeId, prepare, lookupTitle, threadId])
 
   async function withInfo(work: () => Promise<RenpyInfo>): Promise<void> {
     setError(null)
@@ -86,6 +94,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     selected,
     activeId,
     lookupTitle,
+    threadId,
     setFileId,
     info,
     status,

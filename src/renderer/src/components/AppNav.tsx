@@ -2,9 +2,9 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
-import { DownloadIcon, FullscreenIcon, UploadIcon } from './ToolbarIcons'
+import { DownloadIcon, FullscreenIcon, SettingsIcon, StorageIcon, UploadIcon } from './ToolbarIcons'
 
-export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'downloads' | 'uploads' | 'settings'
+export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'storage' | 'downloads' | 'uploads' | 'settings'
 
 type AppNavProps = {
   view: AppView
@@ -103,6 +103,15 @@ export default function AppNav({
       <ToolbarSlot />
       <div className="app-nav-user">
         <button
+          className={view === 'storage' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          type="button"
+          title="Storage"
+          aria-label="Storage"
+          onClick={() => onViewChange('storage')}
+        >
+          <StorageIcon />
+        </button>
+        <button
           className={view === 'downloads' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
           title="Downloads"
@@ -143,12 +152,7 @@ export default function AppNav({
           aria-label="Settings"
           onClick={() => onViewChange('settings')}
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path
-              fill="currentColor"
-              d="M6.5 1.4h3l.28 1.55c.42.14.81.34 1.16.6l1.48-.58 1.5 2.6-1.2.95c.06.3.1.61.1.93s-.04.63-.1.93l1.2.95-1.5 2.6-1.48-.58c-.35.26-.74.46-1.16.6L9.5 14.6h-3l-.28-1.55a5 5 0 0 1-1.16-.6l-1.48.58-1.5-2.6 1.2-.95A4.6 4.6 0 0 1 3.18 8c0-.32.04-.63.1-.93l-1.2-.95 1.5-2.6 1.48.58c.35-.26.74-.46 1.16-.6zm1.5 4.2A2.4 2.4 0 1 0 10.4 8 2.4 2.4 0 0 0 8 5.6"
-            />
-          </svg>
+          <SettingsIcon />
         </button>
         <button
           ref={avatarRef}

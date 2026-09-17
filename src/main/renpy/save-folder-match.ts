@@ -134,3 +134,90 @@ export function matchRenpySaveFolder(title: string, folderNames: string[]): stri
 
   return null
 }
+
+export type SaveFolderGameMatch<T> = {
+  folderName: string
+  game: T
+  score: number
+}
+
+/**
+ * Assign each save folder to at most one game, and each game to at most one folder.
+ * Tied top scores for a folder are left unmatched.
+ */
+export function matchSaveFoldersToGames<T extends { title: string; threadId: number }>(
+  folderNames: string[],
+  games: T[]
+): Array<SaveFolderGameMatch<T>> {
+  if (!folderNames.length || !games.length) return []
+
+  const pairs: Array<SaveFolderGameMatch<T>> = []
+  for (const folderName of folderNames) {
+    for (const game of games) {
+      if (!game.title.trim() || !game.threadId) continue
+      const score = scoreSaveFolder(folderName, game.title)
+      if (score > 0) pairs.push({ folderName, game, score })
+    }
+  }
+  pairs.sort(
+    (a, b) =>
+      b.score - a.score ||
+      a.folderName.localeCompare(b.folderName) ||
+      a.game.threadId - b.game.threadId
+  )
+
+  const usedFolders = new Set<string>()
+  const usedGames = new Set<number>()
+  const skippedFolders = new Set<string>()
+  const result: Array<SaveFolderGameMatch<T>> = []
+
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i]
+    if (
+      usedFolders.has(pair.folderName) ||
+      usedGames.has(pair.game.threadId) ||
+      skippedFolders.has(pair.folderName)
+    ) {
+      continue
+    }
+    const next = pairs[i + 1]
+    if (
+      next &&
+      next.folderName === pair.folderName &&
+      next.score === pair.score &&
+      next.game.threadId !== pair.game.threadId
+    ) {
+      skippedFolders.add(pair.folderName)
+      continue
+    }
+    usedFolders.add(pair.folderName)
+    usedGames.add(pair.game.threadId)
+    result.push(pair)
+  }
+
+  return result
+}
+
+/** Catalog search strings derived from a Ren'Py save-folder name. */
+export function folderSearchQueries(folderName: string): string[] {
+  const trimmed = folderName.trim()
+  if (!trimmed) return []
+  const withoutStamp = trimmed.replace(/-\d{8,}$/, '')
+  const spaced = withoutStamp.replace(/[_-]+/g, ' ')
+  const camel = spaced
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/([A-Za-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([A-Za-z])/g, '$1 $2')
+  const queries: string[] = []
+  const add = (value: string): void => {
+    const next = value.replace(/\s+/g, ' ').trim()
+    if (next.length < 3) return
+    if (queries.some((item) => item.toLowerCase() === next.toLowerCase())) return
+    queries.push(next)
+  }
+  add(camel)
+  add(spaced)
+  add(withoutStamp)
+  return queries
+}

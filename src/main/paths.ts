@@ -18,6 +18,7 @@ export function getAppPaths(): {
   p2pTorrentsDir: string
   downloadsHistoryFile: string
   gameNotesFile: string
+  saveFoldersFile: string
   renpyOptionsFile: string
   rosterFile: string
   downloadsDir: string
@@ -36,6 +37,7 @@ export function getAppPaths(): {
     p2pTorrentsDir: join(userData, 'p2p-torrents'),
     downloadsHistoryFile: join(userData, 'downloads-history.json'),
     gameNotesFile: join(userData, 'game-notes.json'),
+    saveFoldersFile: join(userData, 'save-folders.json'),
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),
     downloadsDir: join(userData, 'downloads'),

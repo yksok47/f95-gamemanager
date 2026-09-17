@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react'
 import { TAG_QUERY_LIMIT, type CatalogTag, type HatedTag } from '@shared/types'
 import TagBrowser from './TagBrowser'
+import { notifyError } from './ErrorNotifications'
 
 type HatedTagsEditorProps = {
   selected: HatedTag[]
@@ -20,7 +21,6 @@ export default function HatedTagsEditor({
   onChange
 }: HatedTagsEditorProps): JSX.Element {
   const [query, setQuery] = useState('')
-  const [limitHint, setLimitHint] = useState<string | null>(null)
   const sorted = useMemo(
     () => [...selected].sort((a, b) => a.name.localeCompare(b.name)),
     [selected]
@@ -28,15 +28,13 @@ export default function HatedTagsEditor({
 
   function toggleTag(tag: CatalogTag): void {
     if (selected.some((item) => item.id === tag.id)) {
-      setLimitHint(null)
       onChange(selected.filter((item) => item.id !== tag.id))
       return
     }
     if (selected.length >= TAG_QUERY_LIMIT) {
-      setLimitHint(`You can only hate ${TAG_QUERY_LIMIT} tags.`)
+      notifyError(`You can only hate ${TAG_QUERY_LIMIT} tags.`)
       return
     }
-    setLimitHint(null)
     onChange([...selected, { id: tag.id, name: tag.name }])
   }
 
@@ -46,7 +44,6 @@ export default function HatedTagsEditor({
         Click tags to hide games that have them. {sorted.length}/{TAG_QUERY_LIMIT}.
         {saving ? ' Saving…' : ''}
       </p>
-      {limitHint ? <p className="error-text">{limitHint}</p> : null}
       <div className="favorite-tier favorite-tier-hate is-selected hated-tags-panel">
         <div className="favorite-tier-head">
           <h2>Hated</h2>

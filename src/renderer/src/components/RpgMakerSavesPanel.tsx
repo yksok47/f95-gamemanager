@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { confirm } from './ConfirmDialog'
+import { notifyCaught } from './ErrorNotifications'
 import type { GameLibraryFile, RpgMakerInfo, RpgMakerSaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
@@ -23,7 +24,6 @@ export default function RpgMakerSavesPanel({
   const installed = useMemo(() => files.filter((file) => file.isInstalled), [files])
   const [fileId, setFileId] = useState(installed[0]?.id || files[0]?.id || '')
   const [info, setInfo] = useState<RpgMakerInfo | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const sessions = usePlaySessions()
@@ -37,7 +37,6 @@ export default function RpgMakerSavesPanel({
 
   async function load(): Promise<void> {
     setBusy(true)
-    setError(null)
     try {
       const next = await window.api.rpgmaker.info(activeId, threadId, title)
       setInfo(next)
@@ -47,7 +46,7 @@ export default function RpgMakerSavesPanel({
         return kept.length === current.size ? current : new Set(kept)
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not read RPG Maker saves.')
+      notifyCaught(err, 'Could not read RPG Maker saves.')
     } finally {
       setBusy(false)
     }
@@ -56,7 +55,6 @@ export default function RpgMakerSavesPanel({
   useEffect(() => {
     let cancelled = false
     setBusy(true)
-    setError(null)
     void window.api.rpgmaker
       .info(activeId, threadId, title)
       .then((next) => {
@@ -69,7 +67,7 @@ export default function RpgMakerSavesPanel({
         })
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not read RPG Maker saves.')
+        if (!cancelled) notifyCaught(err, 'Could not read RPG Maker saves.')
       })
       .finally(() => {
         if (!cancelled) setBusy(false)
@@ -94,13 +92,12 @@ export default function RpgMakerSavesPanel({
     const noun = paths.length === 1 ? 'save' : 'saves'
     if (!(await confirm({ title: 'Delete saves', message: `Delete ${paths.length} ${noun} from the game folder and AppData backup?`, confirmLabel: 'Delete', danger: true }))) return
     setBusy(true)
-    setError(null)
     try {
       const next = await window.api.rpgmaker.deleteSaves(activeId, threadId, paths, title)
       setInfo(next)
       setSelected(new Set())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete those saves.')
+      notifyCaught(err, 'Could not delete those saves.')
     } finally {
       setBusy(false)
     }
@@ -108,7 +105,7 @@ export default function RpgMakerSavesPanel({
 
   function openFolder(which?: 'game' | 'backup'): void {
     void window.api.rpgmaker.openSaves(activeId, threadId, title, which).catch((err) => {
-      setError(err instanceof Error ? err.message : 'Could not open the save folder.')
+      notifyCaught(err, 'Could not open the save folder.')
     })
   }
 
@@ -116,7 +113,6 @@ export default function RpgMakerSavesPanel({
 
   return (
     <div className="renpy-panel">
-      {error ? <p className="error-text">{error}</p> : null}
       {info?.message ? <p className="muted">{info.message}</p> : null}
       {playing ? (
         <p className="muted">Game is running. New saves are copied to AppData while you play, then synced when it exits.</p>
@@ -239,7 +235,7 @@ export default function RpgMakerSavesPanel({
                       event.preventDefault()
                       event.stopPropagation()
                       void window.api.rpgmaker.showSave(activeId, threadId, save.path, title).catch((err) => {
-                        setError(err instanceof Error ? err.message : 'Could not show that save.')
+                        notifyCaught(err, 'Could not show that save.')
                       })
                     }}
                   >

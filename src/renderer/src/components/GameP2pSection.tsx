@@ -20,6 +20,7 @@ import {
 } from "@shared/types";
 import { formatBytes } from "../lib/downloads";
 import { confirm } from "./ConfirmDialog";
+import { notifyCaught, notifyError } from "./ErrorNotifications";
 import {
   formatConsensusKind,
   formatConsensusOs,
@@ -184,8 +185,7 @@ export default function GameP2pSection({
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [pendingHash, setPendingHash] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<P2pTransferProgress[]>([]);
   const [ownedContentHashes, setOwnedContentHashes] = useState<Set<string>>(
@@ -248,7 +248,7 @@ export default function GameP2pSection({
 
   const load = useCallback(async (): Promise<void> => {
     setBusy(true);
-    setError(null);
+    setLoadFailed(false);
     try {
       const status = (await window.api.p2p.status()) as {
         enabled?: boolean;
@@ -278,10 +278,10 @@ export default function GameP2pSection({
       setItems([]);
       setVersions([]);
       setTotal(0);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load P2P packages for this game",
+      setLoadFailed(true);
+      notifyCaught(
+        err,
+        "Failed to load P2P packages for this game",
       );
     } finally {
       setBusy(false);
@@ -352,11 +352,11 @@ export default function GameP2pSection({
 
   async function download(pkg: PackageMetadata): Promise<void> {
     if (!p2pEnabled) {
-      setActionError("Enable P2P in Settings before downloading.");
+      notifyError("Enable P2P in Settings before downloading.");
       return;
     }
     if (ownedContentHashes.has(pkg.contentHash.toLowerCase())) {
-      setActionError("This package is already in your library.");
+      notifyError("This package is already in your library.");
       return;
     }
     if (
@@ -364,7 +364,7 @@ export default function GameP2pSection({
         (t) => transferMatchesPackage(t, pkg) && isInFlightDownload(t),
       )
     ) {
-      setActionError("Already downloading this package.");
+      notifyError("Already downloading this package.");
       return;
     }
     const { harmful, broken } = flagCountsOf(pkg);
@@ -400,13 +400,10 @@ export default function GameP2pSection({
         return;
     }
     setPendingHash(pkg.contentHash);
-    setActionError(null);
     try {
       await window.api.p2p.downloadByHash(pkg.contentHash);
     } catch (err) {
-      setActionError(
-        err instanceof Error ? err.message : "P2P download failed",
-      );
+      notifyCaught(err, "P2P download failed");
     } finally {
       setPendingHash(null);
     }
@@ -461,9 +458,7 @@ export default function GameP2pSection({
         />
       </div>
 
-      {error ? <p className="error-text">{error}</p> : null}
-      {actionError ? <p className="error-text">{actionError}</p> : null}
-      {!busy && filteredItems.length === 0 && !error ? (
+      {!busy && filteredItems.length === 0 && !loadFailed ? (
         <p className="muted">
           {metadataApiEnabled
             ? filtersActive

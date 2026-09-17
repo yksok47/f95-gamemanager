@@ -4,6 +4,7 @@ import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import RankedTagsEditor from '../components/RankedTagsEditor'
+import { notifyCaught } from '../components/ErrorNotifications'
 import Switch from '../components/Switch'
 
 type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated'
@@ -95,7 +96,6 @@ export default function SettingsPage({
   const [tags, setTags] = useState<CatalogTag[]>([])
   const [busy, setBusy] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [userDataPath, setUserDataPath] = useState('')
   const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
   const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
@@ -133,14 +133,11 @@ export default function SettingsPage({
 
     async function load(): Promise<void> {
       setBusy(true)
-      setError(null)
       try {
         const filters = await window.api.catalog.filters()
         if (!cancelled) setTags(filters.tags)
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Could not load tags.')
-        }
+        if (!cancelled) notifyCaught(err, 'Could not load tags.')
       } finally {
         if (!cancelled) setBusy(false)
       }
@@ -157,11 +154,10 @@ export default function SettingsPage({
 
   async function persist(next: Partial<AppSettings>): Promise<void> {
     setSaving(true)
-    setError(null)
     try {
       await onSaveSettings(next)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save settings.')
+      notifyCaught(err, 'Could not save settings.')
     } finally {
       setSaving(false)
     }
@@ -470,8 +466,6 @@ export default function SettingsPage({
             onChange={saveHated}
           />
         ) : null}
-
-        {error ? <p className="error-text">{error}</p> : null}
       </section>
     </div>
   )

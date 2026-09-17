@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
+import { notifyCaught } from './ErrorNotifications'
 
 type UserNotesPanelProps = {
   threadId: number
@@ -10,7 +11,6 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
   const [text, setText] = useState('')
   const [ready, setReady] = useState(false)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  const [error, setError] = useState<string | null>(null)
   const textRef = useRef(text)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savedClearTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -21,7 +21,6 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
   useEffect(() => {
     let cancelled = false
     setReady(false)
-    setError(null)
     setSaveState('idle')
     setText('')
     lastSaved.current = ''
@@ -36,7 +35,7 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Could not load notes.')
+        notifyCaught(err, 'Could not load notes.')
         setReady(true)
       })
 
@@ -64,7 +63,6 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
       return
     }
     setSaveState('saving')
-    setError(null)
     try {
       const saved = await window.api.gameNotes.set(threadId, next)
       if (textRef.current !== next) return
@@ -72,7 +70,7 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
     } catch (err) {
       if (textRef.current !== next) return
       setSaveState('error')
-      setError(err instanceof Error ? err.message : 'Could not save notes.')
+      notifyCaught(err, 'Could not save notes.')
     }
   }
 
@@ -126,7 +124,6 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
           {statusLabel}
         </span>
       </div>
-      {error ? <p className="error-text">{error}</p> : null}
       <textarea
         className="user-notes-pad"
         value={text}
