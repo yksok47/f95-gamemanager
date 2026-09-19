@@ -2507,6 +2507,25 @@ button {
   font-weight: 700;
 }
 
+.details-pill.rating-violet {
+  color: #b57bff;
+}
+.details-pill.rating-blue {
+  color: #5b9dff;
+}
+.details-pill.rating-green {
+  color: #6bcf8e;
+}
+.details-pill.rating-yellow {
+  color: #e8c547;
+}
+.details-pill.rating-red {
+  color: #f07178;
+}
+.details-pill.rating-black {
+  color: #111;
+}
+
 .details-hero .details-pill.rating-black {
   background: #e8eaed;
   color: #111;
