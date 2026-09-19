@@ -12,7 +12,14 @@ import {
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
 import { extractArchive } from './extract'
-import { isArchivePath, sanitizeSegment } from './fs-utils'
+import { isArchivePath } from './fs-utils'
+import {
+  expectedInstallPath,
+  installLayoutMatches,
+  moveInstallDirectory,
+  rebaseAbsolutePath,
+  rebasePath
+} from './install-layout'
 import {
   detectEngineFromInstall,
   detectExecutable,
@@ -21,11 +28,17 @@ import {
   pickExecutable
 } from './launch'
 import { getAppPaths } from './paths'
-import { startPlaySession, getPlaySession, stopPlaySession } from './play-sessions'
+import { startPlaySession, getPlaySession, hasPlaySessionUnder, stopPlaySession } from './play-sessions'
 import { listProcessExecutables, killProcessesUnder, pathIsInside } from './processes'
 import { gameDirFromRoot } from './renpy/scan'
 import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyScriptPath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
-import { getDownloadsDirSync, getLibraryDirSync } from './settings-store'
+import { isSamePath } from './extra-library-dirs'
+import {
+  getDownloadsDirSync,
+  getExtraArchiveDirsSync,
+  getExtraLibraryDirsSync,
+  getLibraryDirSync
+} from './settings-store'
 import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { uniqueScreenUrls } from './f95/catalog'
 import { lookupGame } from './f95/lookup'
@@ -611,12 +624,109 @@ export async function addGameFileFromDownload(
   return present(entry)
 }
 
-function installDest(file: StoredGameFile): string {
-  return join(
-    getLibraryDirSync(),
-    sanitizeSegment(file.title),
-    sanitizeSegment(file.version || 'unknown')
+function versionsMatch(left: string, right: string): boolean {
+  return left.trim().toLowerCase() === right.trim().toLowerCase()
+}
+
+export async function addImportedLibraryFile(opts: {
+  kind: 'archive' | 'install'
+  path: string
+  hash: string
+  size: number
+  context: GameFileContext
+}): Promise<GameLibraryFile> {
+  if (opts.kind === 'archive') {
+    return addGameFileFromDownload(opts.context, opts.path, opts.hash, opts.size)
+  }
+
+  const files = await readStore()
+  const siblings = files.filter((file) => file.threadId === opts.context.threadId)
+  const meta = mergeThreadMeta(...siblings, opts.context)
+  const packageTags = asPackageTagHint(opts.context.packageHint)
+  const version = packageTags?.version || opts.context.version || ''
+  const installKey = resolve(opts.path).toLowerCase()
+
+  const byPath = files.find(
+    (file) => file.installPath && resolve(file.installPath).toLowerCase() === installKey
   )
+  const attachable = files.filter(
+    (file) =>
+      file.threadId === opts.context.threadId &&
+      versionsMatch(file.version, version) &&
+      !file.installPath
+  )
+  const existing =
+    byPath ||
+    (attachable.length === 1
+      ? attachable[0]
+      : attachable.find((file) => isInstallableLibraryPackage(file.packageTags))) ||
+    null
+
+  const engine =
+    normalizeEngine(opts.context.engine) ||
+    detectEngineFromInstall(opts.path) ||
+    normalizeEngine(meta.engine)
+  const executablePath = detectExecutable(opts.path, engine)
+
+  if (existing) {
+    existing.installPath = opts.path
+    existing.installedAt = Date.now()
+    existing.executablePath = executablePath
+    if (packageTags) {
+      existing.packageTags = packageTags
+      existing.version = packageTags.version
+    } else if (version) {
+      existing.version = version
+    }
+    existing.engine = engine || existing.engine || ''
+    applyMetaToFile(existing, meta)
+    applyMetaToThread(files, meta)
+    await writeStore(files)
+    broadcast()
+    return present(existing)
+  }
+
+  const entry: StoredGameFile = {
+    id: nextId(),
+    threadId: opts.context.threadId,
+    title: opts.context.title || meta.title || 'Unknown',
+    version,
+    engine: engine || '',
+    filename: basename(opts.path),
+    archivePath: '',
+    hash: opts.hash || '',
+    size: opts.size || 0,
+    downloadedAt: Date.now(),
+    installPath: opts.path,
+    installedAt: Date.now(),
+    executablePath,
+    lastPlayedAt: null,
+    playtimeMs: 0,
+    creator: opts.context.creator || meta.creator || '',
+    coverUrl: opts.context.coverUrl || meta.coverUrl || null,
+    rating: opts.context.rating || meta.rating || 0,
+    likes: pickLikeCount(opts.context.likes, meta.likes),
+    views: pickViewCount(opts.context.views, meta.views),
+    threadUrl:
+      opts.context.threadUrl || meta.threadUrl || `https://f95zone.to/threads/${opts.context.threadId}/`,
+    prefixes: opts.context.prefixes?.length ? opts.context.prefixes : meta.prefixes,
+    tags: opts.context.tags?.length ? opts.context.tags : meta.tags,
+    timestamp: opts.context.timestamp || meta.timestamp || 0,
+    updatedAt: opts.context.updatedAt || meta.updatedAt || '',
+    screens: uniqueScreenUrls(opts.context.screens).length
+      ? uniqueScreenUrls(opts.context.screens)
+      : uniqueScreenUrls(meta.screens),
+    packageTags
+  }
+  files.push(entry)
+  applyMetaToThread(files, mergeThreadMeta(meta, entry))
+  await writeStore(files)
+  broadcast()
+  return present(entry)
+}
+
+function installDest(file: Pick<StoredGameFile, 'title' | 'version'>): string {
+  return expectedInstallPath(getLibraryDirSync(), file.title, file.version)
 }
 
 function fileStillPresent(file: StoredGameFile): boolean {
@@ -707,6 +817,71 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
   } finally {
     await resumeTorrentsByIds(pausedTorrentIds)
   }
+}
+
+function rebaseStoredFilePaths(file: StoredGameFile, fromRoot: string, toRoot: string): void {
+  if (file.installPath) file.installPath = rebasePath(file.installPath, fromRoot, toRoot)
+  if (file.executablePath) file.executablePath = rebasePath(file.executablePath, fromRoot, toRoot)
+  if (file.archivePath) file.archivePath = rebasePath(file.archivePath, fromRoot, toRoot)
+  file.renpySaveDirectory = rebaseAbsolutePath(file.renpySaveDirectory, fromRoot, toRoot)
+}
+
+async function removeEmptyParentsAfterMove(oldPath: string): Promise<void> {
+  const roots = [
+    getLibraryDirSync(),
+    getDownloadsDirSync(),
+    ...getExtraLibraryDirsSync(),
+    ...getExtraArchiveDirsSync()
+  ]
+  for (const root of roots) {
+    await removeEmptyParents(oldPath, root)
+  }
+}
+
+/** Move an installed game onto `{libraryDir}/{title}/{version}` and rewrite stored paths. */
+export async function relocateGameInstall(id: string): Promise<GameLibraryFile> {
+  if (installing.has(id)) throw new Error('That version is still being installed.')
+  const { files, file } = await getFile(id)
+  const oldPath = file.installPath
+  if (!oldPath || !pathExists(oldPath)) throw new Error('That game is not installed.')
+  const dest = installDest(file)
+  if (installLayoutMatches(oldPath, dest)) return present(file)
+  if (hasPlaySessionUnder(oldPath)) {
+    throw new Error('Quit the game before moving its folder.')
+  }
+  const occupant = files.find(
+    (item) =>
+      item.id !== file.id &&
+      item.installPath &&
+      isSamePath(item.installPath, dest) &&
+      !isSamePath(item.installPath, oldPath)
+  )
+  if (occupant) throw new Error('Another installed version already uses that folder.')
+
+  assertManagedPath(dest)
+  await moveInstallDirectory(oldPath, dest)
+
+  for (const item of files) rebaseStoredFilePaths(item, oldPath, dest)
+  if (file.installPath && pathExists(file.installPath)) {
+    file.executablePath = detectExecutable(file.installPath, file.engine) || file.executablePath
+  }
+
+  await writeStore(files)
+  await removeEmptyParentsAfterMove(oldPath)
+  try {
+    const { rebaseSaveFolderPaths } = await import('./save-folders-store')
+    await rebaseSaveFolderPaths(oldPath, dest)
+  } catch (error) {
+    console.warn('Could not update save-folder paths after the move', error)
+  }
+  try {
+    const { rebasePendingImportPaths } = await import('./library-import')
+    await rebasePendingImportPaths(oldPath, dest)
+  } catch (error) {
+    console.warn('Could not update import paths after the move', error)
+  }
+  broadcast()
+  return present(file)
 }
 
 function patchSourceReady(file: StoredGameFile): boolean {
@@ -1075,6 +1250,12 @@ function isInside(target: string, root: string): boolean {
 
 function assertManagedPath(target: string): void {
   if (isInside(target, getLibraryDirSync()) || isInside(target, getDownloadsDirSync())) return
+  for (const dir of getExtraArchiveDirsSync()) {
+    if (isInside(target, dir)) return
+  }
+  for (const dir of getExtraLibraryDirsSync()) {
+    if (isInside(target, dir)) return
+  }
   throw new Error('Refusing to delete a path outside the library or downloads folders.')
 }
 

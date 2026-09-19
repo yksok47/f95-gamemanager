@@ -45,6 +45,7 @@ import {
   metadataFromSubscription,
   playGameFile,
   playLatestGameFile,
+  relocateGameInstall,
   removeGameArchive,
   removeGameVersion,
   showGameArchive,
@@ -89,6 +90,14 @@ import {
   listSaveOnlyItems,
   openManagedSaveFolder
 } from './save-folders'
+import {
+  approvePendingImport,
+  dismissPendingImport,
+  getPendingImport,
+  identifyPendingImport,
+  revealImportPath,
+  scanExternalLibraries
+} from './library-import'
 import { getSettings, saveSettings } from './settings-store'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
@@ -713,6 +722,69 @@ export function registerIpc(): void {
     }
   )
 
+  ipcMain.handle('library:importExternal', async () => {
+    try {
+      const result = await scanExternalLibraries()
+      await requestLibraryStorageStats({ force: true })
+      return result
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:getImport', async (_event, filePath: string) => {
+    try {
+      return await getPendingImport(String(filePath || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:identifyImport', async (_event, filePath: string) => {
+    try {
+      return await identifyPendingImport(String(filePath || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'library:approveImport',
+    async (_event, filePath: string, game: unknown, tags: unknown) => {
+      try {
+        await approvePendingImport(
+          String(filePath || ''),
+          game as {
+            threadId: number
+            title: string
+            coverUrl: string | null
+          },
+          tags as PackageInstallTags
+        )
+        return await requestLibraryStorageStats({ force: true })
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('library:dismissImport', async (_event, filePath: string) => {
+    try {
+      await dismissPendingImport(String(filePath || ''))
+      return await requestLibraryStorageStats({ force: true })
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:revealImport', async (_event, filePath: string) => {
+    try {
+      await revealImportPath(String(filePath || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('library:install', async (_event, id: string, engine?: string) => {
     try {
       return await installGameFile(String(id), engine)
@@ -820,6 +892,14 @@ export function registerIpc(): void {
   ipcMain.handle('library:showInstall', async (_event, id: string) => {
     try {
       await showGameInstall(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:relocateInstall', async (_event, id: string) => {
+    try {
+      return await relocateGameInstall(String(id))
     } catch (error) {
       throw toIpcError(error)
     }

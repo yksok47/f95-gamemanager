@@ -23,12 +23,14 @@ export function isActiveP2pDownload(
   if (!isInFlightP2pState(item.state)) return false
   // create-torrent / skipVerify hashing is background work after the file is usable.
   if (item.state === 'checking') return false
+  // Local shares belong on Uploads — including a paused 100% seed after library import.
+  if (item.id.startsWith('seed:')) return false
   if (
-    item.id.startsWith('seed:') &&
     item.contentHash &&
     sharedContentHashes?.has(item.contentHash.toLowerCase()) &&
-    item.state !== 'paused' &&
-    item.state !== 'error'
+    item.progress >= 1 &&
+    item.state !== 'error' &&
+    item.state !== 'quarantined'
   ) {
     return false
   }

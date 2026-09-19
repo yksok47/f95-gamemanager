@@ -4,7 +4,9 @@ import type { DownloadRecord } from '@shared/types'
 import {
   collectThreadDownloads,
   isActiveDownload,
-  isDockDownload
+  isActiveP2pDownload,
+  isDockDownload,
+  isDockP2pDownload
 } from './downloads'
 
 function httpDownload(partial: Partial<DownloadRecord> & Pick<DownloadRecord, 'id'>): DownloadRecord {
@@ -102,6 +104,51 @@ describe('collectThreadDownloads', () => {
       })
     ])
     expect(stopped.size).toBe(0)
+  })
+
+  test('does not list a paused 100% local seed after import', () => {
+    const hash = 'abc123'
+    const pending = collectThreadDownloads(
+      [],
+      [
+        p2pTransfer({
+          id: 'seed:1:abc',
+          state: 'paused',
+          progress: 1,
+          contentHash: hash,
+          f95ThreadId: 41,
+          gameName: 'Imported'
+        })
+      ],
+      new Set([hash])
+    )
+    expect(pending.size).toBe(0)
+  })
+})
+
+describe('isActiveP2pDownload', () => {
+  test('hides local seeds even when they are paused at 100%', () => {
+    const hash = 'deadbeef'
+    const seed = p2pTransfer({
+      id: 'seed:1:xyz',
+      state: 'paused',
+      progress: 1,
+      contentHash: hash
+    })
+    const shared = new Set([hash])
+    expect(isActiveP2pDownload(seed)).toBe(false)
+    expect(isActiveP2pDownload(seed, shared)).toBe(false)
+    expect(isDockP2pDownload(seed, shared)).toBe(false)
+  })
+
+  test('still lists a real in-progress P2P download', () => {
+    const item = p2pTransfer({
+      id: 'add:1:xyz',
+      state: 'downloading',
+      progress: 0.4,
+      contentHash: 'ffff'
+    })
+    expect(isActiveP2pDownload(item)).toBe(true)
   })
 })
 

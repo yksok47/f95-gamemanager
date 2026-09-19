@@ -236,6 +236,10 @@ export async function p2pSeed(
     f95ThreadId: meta?.f95ThreadId ?? null,
     f95ThreadUrl: meta?.f95ThreadUrl ?? null,
   });
+  // Import/reseed of a complete local file must share, not sit paused in Downloads.
+  if (progress.state === "paused") {
+    progress = (await p2pResume(progress.id)) ?? progress;
+  }
   // Map write can land after the last torrent progress tick (idle seeders emit nothing).
   touchP2pProgress();
   // Public-path: no LAN/Tailscale listenAddrs — peers meet via tracker WAN + WebRTC STUN.

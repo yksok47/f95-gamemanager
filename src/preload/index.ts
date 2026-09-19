@@ -14,6 +14,8 @@ import type {
   IdentifiedSaveFolder,
   LibraryStorageScan,
   LibraryStorageStats,
+  LibraryImportCandidate,
+  LibraryImportScanResult,
   SaveFolderPeekShot,
   ImportResult,
   LoginPayload,
@@ -228,6 +230,38 @@ const api = {
       }
     ): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:assignSaveFolder', savePath, game),
+    importExternal: (): Promise<LibraryImportScanResult> =>
+      ipcRenderer.invoke('library:importExternal'),
+    getImport: (filePath: string): Promise<LibraryImportCandidate | null> =>
+      ipcRenderer.invoke('library:getImport', filePath),
+    identifyImport: (filePath: string): Promise<LibraryImportCandidate | null> =>
+      ipcRenderer.invoke('library:identifyImport', filePath),
+    approveImport: (
+      filePath: string,
+      game: {
+        threadId: number
+        title: string
+        coverUrl?: string | null
+        creator?: string
+        engine?: string
+        version?: string
+        rating?: number
+        likes?: number
+        views?: number
+        threadUrl?: string
+        prefixes?: number[]
+        tags?: number[]
+        timestamp?: number
+        updatedAt?: string
+        screens?: string[]
+      },
+      tags: PackageInstallTags
+    ): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:approveImport', filePath, game, tags),
+    dismissImport: (filePath: string): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:dismissImport', filePath),
+    revealImport: (filePath: string): Promise<void> =>
+      ipcRenderer.invoke('library:revealImport', filePath),
     install: (id: string, engine?: string): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:install', id, engine),
     installUncensorPatch: (patchId: string, targetFileId: string): Promise<GameLibraryFile> =>
@@ -239,6 +273,8 @@ const api = {
       ipcRenderer.invoke('library:uninstallUncensorPatch', gameFileId, patchRef),
     showArchive: (id: string): Promise<void> => ipcRenderer.invoke('library:showArchive', id),
     showInstall: (id: string): Promise<void> => ipcRenderer.invoke('library:showInstall', id),
+    relocateInstall: (id: string): Promise<GameLibraryFile> =>
+      ipcRenderer.invoke('library:relocateInstall', id),
     play: (id: string, engine?: string): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:play', id, engine),
     playLatest: (threadId: number, engine?: string): Promise<GameLibraryFile> =>

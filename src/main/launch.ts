@@ -121,6 +121,20 @@ export function detectEngineFromInstall(installPath: string): string {
   return ''
 }
 
+/** Cheap check used when scanning library folders for installs. */
+export function isLikelyGameRoot(installPath: string): boolean {
+  if (!installPath || !pathExists(installPath)) return false
+  const entries = listDirents(installPath)
+  const names = new Set(entries.map((entry) => entry.name.toLowerCase()))
+  if (names.has('renpy') && names.has('game')) return true
+  if (names.has('www') && isRpgMakerWww(childPath(installPath, 'www'))) return true
+  if (isRpgMakerWww(installPath)) return true
+  if (collectLaunchables(installPath).length > 0) return true
+  const gameDir = childPath(installPath, 'game')
+  if (pathExists(gameDir) && hasRenpyScripts(gameDir)) return true
+  return false
+}
+
 export function findRenpyExecutable(installPath: string): string | null {
   const gameDirs = findNamedDirs(installPath, 'game')
   const candidates = new Set<string>()

@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
 import type { IdentifiedSaveFolder } from '@shared/types'
+import { rebasePath } from './install-layout'
 import { getAppPaths } from './paths'
 import { mergeIdentifiedSaveFolder } from './save-folder-meta'
 import { pathExists } from './win-path'
@@ -267,6 +268,30 @@ export async function markSaveFolderIdentifyFailed(savePath: string, folderName:
       }
     }
   })
+}
+
+export async function rebaseSaveFolderPaths(fromRoot: string, toRoot: string): Promise<void> {
+  if (!fromRoot || !toRoot) return
+  const store = await loadStore()
+  const identified: Record<string, IdentifiedSaveFolder> = {}
+  const failed: Record<string, FailedSaveFolder> = {}
+  let changed = false
+
+  for (const item of Object.values(store.identified)) {
+    const savePath = rebasePath(item.savePath, fromRoot, toRoot)
+    if (savePath !== item.savePath) changed = true
+    const next = { ...item, savePath }
+    identified[saveFolderKey(next.savePath)] = next
+  }
+  for (const item of Object.values(store.failed)) {
+    const savePath = rebasePath(item.savePath, fromRoot, toRoot)
+    if (savePath !== item.savePath) changed = true
+    const next = { ...item, savePath }
+    failed[saveFolderKey(next.savePath)] = next
+  }
+
+  if (!changed) return
+  await queueWrite({ version: 1, identified, failed })
 }
 
 export async function pruneMissingSaveFolders(): Promise<void> {

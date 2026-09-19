@@ -1,5 +1,5 @@
 import type { PlaySessionStatus } from '@shared/types'
-import { killProcessesUnder, killProcessTree, pidAlive, processesUnder } from './processes'
+import { killProcessesUnder, killProcessTree, pathIsInside, pidAlive, processesUnder } from './processes'
 import { addSubscriptionPlaytime } from './subscriptions-store'
 import { sendToRenderer } from './windows'
 
@@ -132,6 +132,16 @@ export function listPlaySessions(): PlaySessionStatus[] {
 export function getPlaySession(fileId: string): PlaySessionStatus | null {
   const session = sessions.get(fileId)
   return session ? present(session) : null
+}
+
+export function hasPlaySessionUnder(installPath: string): boolean {
+  if (!installPath) return false
+  for (const session of sessions.values()) {
+    if (pathIsInside(installPath, session.installPath) || pathIsInside(session.installPath, installPath)) {
+      return true
+    }
+  }
+  return false
 }
 
 export function startPlaySession(input: {

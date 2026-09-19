@@ -128,6 +128,10 @@ export type AppSettings = {
   hatedTags: HatedTag[]
   downloadsDir: string
   libraryDir: string
+  /** Extra archive folders to import from. New downloads still go to downloadsDir. */
+  extraArchiveDirs: string[]
+  /** Extra installed-game folders to import from. New installs still go to libraryDir. */
+  extraLibraryDirs: string[]
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */
   p2pEnabled: boolean
   /**
@@ -297,12 +301,62 @@ export type LibraryStorageItem = {
   savePath?: string | null
   /** Directory name under the engine saves root (or a short label). */
   saveFolderName?: string | null
+  /** Absolute path of an installed game folder. */
+  installPath?: string | null
+  /** Canonical `{libraryDir}/{title}/{version}` path for this install. */
+  expectedInstallPath?: string | null
+  /** Installed folder is not at the canonical title/version location. */
+  layoutMismatch?: boolean
   inLibrary?: boolean
   inFollowed?: boolean
   /** We know which game this folder belongs to (live match or stored). */
   identified?: boolean
   /** Identify was tried and did not find a unique game. */
   identifyFailed?: boolean
+  /** Archive or install from a library folder, waiting for review. */
+  pendingImport?: boolean
+  /** Absolute path of a pending import (archive file or install folder). */
+  importPath?: string | null
+  /** Guessed OS / content kind / version for a pending import. */
+  packageTags?: PackageTagHint
+}
+
+export type LibraryImportKind = 'archive' | 'install'
+
+export type LibraryImportGameGuess = {
+  threadId: number
+  title: string
+  coverUrl: string | null
+  creator?: string
+  engine?: string
+  version?: string
+  rating?: number
+  likes?: number
+  views?: number
+  threadUrl?: string
+  prefixes?: number[]
+  tags?: number[]
+  timestamp?: number
+  updatedAt?: string
+  screens?: string[]
+}
+
+export type LibraryImportCandidate = {
+  id: string
+  kind: LibraryImportKind
+  path: string
+  filename: string
+  bytes: number
+  guessedTitle: string
+  guessedEngine: string
+  packageTags: PackageTagHint
+  guess: LibraryImportGameGuess | null
+}
+
+export type LibraryImportScanResult = {
+  found: number
+  pending: number
+  truncated: boolean
 }
 
 /** Remembered save-folder → thread mapping, including catalog snapshot for library tiles. */

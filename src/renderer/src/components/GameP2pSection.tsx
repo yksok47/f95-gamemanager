@@ -164,6 +164,7 @@ function transferMatchesPackage(
 }
 
 function isInFlightDownload(t: P2pTransferProgress): boolean {
+  if (t.id.startsWith("seed:")) return false;
   if (t.state === "error") return t.id.startsWith("add:");
   return isInFlightP2pState(t.state);
 }

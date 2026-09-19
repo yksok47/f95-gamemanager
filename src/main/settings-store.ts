@@ -13,6 +13,7 @@ import {
   type TagTier
 } from '@shared/types'
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
+import { normalizeExtraDirs } from './extra-library-dirs'
 import { getAppPaths } from './paths'
 
 let loaded: AppSettings | null = null
@@ -151,6 +152,8 @@ function emptySettings(): AppSettings {
   return {
     favoriteTags: [],
     hatedTags: [],
+    extraArchiveDirs: [],
+    extraLibraryDirs: [],
     p2pEnabled: false,
     metadataApiEnabled: true,
     metadataBaseUrl: hardcodedMetadataUrl(),
@@ -172,6 +175,12 @@ function normalizeSettings(value: unknown): AppSettings {
     hatedTags,
     downloadsDir: normalizeDir(raw.downloadsDir, defaults.downloadsDir),
     libraryDir: normalizeDir(raw.libraryDir, defaults.libraryDir),
+    extraArchiveDirs: normalizeExtraDirs(raw.extraArchiveDirs, [
+      normalizeDir(raw.downloadsDir, defaults.downloadsDir)
+    ]),
+    extraLibraryDirs: normalizeExtraDirs(raw.extraLibraryDirs, [
+      normalizeDir(raw.libraryDir, defaults.libraryDir)
+    ]),
     p2pEnabled: Boolean(raw.p2pEnabled),
     metadataApiEnabled:
       typeof raw.metadataApiEnabled === 'boolean' ? raw.metadataApiEnabled : true,
@@ -222,6 +231,14 @@ export function getUntrustedDownloadsDirSync(): string {
 
 export function getLibraryDirSync(): string {
   return loaded?.libraryDir ?? getAppPaths().libraryDir
+}
+
+export function getExtraArchiveDirsSync(): string[] {
+  return loaded?.extraArchiveDirs ?? []
+}
+
+export function getExtraLibraryDirsSync(): string[] {
+  return loaded?.extraLibraryDirs ?? []
 }
 
 export function getMetadataBaseUrlSync(): string {

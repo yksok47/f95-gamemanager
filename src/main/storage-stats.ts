@@ -8,7 +8,10 @@ import type {
 } from '@shared/types'
 import { fileBytes, folderBytes, mapLimit } from './disk-usage'
 import { listGameFiles } from './game-files-store'
+import { expectedInstallPath, installLayoutMatches } from './install-layout'
+import { listPendingImports, pendingImportToStorageItem } from './library-import'
 import { clearGameSaves, collectSaveItems } from './save-folders'
+import { getLibraryDirSync } from './settings-store'
 import { patchLibraryStorageStatsForSaveFolder, type SaveFolderIdentityPatch } from './storage-identity'
 import { sendToRenderer } from './windows'
 
@@ -156,8 +159,10 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
   }
 
   const saveItemsPromise = collectSaveItems(files)
+  const pendingPromise = listPendingImports()
   const { archiveBytesById, installSeen } = await measureLibraryFiles(files)
   const saveItems = await saveItemsPromise
+  const pendingImports = await pendingPromise
 
   const items: LibraryStorageItem[] = []
   const games: LibraryStorageGame[] = []
@@ -182,6 +187,8 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
     }
     if (file.isInstalled && file.installPath) {
       const key = resolve(file.installPath).toLowerCase()
+      const expectedPath = expectedInstallPath(getLibraryDirSync(), file.title, file.version)
+      const layoutMismatch = !installLayoutMatches(file.installPath, expectedPath)
       items.push({
         id: `install:${file.id}`,
         kind: 'install',
@@ -195,12 +202,22 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
         bytes: installSeen.get(key) || 0,
         fileId: file.id,
         hasArchive: file.hasArchive,
-        isInstalled: true
+        isInstalled: true,
+        installPath: file.installPath,
+        expectedInstallPath: layoutMismatch ? expectedPath : undefined,
+        layoutMismatch
       })
     }
   }
 
   items.push(...saveItems)
+
+  let pendingInstallBytes = 0
+  for (const pending of pendingImports) {
+    const row = pendingImportToStorageItem(pending)
+    items.push(row)
+    if (row.kind === 'install') pendingInstallBytes += row.bytes
+  }
 
   const savesByThread = new Map<number, LibraryStorageItem[]>()
   for (const item of saveItems) {
@@ -279,7 +296,8 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
   items.sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title))
 
   const archiveBytes = items.filter((item) => item.kind === 'archive').reduce((sum, item) => sum + item.bytes, 0)
-  const installBytes = [...installSeen.values()].reduce((sum, bytes) => sum + bytes, 0)
+  const installBytes =
+    [...installSeen.values()].reduce((sum, bytes) => sum + bytes, 0) + pendingInstallBytes
   const saveBytes = saveItems.reduce((sum, item) => sum + item.bytes, 0)
 
   return {

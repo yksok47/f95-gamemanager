@@ -162,6 +162,52 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
+            <h2 className="settings-heading">External libraries</h2>
+            <p className="muted settings-lead">
+              Additional folders of archives or installed games. They are not used as the
+              destination for new downloads or installs. Import from Storage also scans Downloads
+              and Installed games above for unidentified files.
+            </p>
+            <ExternalLibrariesField
+              title="Archive libraries"
+              hint="Extra folders of zip / 7z / rar files. Import from Storage also covers Downloads above — new downloads still go there."
+              dirs={settings.extraArchiveDirs ?? []}
+              disabled={saving}
+              onAdd={async () => {
+                const folder = await window.api.settings.pickFolder(
+                  settings.extraArchiveDirs?.[0] || settings.downloadsDir
+                )
+                if (!folder) return
+                if (folder === settings.downloadsDir) return
+                if ((settings.extraArchiveDirs ?? []).includes(folder)) return
+                await persist({ extraArchiveDirs: [...(settings.extraArchiveDirs ?? []), folder] })
+              }}
+              onRemove={(dir) =>
+                void persist({
+                  extraArchiveDirs: (settings.extraArchiveDirs ?? []).filter((item) => item !== dir)
+                })
+              }
+            />
+            <ExternalLibrariesField
+              title="Installed game libraries"
+              hint="Extra folders of already extracted games. Import from Storage also covers Installed games above — new installs still go there."
+              dirs={settings.extraLibraryDirs ?? []}
+              disabled={saving}
+              onAdd={async () => {
+                const folder = await window.api.settings.pickFolder(
+                  settings.extraLibraryDirs?.[0] || settings.libraryDir
+                )
+                if (!folder) return
+                if (folder === settings.libraryDir) return
+                if ((settings.extraLibraryDirs ?? []).includes(folder)) return
+                await persist({ extraLibraryDirs: [...(settings.extraLibraryDirs ?? []), folder] })
+              }}
+              onRemove={(dir) =>
+                void persist({
+                  extraLibraryDirs: (settings.extraLibraryDirs ?? []).filter((item) => item !== dir)
+                })
+              }
+            />
             <div className="folder-field">
               <div className="settings-slider-head">
                 <span className="filter-label" id="catalog-page-size-label">
@@ -335,6 +381,51 @@ export default function SettingsPage({
           <IgnoredThreadsPanel onOpenThread={onOpenThread} onIgnoredChange={onIgnoredChange} />
         ) : null}
       </section>
+    </div>
+  )
+}
+
+function ExternalLibrariesField({
+  title,
+  hint,
+  dirs,
+  disabled,
+  onAdd,
+  onRemove
+}: {
+  title: string
+  hint: string
+  dirs: string[]
+  disabled: boolean
+  onAdd: () => Promise<void>
+  onRemove: (dir: string) => void
+}): JSX.Element {
+  return (
+    <div className="folder-field">
+      <span className="filter-label">{title}</span>
+      <p className="muted download-meta">{hint}</p>
+      {dirs.length ? (
+        <ul className="external-library-list">
+          {dirs.map((dir) => (
+            <li key={dir} className="folder-path-row">
+              <input className="folder-path" value={dir} readOnly />
+              <button
+                className="ghost-btn"
+                type="button"
+                disabled={disabled}
+                onClick={() => onRemove(dir)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted download-meta">None added yet.</p>
+      )}
+      <button className="ghost-btn" type="button" disabled={disabled} onClick={() => void onAdd()}>
+        Add folder
+      </button>
     </div>
   )
 }

@@ -1126,6 +1126,11 @@ export async function p2pSeedPath(
         skipVerify: true
       } as object)
       trackTorrent(id, torrent, meta)
+      try {
+        torrent.resume?.()
+      } catch {
+        /* ignore */
+      }
       torrent.on('ready', () => {
         trackTorrent(id, torrent, meta)
         try {
@@ -1162,6 +1167,11 @@ export async function p2pSeedPath(
         ...seedMeta,
         infoHash: normalizeInfoHash(t.infoHash)
       })
+      try {
+        t.resume?.()
+      } catch {
+        /* ignore */
+      }
       const buf = t.torrentFile
       if (opts?.contentHash && buf) {
         void saveCachedTorrentFile(opts.contentHash, buf).catch((err) => {

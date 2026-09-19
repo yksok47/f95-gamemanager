@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
-import type { LibraryStorageGame, LibraryStorageItem, LibraryStorageKind, LibraryStorageStats } from '@shared/types'
+import type {
+  LibraryImportCandidate,
+  LibraryStorageGame,
+  LibraryStorageItem,
+  LibraryStorageKind,
+  LibraryStorageStats
+} from '@shared/types'
+import type { PackageInstallTags } from '@shared/p2p'
 import FooterPortal from '../components/FooterPortal'
 import { MenuPopover, type MenuItem } from '../components/MenuPopover'
+import SelectMenu from '../components/SelectMenu'
+import LibraryImportDialog, { type LibraryImportPick } from '../components/LibraryImportDialog'
 import SaveFolderIdentifyDialog, {
   type SaveFolderIdentifyPick,
   type SaveFolderIdentifyTarget
@@ -9,7 +18,7 @@ import SaveFolderIdentifyDialog, {
 import { SavePeekButton, SavePeekCover } from '../components/SavePeek'
 import { RefreshIcon } from '../components/ToolbarIcons'
 import { confirm } from '../components/ConfirmDialog'
-import { notifyCaught } from '../components/ErrorNotifications'
+import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
 import { useStorageScan } from '../lib/storage-scan'
 
@@ -29,6 +38,19 @@ type StoragePageProps = {
 }
 
 type ListTab = 'games' | 'archives' | 'installs' | 'saves'
+type StorageSort = 'size' | 'game' | 'file' | 'status'
+
+const GAME_SORTS: Array<{ value: StorageSort; label: string }> = [
+  { value: 'size', label: 'Size' },
+  { value: 'game', label: 'Game name' }
+]
+
+const FILE_SORTS: Array<{ value: StorageSort; label: string }> = [
+  { value: 'size', label: 'Size' },
+  { value: 'game', label: 'Game name' },
+  { value: 'file', label: 'File name' },
+  { value: 'status', label: 'Identification' }
+]
 
 const KIND_META: Record<LibraryStorageKind, { label: string; color: string }> = {
   archive: { label: 'Archives', color: '#f0b429' },
@@ -39,6 +61,83 @@ const KIND_META: Record<LibraryStorageKind, { label: string; color: string }> = 
 function matchesQuery(haystack: string, query: string): boolean {
   if (!query) return true
   return haystack.toLowerCase().includes(query)
+}
+
+function itemFileName(item: LibraryStorageItem): string {
+  if (item.kind === 'saves') return item.saveFolderName || item.filename || item.title
+  return item.filename || item.title
+}
+
+/** Higher rank surfaces first when sorting identification descending (needs attention first). */
+function identificationRank(item: LibraryStorageItem): number {
+  if (item.identifyFailed && !item.identified) return 6
+  if (item.pendingImport) return 5
+  if (!item.identified && item.kind === 'saves') return 4
+  if (item.layoutMismatch) return 3
+  if (item.identified && !item.inLibrary && !item.inFollowed) return 2
+  if (item.inFollowed && !item.inLibrary) return 1
+  return 0
+}
+
+function compareStorageGames(
+  a: LibraryStorageGame,
+  b: LibraryStorageGame,
+  sort: StorageSort,
+  descending: boolean
+): number {
+  let result = 0
+  if (sort === 'game') {
+    result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+    if (!result) result = a.creator.localeCompare(b.creator, undefined, { sensitivity: 'base' })
+  } else {
+    result = a.totalBytes - b.totalBytes
+  }
+  if (!result) result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+  return descending ? -result : result
+}
+
+function compareStorageItems(
+  a: LibraryStorageItem,
+  b: LibraryStorageItem,
+  sort: StorageSort,
+  descending: boolean
+): number {
+  let result = 0
+  if (sort === 'game') {
+    result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+  } else if (sort === 'file') {
+    result = itemFileName(a).localeCompare(itemFileName(b), undefined, { sensitivity: 'base' })
+  } else if (sort === 'status') {
+    result = identificationRank(a) - identificationRank(b)
+  } else {
+    result = a.bytes - b.bytes
+  }
+  if (!result) result = a.title.localeCompare(b.title, undefined, { sensitivity: 'base' })
+  if (!result) result = itemFileName(a).localeCompare(itemFileName(b), undefined, { sensitivity: 'base' })
+  return descending ? -result : result
+}
+
+function listSortForTab(tab: ListTab, sort: StorageSort): StorageSort {
+  if (tab === 'games' && (sort === 'file' || sort === 'status')) {
+    return sort === 'file' ? 'game' : 'size'
+  }
+  return sort
+}
+
+function sortDirectionCopy(sort: StorageSort, descending: boolean): { title: string; label: string } {
+  if (sort === 'game' || sort === 'file') {
+    return descending
+      ? { title: 'Z–A', label: 'Sort Z to A' }
+      : { title: 'A–Z', label: 'Sort A to Z' }
+  }
+  if (sort === 'status') {
+    return descending
+      ? { title: 'Needs attention first', label: 'Sort needs attention first' }
+      : { title: 'Identified first', label: 'Sort identified first' }
+  }
+  return descending
+    ? { title: 'Largest first', label: 'Sort largest first' }
+    : { title: 'Smallest first', label: 'Sort smallest first' }
 }
 
 function StorageCover({ url, title }: { url: string | null; title: string }): JSX.Element {
@@ -149,8 +248,12 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
   const [acting, setActing] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<ListTab>('games')
+  const [sort, setSort] = useState<StorageSort>('size')
+  const [descending, setDescending] = useState(true)
   const [menuFor, setMenuFor] = useState<number | null>(null)
   const [identifyTarget, setIdentifyTarget] = useState<SaveFolderIdentifyTarget | null>(null)
+  const [importCandidate, setImportCandidate] = useState<LibraryImportCandidate | null>(null)
+  const [importing, setImporting] = useState(false)
   const menuAnchor = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => {
@@ -158,24 +261,28 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
   }, [ensure])
 
   const needle = query.trim().toLowerCase()
-  const games = useMemo(
-    () =>
-      stats.games.filter((game) =>
-        matchesQuery(`${game.title} ${game.creator} ${game.engine}`, needle)
-      ),
-    [stats.games, needle]
-  )
+  const listSort = listSortForTab(tab, sort)
+  const sortOptions = tab === 'games' ? GAME_SORTS : FILE_SORTS
+  const sortDir = sortDirectionCopy(listSort, descending)
+  const games = useMemo(() => {
+    const filtered = stats.games.filter((game) =>
+      matchesQuery(`${game.title} ${game.creator} ${game.engine}`, needle)
+    )
+    return filtered.sort((a, b) => compareStorageGames(a, b, listSort, descending))
+  }, [stats.games, needle, listSort, descending])
   const itemsByKind = useCallback(
     (kind: LibraryStorageKind) =>
-      stats.items.filter(
-        (item) =>
-          item.kind === kind &&
-          matchesQuery(
-            `${item.title} ${item.filename} ${item.version} ${item.saveFolderName || ''} ${item.engine}`,
-            needle
-          )
-      ),
-    [stats.items, needle]
+      stats.items
+        .filter(
+          (item) =>
+            item.kind === kind &&
+            matchesQuery(
+              `${item.title} ${item.filename} ${item.version} ${item.saveFolderName || ''} ${item.engine}`,
+              needle
+            )
+        )
+        .sort((a, b) => compareStorageItems(a, b, listSort, descending)),
+    [stats.items, needle, listSort, descending]
   )
   const archives = useMemo(() => itemsByKind('archive'), [itemsByKind])
   const installs = useMemo(() => itemsByKind('install'), [itemsByKind])
@@ -193,10 +300,28 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     }
     return map
   }, [stats.items])
-  const topGames = useMemo(() => games.slice(0, 10), [games])
-  const maxGameBytes = topGames[0]?.totalBytes || 0
+  const maxGameBytes = useMemo(
+    () => games.reduce((max, game) => Math.max(max, game.totalBytes), 0),
+    [games]
+  )
+  const topGames = useMemo(
+    () =>
+      games
+        .slice()
+        .sort((a, b) => b.totalBytes - a.totalBytes || a.title.localeCompare(b.title))
+        .slice(0, 10),
+    [games]
+  )
   const redundantArchives = useMemo(
     () => stats.items.filter((item) => item.kind === 'archive' && item.isInstalled && item.fileId),
+    [stats.items]
+  )
+  const mismatchedInstalls = useMemo(
+    () => stats.items.filter((item) => item.kind === 'install' && item.layoutMismatch && item.fileId),
+    [stats.items]
+  )
+  const pendingImports = useMemo(
+    () => stats.items.filter((item) => item.pendingImport && item.importPath),
     [stats.items]
   )
 
@@ -219,13 +344,17 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     )
   }
 
-  async function runAction(id: string, work: () => Promise<void>): Promise<void> {
+  async function runAction(
+    id: string,
+    work: () => Promise<void>,
+    failed = 'Could not free that space.'
+  ): Promise<void> {
     setActing(id)
     try {
       await work()
       await refresh()
     } catch (err) {
-      notifyCaught(err, 'Could not free that space.')
+      notifyCaught(err, failed)
     } finally {
       setActing(null)
     }
@@ -292,6 +421,18 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     }
   }
 
+  async function openInstallFolder(fileId: string | null | undefined): Promise<void> {
+    if (!fileId) return
+    setActing(`folder:${fileId}`)
+    try {
+      await window.api.library.showInstall(fileId)
+    } catch (err) {
+      notifyCaught(err, 'Could not open that folder.')
+    } finally {
+      setActing(null)
+    }
+  }
+
   function openIdentifyPicker(item: LibraryStorageItem): void {
     if (!item.savePath) return
     setIdentifyTarget({
@@ -329,6 +470,71 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
       setIdentifyTarget(null)
     } catch (err) {
       notifyCaught(err, 'Could not assign that game.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function importExternalLibraries(): Promise<void> {
+    setImporting(true)
+    try {
+      const result = await window.api.library.importExternal()
+      if (result.truncated) {
+        notifyError('Stopped after 400 files. Split folders or import again after reviewing.')
+      } else if (!result.pending) {
+        notifyError('No unidentified archives or games found in the library folders.')
+      }
+    } catch (err) {
+      notifyCaught(err, 'Could not import libraries.')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function openImportReview(item: LibraryStorageItem): Promise<void> {
+    if (!item.importPath) return
+    setActing(`import:${item.id}`)
+    try {
+      const next =
+        (await window.api.library.identifyImport(item.importPath)) ||
+        (await window.api.library.getImport(item.importPath))
+      if (!next) {
+        notifyCaught(new Error('That file is no longer waiting to be imported.'), 'Could not open that import.')
+        return
+      }
+      setImportCandidate(next)
+    } catch (err) {
+      notifyCaught(err, 'Could not identify that file.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function approveImport(game: LibraryImportPick, tags: PackageInstallTags): Promise<void> {
+    if (!importCandidate) return
+    setActing(`import:${importCandidate.id}`)
+    try {
+      await window.api.library.approveImport(importCandidate.path, game, tags)
+      setImportCandidate(null)
+    } catch (err) {
+      notifyCaught(err, 'Could not add that file to the library.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function dismissImport(item: LibraryStorageItem): Promise<void> {
+    if (!item.importPath) return
+    await runAction(item.id, () => window.api.library.dismissImport(item.importPath as string).then(() => undefined))
+  }
+
+  async function revealImport(item: LibraryStorageItem): Promise<void> {
+    if (!item.importPath) return
+    setActing(`folder:${item.importPath}`)
+    try {
+      await window.api.library.revealImport(item.importPath)
+    } catch (err) {
+      notifyCaught(err, 'Could not show that file.')
     } finally {
       setActing(null)
     }
@@ -388,6 +594,48 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     })
   }
 
+  async function relocateInstall(item: LibraryStorageItem): Promise<void> {
+    if (!item.fileId) return
+    const from = item.installPath || 'the current folder'
+    const to = item.expectedInstallPath || 'Title / Version'
+    if (
+      !(await confirm({
+        title: 'Fix folder layout',
+        message: `Move ${item.title}${item.version ? ` ${item.version}` : ''} into the standard library folder?\n\nFrom:\n${from}\n\nTo:\n${to}\n\nSave and launch paths that pointed at the old folder will be updated.`,
+        confirmLabel: 'Move folder'
+      }))
+    ) {
+      return
+    }
+    await runAction(
+      item.id,
+      () => window.api.library.relocateInstall(item.fileId as string).then(() => undefined),
+      'Could not move that folder.'
+    )
+  }
+
+  async function relocateMismatchedInstalls(): Promise<void> {
+    if (!mismatchedInstalls.length) return
+    if (
+      !(await confirm({
+        title: 'Fix folder layout',
+        message: `Move ${mismatchedInstalls.length} installed game${mismatchedInstalls.length === 1 ? '' : 's'} into Title / Version folders under the library? Save and launch paths that pointed at the old folders will be updated.`,
+        confirmLabel: 'Move folders'
+      }))
+    ) {
+      return
+    }
+    await runAction(
+      'bulk-layout',
+      async () => {
+        for (const item of mismatchedInstalls) {
+          if (item.fileId) await window.api.library.relocateInstall(item.fileId)
+        }
+      },
+      'Could not move those folders.'
+    )
+  }
+
   function gameMenuItems(game: LibraryStorageGame): MenuItem[] {
     const items: MenuItem[] = []
     if (game.archiveBytes > 0) {
@@ -429,7 +677,13 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             ? hasScan
               ? `Measuring… · ${formatBytes(stats.totalBytes)} across ${stats.games.length} games`
               : 'Measuring…'
-            : `${formatBytes(stats.totalBytes)} across ${stats.games.length} games`}
+            : importing
+              ? 'Importing libraries…'
+              : pendingImports.length
+                ? `${formatBytes(stats.totalBytes)} across ${stats.games.length} games · ${pendingImports.length} to review`
+                : mismatchedInstalls.length
+                  ? `${formatBytes(stats.totalBytes)} across ${stats.games.length} games · ${mismatchedInstalls.length} folder${mismatchedInstalls.length === 1 ? '' : 's'} to fix`
+                  : `${formatBytes(stats.totalBytes)} across ${stats.games.length} games`}
         </span>
       </FooterPortal>
 
@@ -442,6 +696,23 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             </p>
           </div>
           <div className="downloads-page-actions">
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={importing || Boolean(acting)}
+              onClick={() => void importExternalLibraries()}
+            >
+              {importing ? 'Importing…' : 'Import libraries'}
+            </button>
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={!mismatchedInstalls.length || Boolean(acting)}
+              onClick={() => void relocateMismatchedInstalls()}
+            >
+              Fix folder layout
+              {mismatchedInstalls.length ? ` (${mismatchedInstalls.length})` : ''}
+            </button>
             <button
               className="ghost-btn"
               type="button"
@@ -554,14 +825,36 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
               </button>
             ))}
           </div>
-          <input
-            className="folder-path storage-search"
-            type="search"
-            data-page-search=""
-            value={query}
-            placeholder="Filter by name"
-            onChange={(event) => setQuery(event.target.value)}
-          />
+          <div className="storage-list-tools">
+            <SelectMenu
+              value={listSort}
+              options={sortOptions}
+              ariaLabel="Sort storage"
+              onChange={(next) => {
+                setSort(next)
+                setDescending(next !== 'game' && next !== 'file')
+              }}
+              addon={
+                <button
+                  className="ghost-btn icon-btn sort-split-dir"
+                  type="button"
+                  title={sortDir.title}
+                  aria-label={sortDir.label}
+                  onClick={() => setDescending((value) => !value)}
+                >
+                  {descending ? '↓' : '↑'}
+                </button>
+              }
+            />
+            <input
+              className="folder-path storage-search"
+              type="search"
+              data-page-search=""
+              value={query}
+              placeholder="Filter by name"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
         </div>
 
         {tab === 'games' ? (
@@ -648,8 +941,14 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             empty={scanning && !hasScan ? 'Scanning folders…' : 'No archives on disk.'}
             actionLabel="Delete archive"
             busyId={acting}
-            onOpen={(item) => openGame(item, 'files')}
-            onAction={(item) => void removeArchive(item)}
+            onOpen={(item) =>
+              item.pendingImport ? void openImportReview(item) : openGame(item, 'files')
+            }
+            onAction={(item) =>
+              item.pendingImport ? void dismissImport(item) : void removeArchive(item)
+            }
+            onIdentify={(item) => void openImportReview(item)}
+            onReveal={(item) => void revealImport(item)}
           />
         ) : null}
 
@@ -659,8 +958,16 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             empty={scanning && !hasScan ? 'Scanning folders…' : 'No installed games on disk.'}
             actionLabel="Uninstall"
             busyId={acting}
-            onOpen={(item) => openGame(item, 'files')}
-            onAction={(item) => void uninstallItem(item)}
+            onOpen={(item) =>
+              item.pendingImport ? void openImportReview(item) : openGame(item, 'files')
+            }
+            onAction={(item) =>
+              item.pendingImport ? void dismissImport(item) : void uninstallItem(item)
+            }
+            onIdentify={(item) => void openImportReview(item)}
+            onReveal={(item) => void revealImport(item)}
+            onShowInstall={(item) => void openInstallFolder(item.fileId)}
+            onFixLayout={(item) => void relocateInstall(item)}
           />
         ) : null}
 
@@ -687,6 +994,29 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             setIdentifyTarget(null)
           }}
           onPick={(game) => void assignIdentifiedGame(game)}
+          onOpenGame={(game) =>
+            openGame(
+              {
+                threadId: game.threadId,
+                title: game.title,
+                creator: game.creator || '',
+                coverUrl: game.coverUrl,
+                engine: game.engine || ''
+              },
+              'gallery'
+            )
+          }
+        />
+      ) : null}
+      {importCandidate ? (
+        <LibraryImportDialog
+          candidate={importCandidate}
+          busy={Boolean(acting)}
+          onClose={() => {
+            if (acting) return
+            setImportCandidate(null)
+          }}
+          onApprove={(game, tags) => void approveImport(game, tags)}
           onOpenGame={(game) =>
             openGame(
               {
@@ -736,7 +1066,7 @@ function StorageSavesList({
   onDelete: (item: LibraryStorageItem) => void
 }): JSX.Element {
   if (!items.length) return <p className="muted">{empty}</p>
-  const maxBytes = items[0]?.bytes || 0
+  const maxBytes = items.reduce((max, item) => Math.max(max, item.bytes), 0)
   return (
     <ul className="storage-rows">
       {items.map((item) => {
@@ -828,7 +1158,11 @@ function StorageItemList({
   actionLabel,
   busyId,
   onOpen,
-  onAction
+  onAction,
+  onIdentify,
+  onReveal,
+  onShowInstall,
+  onFixLayout
 }: {
   items: LibraryStorageItem[]
   empty: string
@@ -836,45 +1170,104 @@ function StorageItemList({
   busyId: string | null
   onOpen: (item: LibraryStorageItem) => void
   onAction: (item: LibraryStorageItem) => void
+  onIdentify?: (item: LibraryStorageItem) => void
+  onReveal?: (item: LibraryStorageItem) => void
+  onShowInstall?: (item: LibraryStorageItem) => void
+  onFixLayout?: (item: LibraryStorageItem) => void
 }): JSX.Element {
   if (!items.length) return <p className="muted">{empty}</p>
-  const maxBytes = items[0]?.bytes || 0
+  const maxBytes = items.reduce((max, item) => Math.max(max, item.bytes), 0)
   return (
     <ul className="storage-rows">
-      {items.map((item) => (
-        <li key={item.id} className="storage-row">
-          <button className="storage-row-main" type="button" onClick={() => onOpen(item)}>
-            <StorageCover url={item.coverUrl} title={item.title} />
-            <span className="storage-row-copy">
-              <strong>{item.title}</strong>
-              <span className="muted">
-                {[item.version, item.filename !== 'Saves' ? item.filename : null, item.engine]
-                  .filter(Boolean)
-                  .join(' · ')}
+      {items.map((item) => {
+        const reviewing = busyId === `import:${item.id}`
+        const fixing = busyId === item.id
+        const showFolder =
+          (item.pendingImport && item.importPath && onReveal) ||
+          (item.layoutMismatch && item.fileId && onShowInstall)
+        return (
+          <li key={item.id} className="storage-row">
+            <button className="storage-row-main" type="button" onClick={() => onOpen(item)}>
+              <StorageCover url={item.coverUrl} title={item.title} />
+              <span className="storage-row-copy">
+                <strong>{item.title}</strong>
+                <span className="muted">
+                  {[item.version, item.filename !== 'Saves' ? item.filename : null, item.engine]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+                {item.pendingImport || item.layoutMismatch ? (
+                  <span className="storage-status">
+                    {item.pendingImport ? (
+                      <span
+                        className={`storage-status-pill storage-status-${item.identifyFailed ? 'unknown' : 'identified'}`}
+                      >
+                        {item.identifyFailed ? 'Unable to identify' : 'Needs review'}
+                      </span>
+                    ) : null}
+                    {item.layoutMismatch ? (
+                      <span className="storage-status-pill storage-status-layout">Wrong folder</span>
+                    ) : null}
+                  </span>
+                ) : null}
+                <SizeBar
+                  archiveBytes={item.kind === 'archive' ? item.bytes : 0}
+                  installBytes={item.kind === 'install' ? item.bytes : 0}
+                  saveBytes={item.kind === 'saves' ? item.bytes : 0}
+                  maxBytes={maxBytes}
+                />
               </span>
-              <SizeBar
-                archiveBytes={item.kind === 'archive' ? item.bytes : 0}
-                installBytes={item.kind === 'install' ? item.bytes : 0}
-                saveBytes={item.kind === 'saves' ? item.bytes : 0}
-                maxBytes={maxBytes}
-              />
-            </span>
-          </button>
-          <div className="storage-row-meta">
-            <span className="storage-row-size">{formatBytes(item.bytes)}</span>
-          </div>
-          <div className="storage-row-actions">
-            <button
-              className="stop-btn"
-              type="button"
-              disabled={Boolean(busyId)}
-              onClick={() => onAction(item)}
-            >
-              {actionLabel}
             </button>
-          </div>
-        </li>
-      ))}
+            <div className="storage-row-meta">
+              <span className="storage-row-size">{formatBytes(item.bytes)}</span>
+            </div>
+            <div className="storage-row-actions">
+              {showFolder ? (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={Boolean(busyId)}
+                  title={item.installPath || item.importPath || 'Show in folder'}
+                  onClick={() =>
+                    item.pendingImport && onReveal ? onReveal(item) : onShowInstall?.(item)
+                  }
+                >
+                  Folder
+                </button>
+              ) : null}
+              {item.pendingImport && onIdentify ? (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={Boolean(busyId) || !item.importPath}
+                  onClick={() => onIdentify(item)}
+                >
+                  {reviewing ? 'Identifying…' : item.identifyFailed ? 'Find game' : 'Review'}
+                </button>
+              ) : null}
+              {item.layoutMismatch && onFixLayout ? (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={Boolean(busyId) || !item.fileId}
+                  title={item.expectedInstallPath || 'Move to Title / Version'}
+                  onClick={() => onFixLayout(item)}
+                >
+                  {fixing ? 'Moving…' : 'Fix folder'}
+                </button>
+              ) : null}
+              <button
+                className="stop-btn"
+                type="button"
+                disabled={Boolean(busyId)}
+                onClick={() => onAction(item)}
+              >
+                {item.pendingImport ? 'Skip' : actionLabel}
+              </button>
+            </div>
+          </li>
+        )
+      })}
     </ul>
   )
 }

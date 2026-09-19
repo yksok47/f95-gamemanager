@@ -154,6 +154,8 @@ export default function App(): JSX.Element {
     hatedTags: [],
     downloadsDir: '',
     libraryDir: '',
+    extraArchiveDirs: [],
+    extraLibraryDirs: [],
     p2pEnabled: false,
     metadataApiEnabled: true,
     metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL,
