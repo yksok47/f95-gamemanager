@@ -3604,6 +3604,11 @@ body.is-details-modal-dragging .details-modal-shell * {
   letter-spacing: 0.02em;
 }
 
+.download-meta-host {
+  color: var(--accent);
+  font-weight: 650;
+}
+
 .download-group ul {
   list-style: none;
   margin: 0;

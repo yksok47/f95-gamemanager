@@ -1,6 +1,6 @@
 # Bundled Ren'Py script tools
 
-These files are extracted from UnRen 1.0.11d and run with the **game's own** `python.exe`.
+These files are extracted from UnRen 1.0.11d and run with the **game's own** Python interpreter (`python.exe` on Windows, `python` on Linux and macOS).
 No system Python install is required.
 
 - `rpatool-py2.py` / `rpatool-py3.py` — [rpatool](https://github.com/Shizmob/rpatool) by Shizmob

@@ -28,8 +28,11 @@ import {
   OS_KIND_LABELS,
   TAG_TIER_RANK,
   contentKindRequiresVersion,
+  downloadHostPreference,
+  downloadMatchesHostOs,
   isInstallableLibraryPackage,
   isRenpyUncensorPackage,
+  osKindFromNavigator,
   type ContentKind,
   type ContentKindId
 } from '@shared/types'
@@ -159,6 +162,11 @@ function linkLabel(link: DownloadMirror): string {
 
 const SYSTEM_LABELS = OS_KIND_LABELS
 
+const HOST_OS =
+  typeof navigator === 'undefined'
+    ? null
+    : osKindFromNavigator(navigator.platform, navigator.userAgent)
+
 const CONTENT_TYPE_LABELS = CONTENT_KIND_LABELS
 
 const SECTION_KIND_LABELS: Record<DownloadSectionKind, string> = {
@@ -262,12 +270,14 @@ function DownloadEntryView({
   const heading = entryHeading(entry)
   const typeLabel = CONTENT_TYPE_LABELS[entry.contentType]
   const showType = entry.contentType !== 'game' && Boolean(entry.title?.trim())
+  const forThisComputer = downloadMatchesHostOs(entry.systems, HOST_OS)
 
   return (
     <section className="download-group">
       <div className="download-entry-heading">
         <h3>{heading}</h3>
         {showType ? <span className="download-meta">{typeLabel}</span> : null}
+        {forThisComputer ? <span className="download-meta download-meta-host">This computer</span> : null}
         {entry.unofficial ? <span className="download-meta">Unofficial</span> : null}
       </div>
       {entry.parts.length ? (
@@ -296,9 +306,12 @@ function DownloadSectionView({
   nested?: boolean
 }): JSX.Element {
   const heading = sectionHeading(section)
+  const entries = [...section.entries].sort(
+    (a, b) => downloadHostPreference(b.systems, HOST_OS) - downloadHostPreference(a.systems, HOST_OS)
+  )
   const body = (
     <>
-      {section.entries.map((entry, index) => (
+      {entries.map((entry, index) => (
         <DownloadEntryView
           key={`${entryHeading(entry)}-${index}`}
           entry={entry}

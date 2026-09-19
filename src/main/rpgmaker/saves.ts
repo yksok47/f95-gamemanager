@@ -256,22 +256,22 @@ function saveMessage(info: {
   copiedToBackup: number
 }): string | undefined {
   if (info.copiedToGame && info.copiedToBackup) {
-    return `Synced saves both ways (${info.copiedToGame} into the game folder, ${info.copiedToBackup} into AppData).`
+    return `Synced saves both ways (${info.copiedToGame} into the game folder, ${info.copiedToBackup} into the backup folder).`
   }
   if (info.copiedToGame) {
-    return `Restored ${info.copiedToGame} save ${info.copiedToGame === 1 ? 'file' : 'files'} from AppData into the game folder.`
+    return `Restored ${info.copiedToGame} save ${info.copiedToGame === 1 ? 'file' : 'files'} from the backup folder into the game folder.`
   }
   if (info.copiedToBackup) {
-    return `Backed up ${info.copiedToBackup} save ${info.copiedToBackup === 1 ? 'file' : 'files'} to AppData.`
+    return `Backed up ${info.copiedToBackup} save ${info.copiedToBackup === 1 ? 'file' : 'files'} to the backup folder.`
   }
   if (!info.gameSavePath && info.backupExists) {
-    return 'Saves are kept in AppData. Install the game to copy them into www/save so it can load them.'
+    return 'Saves are kept in the backup folder. Install the game to copy them into www/save so it can load them.'
   }
   if (!info.gameSavePath && !info.backupExists) {
-    return 'No RPG Maker save folder yet. Install and play once, or copy saves into AppData, and they will stay in sync.'
+    return 'No RPG Maker save folder yet. Install and play once, or copy saves into the backup folder, and they will stay in sync.'
   }
   if (!info.saveCount) {
-    return 'No save files yet. Play the game to create some; they will be backed up to AppData automatically.'
+    return 'No save files yet. Play the game to create some; they will be backed up automatically.'
   }
   return undefined
 }

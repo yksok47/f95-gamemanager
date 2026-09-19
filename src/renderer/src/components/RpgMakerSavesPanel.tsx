@@ -90,7 +90,7 @@ export default function RpgMakerSavesPanel({
     const paths = [...selected]
     if (!paths.length) return
     const noun = paths.length === 1 ? 'save' : 'saves'
-    if (!(await confirm({ title: 'Delete saves', message: `Delete ${paths.length} ${noun} from the game folder and AppData backup?`, confirmLabel: 'Delete', danger: true }))) return
+    if (!(await confirm({ title: 'Delete saves', message: `Delete ${paths.length} ${noun} from the game folder and the backup folder?`, confirmLabel: 'Delete', danger: true }))) return
     setBusy(true)
     try {
       const next = await window.api.rpgmaker.deleteSaves(activeId, threadId, paths, title)
@@ -115,7 +115,7 @@ export default function RpgMakerSavesPanel({
     <div className="renpy-panel">
       {info?.message ? <p className="muted">{info.message}</p> : null}
       {playing ? (
-        <p className="muted">Game is running. New saves are copied to AppData while you play, then synced when it exits.</p>
+        <p className="muted">Game is running. New saves are copied to the backup folder while you play, then synced when it exits.</p>
       ) : null}
 
       <section className="renpy-section">
@@ -162,7 +162,7 @@ export default function RpgMakerSavesPanel({
                 placeholder={
                   busy && !info
                     ? 'Reading…'
-                    : 'Not installed — saves still live in AppData'
+                    : 'Not installed — saves still live in the backup folder'
                 }
                 title={info?.gameSavePath || undefined}
               />
@@ -181,7 +181,7 @@ export default function RpgMakerSavesPanel({
           </div>
 
           <div className="folder-field saves-location-field">
-            <span className="filter-label">AppData backup</span>
+            <span className="filter-label">Backup folder</span>
             <div className="folder-path-row">
               <input
                 className="folder-path"

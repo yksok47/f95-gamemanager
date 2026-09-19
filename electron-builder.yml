@@ -23,10 +23,21 @@ extraResources:
     to: 7zip/win
     filter:
       - '**/7za.exe'
+  - from: node_modules/7zip-bin/linux
+    to: 7zip/linux
+    filter:
+      - '**/7za'
+      - '!**/build.sh'
+      - '!**/do-build.sh'
+  - from: node_modules/7zip-bin/mac
+    to: 7zip/mac
+    filter:
+      - '**/7za'
 asarUnpack:
   - resources/**
   - '**/node_modules/7zip-bin/**'
   - '**/7za.exe'
+  - '**/7za'
   - '**/node_modules/node-unrar-js/**'
   - '**/node_modules/node-datachannel/**'
 win:
@@ -48,4 +59,36 @@ nsis:
   installerHeaderIcon: build/icon.ico
   createDesktopShortcut: always
   createStartMenuShortcut: true
+linux:
+  icon: resources/icon.png
+  category: Game
+  executableName: F95GameManager
+  synopsis: Desktop game manager for F95zone catalogs, downloads, and libraries
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: dir
+      arch:
+        - x64
+appImage:
+  artifactName: ${name}-${version}-${os}-${arch}.${ext}
+mac:
+  icon: resources/icon.png
+  category: public.app-category.games
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  artifactName: ${name}-${version}-${os}-${arch}.${ext}
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+dmg:
+  artifactName: ${name}-${version}-${os}-${arch}.${ext}
 npmRebuild: false

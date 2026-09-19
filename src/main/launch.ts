@@ -4,6 +4,12 @@ import { promisify } from 'util'
 import { dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
 import { supportedEngineId } from '@shared/engines'
 import {
+  compareLaunchCandidates,
+  hostPlatformOf,
+  isLaunchCandidate
+} from './launch-detect'
+import { makePathExecutable } from './unix-exec'
+import {
   childPath,
   isDosShortName,
   listDirents,
@@ -14,18 +20,20 @@ import {
 
 const execFileAsync = promisify(execFile)
 
-const SKIP_EXES = /^(pythonw?|uninstall|unins\d*|crashpad|unitycrashhandler|vcredist|dxsetup|crashreporter)/i
-
 function listDirs(root: string): string[] {
   return listDirents(root)
     .filter((entry) => entry.isDirectory())
     .map((entry) => childPath(root, entry.name))
 }
 
-function listFiles(root: string): string[] {
-  return listDirents(root)
-    .filter((entry) => entry.isFile())
-    .map((entry) => childPath(root, entry.name))
+function collectLaunchables(dir: string): string[] {
+  const platform = hostPlatformOf()
+  return listDirents(dir).flatMap((entry) => {
+    const kind = entry.isDirectory() ? 'dir' : entry.isFile() ? 'file' : null
+    if (!kind) return []
+    if (!isLaunchCandidate(entry.name, kind, platform)) return []
+    return [childPath(dir, entry.name)]
+  })
 }
 
 function findNamedDirs(root: string, name: string, maxDepth = 6): string[] {
@@ -37,7 +45,7 @@ function findNamedDirs(root: string, name: string, maxDepth = 6): string[] {
     for (const child of listDirs(dir)) {
       const base = child.split(/[/\\]/).pop() || ''
       if (base.toLowerCase() === name) found.push(child)
-      if (skip.has(base.toLowerCase())) continue
+      if (skip.has(base.toLowerCase()) || /\.app$/i.test(base)) continue
       walk(child, depth + 1)
     }
   }
@@ -46,29 +54,10 @@ function findNamedDirs(root: string, name: string, maxDepth = 6): string[] {
   return found
 }
 
-function exeBitScore(filePath: string): number {
-  const name = (filePath.split(/[/\\]/).pop() || '').toLowerCase()
-  if (/(^|[^a-z])(32|x86|win32|ia32)([^a-z]|$)|32bit|[-_.]32(\.|$)/i.test(name)) return 0
-  if (/(^|[^a-z])(64|x64|win64|amd64)([^a-z]|$)|64bit|[-_.]64(\.|$)/i.test(name)) return 2
-  return 1
-}
-
-function collectExes(dir: string): string[] {
-  return listFiles(dir).filter((file) => {
-    if (!/\.exe$/i.test(file)) return false
-    const name = file.split(/[/\\]/).pop() || ''
-    return !SKIP_EXES.test(name)
-  })
-}
-
-function rankExes(candidates: Iterable<string>): string | null {
-  const ranked = [...candidates].sort((a, b) => {
-    const dos = Number(isDosShortName(a)) - Number(isDosShortName(b))
-    if (dos) return dos
-    const score = exeBitScore(b) - exeBitScore(a)
-    if (score) return score
-    return a.length - b.length
-  })
+function rankLaunchables(candidates: Iterable<string>): string | null {
+  const ranked = [...candidates].sort((a, b) =>
+    compareLaunchCandidates(a, b, hostPlatformOf(), process.arch, isDosShortName)
+  )
   const picked = ranked[0]
   return picked ? resolveLongPath(picked) : null
 }
@@ -136,12 +125,12 @@ export function findRenpyExecutable(installPath: string): string | null {
   const gameDirs = findNamedDirs(installPath, 'game')
   const candidates = new Set<string>()
   for (const gameDir of gameDirs) {
-    for (const exe of collectExes(dirname(gameDir))) candidates.add(exe)
+    for (const file of collectLaunchables(dirname(gameDir))) candidates.add(file)
   }
   if (!candidates.size) {
-    for (const exe of collectExes(installPath)) candidates.add(exe)
+    for (const file of collectLaunchables(installPath)) candidates.add(file)
   }
-  return rankExes(candidates)
+  return rankLaunchables(candidates)
 }
 
 function findGenericExecutable(installPath: string, maxDepth = 3): string | null {
@@ -150,16 +139,16 @@ function findGenericExecutable(installPath: string, maxDepth = 3): string | null
 
   function walk(dir: string, depth: number): void {
     if (depth > maxDepth) return
-    for (const exe of collectExes(dir)) candidates.add(exe)
+    for (const file of collectLaunchables(dir)) candidates.add(file)
     for (const child of listDirs(dir)) {
       const base = child.split(/[/\\]/).pop() || ''
-      if (skip.has(base.toLowerCase())) continue
+      if (skip.has(base.toLowerCase()) || /\.app$/i.test(base)) continue
       walk(child, depth + 1)
     }
   }
 
   walk(installPath, 0)
-  return rankExes(candidates)
+  return rankLaunchables(candidates)
 }
 
 export function detectExecutable(installPath: string, engine: string): string | null {
@@ -172,6 +161,25 @@ export function detectExecutable(installPath: string, engine: string): string | 
   return findGenericExecutable(installPath)
 }
 
+function pickerFilters(): OpenDialogOptions['filters'] {
+  if (process.platform === 'win32') {
+    return [
+      { name: 'Executables', extensions: ['exe'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  }
+  if (process.platform === 'darwin') {
+    return [
+      { name: 'Applications', extensions: ['app', 'sh', 'command'] },
+      { name: 'All files', extensions: ['*'] }
+    ]
+  }
+  return [
+    { name: 'Executables', extensions: ['sh', 'x86_64', 'x86', 'arm64'] },
+    { name: 'All files', extensions: ['*'] }
+  ]
+}
+
 export async function pickExecutable(
   installPath: string,
   parent?: BrowserWindow | null
@@ -182,10 +190,7 @@ export async function pickExecutable(
   const options: OpenDialogOptions = {
     title: 'Choose game executable',
     defaultPath: installPath,
-    filters: [
-      { name: 'Executables', extensions: ['exe'] },
-      { name: 'All files', extensions: ['*'] }
-    ],
+    filters: pickerFilters(),
     properties: ['openFile']
   }
   const result = parent
@@ -221,13 +226,27 @@ async function startWindowsProcess(file: string, cwd: string): Promise<number> {
   return pid
 }
 
+function resolveMacAppExecutable(appPath: string): string | null {
+  const macosDir = childPath(childPath(appPath, 'Contents'), 'MacOS')
+  const inner = listDirents(macosDir).filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
+  if (!inner.length) return null
+  return childPath(macosDir, inner[0].name)
+}
+
+function resolveLaunchTarget(executablePath: string): { file: string; cwd: string } {
+  const file = stripNamespace(resolveLongPath(executablePath))
+  if (process.platform === 'darwin' && /\.app$/i.test(file)) {
+    const inner = resolveMacAppExecutable(file)
+    if (inner) return { file: inner, cwd: dirname(file) }
+  }
+  return { file, cwd: dirname(file) }
+}
+
 function spawnDetached(file: string, cwd: string): number {
-  const child = spawn(file, [], {
-    cwd,
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: false
-  })
+  const script = process.platform !== 'win32' && /\.(sh|command)$/i.test(file)
+  const child = script
+    ? spawn('/bin/sh', [file], { cwd, detached: true, stdio: 'ignore' })
+    : spawn(file, [], { cwd, detached: true, stdio: 'ignore', windowsHide: false })
   if (!child.pid) {
     throw new Error('The game did not start.')
   }
@@ -236,17 +255,17 @@ function spawnDetached(file: string, cwd: string): number {
 }
 
 export async function launchExecutable(executablePath: string): Promise<{ pid: number }> {
-  const file = stripNamespace(resolveLongPath(executablePath))
-  if (!pathExists(file)) {
+  const target = resolveLaunchTarget(executablePath)
+  if (!pathExists(target.file)) {
     throw new Error('The selected executable is missing.')
   }
-  const cwd = dirname(file)
+  await makePathExecutable(target.file)
   if (process.platform === 'win32') {
     try {
-      return { pid: await startWindowsProcess(file, cwd) }
+      return { pid: await startWindowsProcess(target.file, target.cwd) }
     } catch (error) {
       console.warn('Start-Process launch failed, falling back to spawn', error)
     }
   }
-  return { pid: spawnDetached(file, cwd) }
+  return { pid: spawnDetached(target.file, target.cwd) }
 }

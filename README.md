@@ -31,13 +31,17 @@ bun install
 bun run dev
 ```
 
-## Package (Windows installer)
+## Package
 
 ```bash
 bun run build:win
+bun run build:linux
+bun run build:mac
 ```
 
-The NSIS setup appears in `dist/`. Ordinary users can install it like any other desktop app.
+Installers and portable builds appear in `dist/`. GitHub tag releases (`v1.2.3`) build Windows, Linux, and macOS artifacts on matching runners (native modules such as WebRTC must be compiled per OS).
+
+Ordinary users can install the Windows NSIS setup, the Linux AppImage, or the macOS disk image like any other desktop app.
 
 ## Layout
 

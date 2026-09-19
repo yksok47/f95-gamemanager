@@ -1,5 +1,6 @@
 import { spawn } from 'child_process'
 import { delimiter, dirname } from 'path'
+import { makePathExecutable } from '../unix-exec'
 import { childPath, listDirents, pathExists, resolveLongPath, stripNamespace } from '../win-path'
 
 export type GamePython = {
@@ -36,7 +37,7 @@ export function findGamePython(gameRoot: string): string | null {
     if (!dir) break
     for (const entry of listDirents(dir)) {
       const full = childPath(dir, entry.name)
-      if (entry.isFile() && /^python\.exe$/i.test(entry.name)) {
+      if (entry.isFile() && isPythonBinaryName(entry.name)) {
         found.push(resolveLongPath(full))
         continue
       }
@@ -47,12 +48,28 @@ export function findGamePython(gameRoot: string): string | null {
   return found[0] ?? null
 }
 
+function isPythonBinaryName(name: string): boolean {
+  return /^python(\d+(\.\d+)?)?w?(\.exe)?$/i.test(name)
+}
+
 function pythonScore(pythonPath: string): number {
   const value = pythonPath.replace(/\\/g, '/').toLowerCase()
+  const name = value.split('/').pop() || ''
   let score = 0
-  if (value.includes('py3-') || value.includes('/python3')) score += 100
-  if (value.includes('x86_64') || value.includes('amd64')) score += 10
-  if (value.includes('i686')) score -= 10
+  if (value.includes('py3-') || value.includes('/python3') || /^python3/.test(name)) score += 100
+  if (process.platform === 'linux' && value.includes('linux')) score += 50
+  if (process.platform === 'darwin' && (value.includes('-mac-') || value.includes('/mac') || value.includes('darwin'))) {
+    score += 50
+  }
+  if (process.platform === 'win32' && (value.includes('windows') || value.includes('-win') || name.endsWith('.exe'))) {
+    score += 50
+  }
+  if (process.platform !== 'win32' && name.endsWith('.exe')) score -= 80
+  if (/pythonw/i.test(name)) score -= 5
+  if (process.arch === 'x64' && (value.includes('x86_64') || value.includes('amd64'))) score += 20
+  if (process.arch === 'arm64' && (value.includes('aarch64') || value.includes('arm64'))) score += 20
+  if (process.arch === 'x64' && (value.includes('arm64') || value.includes('aarch64'))) score -= 15
+  if (value.includes('i686') || value.includes('i386')) score -= 10
   return score
 }
 
@@ -95,8 +112,9 @@ function runPythonText(python: string, args: string[], cwd: string, env: NodeJS.
 export async function detectGamePython(gameRoot: string): Promise<GamePython> {
   const python = findGamePython(gameRoot)
   if (!python) {
-    throw new Error("Could not find this game's python.exe under lib/. Ren'Py ships it with the game.")
+    throw new Error("Could not find this game's Python interpreter under lib/. Ren'Py ships it with the game.")
   }
+  await makePathExecutable(python)
   const pythonDir = dirname(python)
   const pythonLibDir = findEncodingsDir(pythonDir) || findEncodingsDir(childPath(gameRoot, 'lib')) || pythonDir
   const root = stripNamespace(resolveLongPath(gameRoot))
@@ -140,7 +158,7 @@ export async function runGamePython(
   return runPythonText(runtime.python, ['-O', ...args], stripNamespace(cwd), env, timeoutMs)
 }
 
-/** Run a .py file with sys.path forced, so Ren'Py's python.exe cannot miss local packages. */
+/** Run a .py file with sys.path forced, so Ren'Py's bundled Python cannot miss local packages. */
 export async function runGamePythonScript(
   runtime: GamePython,
   script: string,

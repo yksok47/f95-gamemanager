@@ -4,6 +4,7 @@ import { createExtractorFromFile } from 'node-unrar-js'
 import { extractFull, list as list7z } from 'node-7z'
 import { path7za } from '7zip-bin'
 import { archiveKind } from './fs-utils'
+import { makePathExecutableSync, markExtractedExecutables } from './unix-exec'
 import { pathExists, toFsPath } from './win-path'
 
 const JUNK_NAMES = new Set(['__macosx', '.ds_store', 'thumbs.db', 'desktop.ini'])
@@ -60,6 +61,7 @@ function sevenZipBin(): string {
   if (!found) {
     throw new Error('The bundled 7-Zip tool is missing from the app files.')
   }
+  makePathExecutableSync(found)
   return found
 }
 
@@ -154,4 +156,5 @@ export async function extractArchive(
     await extractWith7z(archivePath, destDir, onProgress)
   }
   await unwrapSingleRoot(destDir)
+  await markExtractedExecutables(destDir)
 }

@@ -10,6 +10,12 @@
       "windows": {
         "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite.cmd"
       },
+      "osx": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite"
+      },
+      "linux": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron-vite"
+      },
       "runtimeArgs": ["--sourcemap"],
       "env": {
         "REMOTE_DEBUGGING_PORT": "9222"

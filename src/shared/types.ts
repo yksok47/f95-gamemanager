@@ -620,6 +620,28 @@ export const OS_KIND_LABELS: Record<OsKind, string> = {
   joiplay: 'JoiPlay'
 }
 
+export function osKindFromNavigator(platform: string, userAgent = ''): OsKind | null {
+  const hay = `${platform} ${userAgent}`
+  if (/Android/i.test(hay)) return 'android'
+  if (/Win/i.test(platform) || /Windows/i.test(userAgent)) return 'win'
+  if (/Mac/i.test(platform) || /Mac OS|Macintosh/i.test(userAgent)) return 'mac'
+  if (/Linux/i.test(hay)) return 'linux'
+  return null
+}
+
+export function downloadMatchesHostOs(systems: OsKind[], host: OsKind | null): boolean {
+  if (!host || !systems.length) return false
+  return systems.includes(host)
+}
+
+export function downloadHostPreference(systems: OsKind[], host: OsKind | null): number {
+  if (!host) return 0
+  if (systems.includes(host)) return 3
+  if (systems.includes('web') || systems.includes('html')) return 2
+  if (!systems.length) return 1
+  return 0
+}
+
 /** Content kind keys shared by F95 downloads UI and P2P metadata votes. */
 export type ContentKind =
   | 'other'
