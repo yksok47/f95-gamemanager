@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { GameLibraryFile, PlaySessionStatus, Subscription, VersionPlayStat } from '@shared/types'
+import type {
+  GameLibraryFile,
+  IdentifiedSaveFolder,
+  PlaySessionStatus,
+  Subscription,
+  VersionPlayStat
+} from '@shared/types'
 import {
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
@@ -39,6 +45,23 @@ export type LibraryGame = {
   playtimeMs: number
   playedVersions: VersionPlayStat[]
   downloadedAt: number
+  /** Identified save folder with no installed copy or archive. */
+  savesOnly?: boolean
+}
+
+export type LibraryExclusiveKind = 'saves' | 'archive' | 'install'
+
+/** Exclusive storage kind, or null when the game has a mix / is still downloading. */
+export function libraryExclusiveKind(
+  game: Pick<LibraryGame, 'savesOnly'>,
+  status?: Pick<GameLibraryStatus, 'hasArchive' | 'isInstalled'> | null
+): LibraryExclusiveKind | null {
+  if (game.savesOnly) return 'saves'
+  const hasArchive = Boolean(status?.hasArchive)
+  const isInstalled = Boolean(status?.isInstalled)
+  if (hasArchive && !isInstalled) return 'archive'
+  if (isInstalled && !hasArchive) return 'install'
+  return null
 }
 
 export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibraryStatus> {
@@ -268,6 +291,122 @@ export function mergeDownloadingLibraryGames(
     })
   }
   return extra.length ? [...games, ...extra] : games
+}
+
+function emptyLibraryGame(
+  threadId: number,
+  partial: Partial<LibraryGame> & Pick<LibraryGame, 'title'>
+): LibraryGame {
+  return {
+    threadId,
+    creator: '',
+    version: '',
+    coverUrl: null,
+    rating: 0,
+    likes: 0,
+    views: 0,
+    engine: '',
+    prefixes: [],
+    tags: [],
+    timestamp: 0,
+    threadUrl: `https://f95zone.to/threads/${threadId}/`,
+    screens: [],
+    lastPlayedVersion: '',
+    lastPlayedAt: 0,
+    playtimeMs: 0,
+    playedVersions: [],
+    downloadedAt: 0,
+    ...partial
+  }
+}
+
+/** Games with identified save folders and no library archive or install. */
+export function saveOnlyLibraryGames(
+  items: IdentifiedSaveFolder[],
+  subscriptions: Subscription[],
+  excludeThreadIds: Set<number>
+): LibraryGame[] {
+  const followed = new Map(subscriptions.map((game) => [game.threadId, game]))
+  const byThread = new Map<number, LibraryGame>()
+  for (const item of items) {
+    if (!item.threadId || excludeThreadIds.has(item.threadId)) continue
+    const sub = followed.get(item.threadId)
+    const prev = byThread.get(item.threadId)
+    byThread.set(
+      item.threadId,
+      emptyLibraryGame(item.threadId, {
+        title: sub?.title || prev?.title || item.title || item.folderName || `Thread ${item.threadId}`,
+        creator: sub?.creator || prev?.creator || item.creator || '',
+        coverUrl: sub?.coverUrl || prev?.coverUrl || item.coverUrl || null,
+        version: sub?.version || prev?.version || item.version || '',
+        rating: Math.max(prev?.rating || 0, item.rating || 0, sub?.rating || 0),
+        likes: maxLikeCount(prev?.likes, item.likes, sub?.likes),
+        views: maxViewCount(prev?.views, item.views, sub?.views),
+        engine: sub?.engine || prev?.engine || item.engine || '',
+        prefixes: sub?.prefixes?.length
+          ? sub.prefixes
+          : item.prefixes?.length
+            ? item.prefixes
+            : prev?.prefixes || [],
+        tags: sub?.tags?.length ? sub.tags : item.tags?.length ? item.tags : prev?.tags || [],
+        screens: sub?.screens?.length
+          ? sub.screens
+          : item.screens?.length
+            ? item.screens
+            : prev?.screens || [],
+        timestamp: Math.max(prev?.timestamp || 0, item.timestamp || 0, sub?.timestamp || 0),
+        updatedAt: sub?.updatedAt || prev?.updatedAt || item.updatedAt || '',
+        threadUrl:
+          sub?.threadUrl ||
+          prev?.threadUrl ||
+          item.threadUrl ||
+          `https://f95zone.to/threads/${item.threadId}/`,
+        lastPlayedVersion: sub?.lastPlayedVersion || prev?.lastPlayedVersion || '',
+        lastPlayedAt: Math.max(prev?.lastPlayedAt || 0, sub?.lastPlayedAt || 0),
+        playtimeMs: Math.max(prev?.playtimeMs || 0, sub?.playtimeMs || 0),
+        playedVersions: sub?.playedVersions?.length ? sub.playedVersions : prev?.playedVersions || [],
+        downloadedAt: Math.max(prev?.downloadedAt || 0, item.identifiedAt || 0),
+        savesOnly: true
+      })
+    )
+  }
+  return [...byThread.values()]
+}
+
+export function useIdentifiedSaveFolders(): IdentifiedSaveFolder[] {
+  const [items, setItems] = useState<IdentifiedSaveFolder[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | null = null
+
+    function load(): void {
+      void window.api.library.saveOnlyItems().then((next) => {
+        if (!cancelled) setItems(next)
+      })
+    }
+
+    function schedule(): void {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(load, 200)
+    }
+
+    load()
+    const stopFolders = window.api.library.onSaveFoldersChange(() => {
+      schedule()
+    })
+    const stopLibrary = window.api.library.onChange(() => {
+      schedule()
+    })
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+      stopFolders()
+      stopLibrary()
+    }
+  }, [])
+
+  return items
 }
 
 export function usePlaySessions(): PlaySessionStatus[] {

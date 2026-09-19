@@ -52,23 +52,23 @@ export function RefreshIcon({ spinning = false }: { spinning?: boolean }): JSX.E
   )
 }
 
-export function StarIcon(): JSX.Element {
+export function ThumbUpIcon(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M8 1.15 9.86 5.7l4.9.42-3.74 3.22 1.12 4.8L8 11.72l-4.14 2.42 1.12-4.8L1.24 6.12l4.9-.42z"
+        d="M1 21h4V9H1zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73z"
       />
     </svg>
   )
 }
 
-export function HateIcon(): JSX.Element {
+export function ThumbDownIcon(): JSX.Element {
   return (
-    <svg viewBox="1 2.4 22 21" aria-hidden="true">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M15 3H6c-.83 0-1.54.5-1.84 1.22L1.14 11.27c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57c-.02.1-.03.2-.03.31 0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2m4 0h4v12h-4z"
+        d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2m4 0h4v12h-4z"
       />
     </svg>
   )
@@ -227,6 +227,28 @@ export function LibraryIcon(): JSX.Element {
       <path
         fill="currentColor"
         d="M2.2 2.1h2.2v11.8H2.2zm3.4 0h2.2v11.8H5.6zm3.5 0 4.7 1.1v9.6l-4.7 1.1z"
+      />
+    </svg>
+  )
+}
+
+export function SavesOnlyIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M2.2 2.2h9.3l2.3 2.3v9.3H2.2zm2 2.1v3.4h7.6V4.3zm1.4 4.8v1.5h1.7V9.1zm3.3 0v4.1h3.4V9.1z"
+      />
+    </svg>
+  )
+}
+
+export function InstallIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M7.1 1.4h1.8v6.6l2.35-2.35 1.3 1.3L8 11.35 3.45 6.95l1.3-1.3L7.1 8zM2.3 12.7h11.4v1.9H2.3z"
       />
     </svg>
   )

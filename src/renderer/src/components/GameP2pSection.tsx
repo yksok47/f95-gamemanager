@@ -185,6 +185,7 @@ export default function GameP2pSection({
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
   const [busy, setBusy] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [pendingHash, setPendingHash] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<P2pTransferProgress[]>([]);
@@ -246,8 +247,8 @@ export default function GameP2pSection({
     }
   }, []);
 
-  const load = useCallback(async (): Promise<void> => {
-    setBusy(true);
+  const load = useCallback(async (opts?: { silent?: boolean }): Promise<void> => {
+    if (!opts?.silent) setBusy(true);
     setLoadFailed(false);
     try {
       const status = (await window.api.p2p.status()) as {
@@ -285,6 +286,7 @@ export default function GameP2pSection({
       );
     } finally {
       setBusy(false);
+      setHasLoaded(true);
     }
   }, [threadId, sort, limit, offset]);
 
@@ -295,11 +297,11 @@ export default function GameP2pSection({
   useEffect(() => {
     void load();
     const onFocus = (): void => {
-      void load();
+      void load({ silent: true });
     };
     window.addEventListener("focus", onFocus);
     const poll = window.setInterval(() => {
-      void load();
+      void load({ silent: true });
     }, 12_000);
     return () => {
       window.removeEventListener("focus", onFocus);
@@ -466,7 +468,7 @@ export default function GameP2pSection({
         />
       </div>
 
-      {!busy && filteredItems.length === 0 && !loadFailed ? (
+      {hasLoaded && filteredItems.length === 0 && !loadFailed ? (
         <p className="muted">
           {metadataApiEnabled
             ? filtersActive

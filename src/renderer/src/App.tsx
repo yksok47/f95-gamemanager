@@ -699,7 +699,9 @@ export default function App(): JSX.Element {
           rosterIds={rosterIds}
           onToggleFollow={handleToggleFollow}
           onToggleRoster={handleToggleRoster}
-          onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
+          onOpen={(game, tab) =>
+            openDetailsWindow(toSummary(game, rarityById.get(game.threadId)), tab)
+          }
           onSessionExpired={handleSessionExpired}
         />
       ) : view === 'storage' ? (

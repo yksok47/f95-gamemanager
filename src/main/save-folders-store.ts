@@ -3,17 +3,14 @@
  */
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, resolve } from 'path'
+import { saneLikeCount, saneViewCount } from '@shared/counts'
+import type { IdentifiedSaveFolder } from '@shared/types'
 import { getAppPaths } from './paths'
+import { mergeIdentifiedSaveFolder } from './save-folder-meta'
 import { pathExists } from './win-path'
+import { sendToRenderer } from './windows'
 
-export type IdentifiedSaveFolder = {
-  title: string
-  threadId: number
-  coverUrl: string | null
-  savePath: string
-  folderName: string
-  identifiedAt: number
-}
+export type { IdentifiedSaveFolder }
 
 export type FailedSaveFolder = {
   folderName: string
@@ -38,21 +35,66 @@ function empty(): SaveFoldersStore {
   return { version: 1, identified: {}, failed: {} }
 }
 
+function asText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function asIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  const ids: number[] = []
+  const seen = new Set<number>()
+  for (const entry of value) {
+    const id = Number(entry)
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) continue
+    seen.add(id)
+    ids.push(id)
+  }
+  return ids
+}
+
+function asScreens(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const urls: string[] = []
+  const seen = new Set<string>()
+  for (const entry of value) {
+    const url = asText(entry)
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    urls.push(url)
+  }
+  return urls
+}
+
 function asIdentified(value: unknown): IdentifiedSaveFolder | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Partial<IdentifiedSaveFolder>
   const threadId = Number(raw.threadId)
-  const savePath = typeof raw.savePath === 'string' ? raw.savePath.trim() : ''
-  const title = typeof raw.title === 'string' ? raw.title.trim() : ''
-  const folderName = typeof raw.folderName === 'string' ? raw.folderName.trim() : ''
+  const savePath = asText(raw.savePath)
+  const title = asText(raw.title)
+  const folderName = asText(raw.folderName)
   if (!Number.isFinite(threadId) || threadId <= 0 || !savePath || !title) return null
+  const screens = asScreens(raw.screens)
+  const prefixes = asIds(raw.prefixes)
+  const tags = asIds(raw.tags)
   return {
     title,
     threadId,
-    coverUrl: typeof raw.coverUrl === 'string' && raw.coverUrl ? raw.coverUrl : null,
+    coverUrl: asText(raw.coverUrl) || null,
     savePath,
     folderName: folderName || savePath,
-    identifiedAt: Number(raw.identifiedAt) || 0
+    identifiedAt: Number(raw.identifiedAt) || 0,
+    creator: asText(raw.creator) || undefined,
+    engine: asText(raw.engine) || undefined,
+    version: asText(raw.version) || undefined,
+    rating: Number(raw.rating) || undefined,
+    likes: saneLikeCount(raw.likes) || undefined,
+    views: saneViewCount(raw.views) || undefined,
+    threadUrl: asText(raw.threadUrl) || undefined,
+    prefixes: prefixes.length ? prefixes : undefined,
+    tags: tags.length ? tags : undefined,
+    timestamp: Number(raw.timestamp) || undefined,
+    updatedAt: asText(raw.updatedAt) || undefined,
+    screens: screens.length ? screens : undefined
   }
 }
 
@@ -102,6 +144,10 @@ async function loadStore(): Promise<SaveFoldersStore> {
   return cache
 }
 
+function broadcast(): void {
+  sendToRenderer('library:save-folders-changed', Object.values(cache?.identified || {}))
+}
+
 async function persist(store: SaveFoldersStore): Promise<void> {
   const file = getAppPaths().saveFoldersFile
   await mkdir(dirname(file), { recursive: true })
@@ -110,6 +156,7 @@ async function persist(store: SaveFoldersStore): Promise<void> {
 
 function queueWrite(store: SaveFoldersStore): Promise<void> {
   cache = store
+  broadcast()
   writeChain = writeChain
     .then(() => persist(store))
     .catch((error) => {
@@ -173,7 +220,11 @@ export async function rememberIdentifiedSaveFolders(entries: IdentifiedSaveFolde
     const item = asIdentified(entry)
     if (!item) continue
     const key = saveFolderKey(item.savePath)
-    identified[key] = { ...item, identifiedAt: item.identifiedAt || Date.now() }
+    const merged = mergeIdentifiedSaveFolder(identified[key], {
+      ...item,
+      identifiedAt: item.identifiedAt || Date.now()
+    })
+    identified[key] = merged
     if (failed[key]) {
       delete failed[key]
     }

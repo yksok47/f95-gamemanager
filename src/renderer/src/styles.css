@@ -724,6 +724,13 @@ input[type='search']::-webkit-search-results-decoration {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
+.nav-btn-exclude,
+.ghost-btn.nav-btn-exclude {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1247,6 +1254,11 @@ input[type='search']::-webkit-search-results-decoration {
 .ghost-btn[aria-pressed="true"]:hover:not(:disabled) {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.ghost-btn.nav-btn-exclude:hover:not(:disabled) {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .primary-btn:disabled,

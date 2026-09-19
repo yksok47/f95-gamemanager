@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import type { GameLibraryFile, Subscription } from '@shared/types'
+import type { GameLibraryFile, IdentifiedSaveFolder, Subscription } from '@shared/types'
 import type { ThreadDownloadProgress } from './downloads'
-import { mergeDownloadingLibraryGames, summarizeLibrary, type LibraryGame } from './library'
+import {
+  libraryExclusiveKind,
+  mergeDownloadingLibraryGames,
+  saveOnlyLibraryGames,
+  summarizeLibrary,
+  type LibraryGame
+} from './library'
 
 function libraryGame(partial: Partial<LibraryGame> & Pick<LibraryGame, 'threadId' | 'title'>): LibraryGame {
   return {
@@ -136,5 +142,104 @@ describe('summarizeLibrary', () => {
     expect(status?.isInstalled).toBe(true)
     expect(status?.installedVersion).toBe('1.2')
     expect(status?.installPercent).toBeNull()
+  })
+})
+
+function identifiedFolder(
+  partial: Partial<IdentifiedSaveFolder> & Pick<IdentifiedSaveFolder, 'threadId' | 'title' | 'savePath'>
+): IdentifiedSaveFolder {
+  return {
+    coverUrl: null,
+    folderName: partial.title,
+    identifiedAt: 10,
+    ...partial
+  }
+}
+
+describe('saveOnlyLibraryGames', () => {
+  test('lists identified save folders that are not in the library', () => {
+    const games = saveOnlyLibraryGames(
+      [
+        identifiedFolder({
+          threadId: 11,
+          title: 'Save only',
+          savePath: 'C:\\saves\\a',
+          coverUrl: 'https://cdn.test/s.jpg',
+          creator: 'Dev',
+          prefixes: [3],
+          tags: [9]
+        }),
+        identifiedFolder({ threadId: 12, title: 'Installed too', savePath: 'C:\\saves\\b' })
+      ],
+      [],
+      new Set([12])
+    )
+    expect(games.map((game) => game.threadId)).toEqual([11])
+    expect(games[0]?.savesOnly).toBe(true)
+    expect(games[0]?.coverUrl).toBe('https://cdn.test/s.jpg')
+    expect(games[0]?.creator).toBe('Dev')
+    expect(games[0]?.tags).toEqual([9])
+  })
+
+  test('fills tile metadata from a followed subscription', () => {
+    const sub = {
+      threadId: 8,
+      title: 'Followed title',
+      creator: 'Author',
+      version: '2.1',
+      coverUrl: 'https://cdn.test/f.jpg',
+      rating: 4,
+      likes: 10,
+      views: 20,
+      threadUrl: 'https://f95zone.to/threads/8/',
+      prefixes: [1],
+      tags: [2],
+      screens: ['https://cdn.test/s.jpg']
+    } as Subscription
+    const games = saveOnlyLibraryGames(
+      [identifiedFolder({ threadId: 8, title: 'Folder name', savePath: 'C:\\saves\\8' })],
+      [sub],
+      new Set()
+    )
+    expect(games[0]?.title).toBe('Followed title')
+    expect(games[0]?.creator).toBe('Author')
+    expect(games[0]?.tags).toEqual([2])
+    expect(games[0]?.coverUrl).toBe('https://cdn.test/f.jpg')
+  })
+})
+
+describe('libraryExclusiveKind', () => {
+  test('treats identified saves without archive or install as saves-only', () => {
+    expect(libraryExclusiveKind(libraryGame({ threadId: 1, title: 'Saves', savesOnly: true }))).toBe(
+      'saves'
+    )
+  })
+
+  test('treats an archive without an install as archive-only', () => {
+    expect(
+      libraryExclusiveKind(libraryGame({ threadId: 2, title: 'Zip' }), {
+        hasArchive: true,
+        isInstalled: false
+      })
+    ).toBe('archive')
+  })
+
+  test('treats an install without an archive as install-only', () => {
+    expect(
+      libraryExclusiveKind(libraryGame({ threadId: 3, title: 'Playable' }), {
+        hasArchive: false,
+        isInstalled: true
+      })
+    ).toBe('install')
+  })
+
+  test('does not treat mixed or in-progress games as exclusive', () => {
+    expect(
+      libraryExclusiveKind(libraryGame({ threadId: 4, title: 'Both' }), {
+        hasArchive: true,
+        isInstalled: true
+      })
+    ).toBe(null)
+    expect(libraryExclusiveKind(libraryGame({ threadId: 5, title: 'Downloading' }))).toBe(null)
   })
 })

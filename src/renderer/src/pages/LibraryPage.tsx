@@ -5,19 +5,39 @@ import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
 import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
-import { HateIcon, HideCompletedIcon, StarIcon } from '../components/ToolbarIcons'
+import {
+  ArchiveIcon,
+  FollowedIcon,
+  HideCompletedIcon,
+  InstallIcon,
+  SavesOnlyIcon,
+  ThumbDownIcon,
+  ThumbUpIcon
+} from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught } from '../components/ErrorNotifications'
+import {
+  completedToolbarTitle,
+  favoriteToolbarTitle,
+  hatedToolbarTitle,
+  matchesTriState,
+  onTriStateMouse,
+  toolbarTriStateClass,
+  type FilterChipState
+} from '../components/FilterChip'
 import { toCatalogGame } from '../lib/catalog-game'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import {
   groupLibraryGames,
   mergeDownloadingLibraryGames,
+  saveOnlyLibraryGames,
   summarizeLibrary,
   useLibraryFiles,
   usePlaySessions,
+  useIdentifiedSaveFolders,
+  libraryExclusiveKind,
   type LibraryGame
 } from '../lib/library'
 import { usePendingDownloads } from '../lib/download-progress'
@@ -43,7 +63,7 @@ type LibraryPageProps = {
   rosterIds: Set<number>
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onToggleRoster: (game: CatalogGame) => Promise<void>
-  onOpen: (game: LibraryGame) => void
+  onOpen: (game: LibraryGame, tab?: 'saves') => void
   onSessionExpired: () => Promise<void>
 }
 
@@ -74,6 +94,15 @@ function compareGames(a: LibraryGame, b: LibraryGame, sort: LibrarySort, descend
   return descending ? -result : result
 }
 
+function exclusiveKindTitle(
+  state: FilterChipState,
+  copy: { include: string; exclude: string; off: string }
+): string {
+  if (state === 'include') return copy.include
+  if (state === 'exclude') return copy.exclude
+  return copy.off
+}
+
 export default function LibraryPage({
   subscriptions,
   favoriteTags,
@@ -92,18 +121,38 @@ export default function LibraryPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('played')
   const [descending, setDescending] = useState(true)
-  const [hideCompleted, setHideCompleted] = useState(false)
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const [hatedActive, setHatedActive] = useState(false)
+  const [completedFilter, setCompletedFilter] = useState<FilterChipState>('off')
+  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
+  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
+  const [followedFilter, setFollowedFilter] = useState<FilterChipState>('off')
+  const [savesFilter, setSavesFilter] = useState<FilterChipState>('exclude')
+  const [archivesFilter, setArchivesFilter] = useState<FilterChipState>('off')
+  const [installsFilter, setInstallsFilter] = useState<FilterChipState>('off')
+  const saveOnlyItems = useIdentifiedSaveFolders()
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
     [subscriptions]
   )
   const libraryByThread = useMemo(() => summarizeLibrary(files), [files])
-  const games = useMemo(
+  const installedGames = useMemo(
     () => mergeDownloadingLibraryGames(groupLibraryGames(files, subscriptions), pendingDownloads, subscriptions),
     [files, subscriptions, pendingDownloads]
   )
+  const saveOnlyGames = useMemo(
+    () =>
+      saveOnlyLibraryGames(
+        saveOnlyItems,
+        subscriptions,
+        new Set(installedGames.map((game) => game.threadId))
+      ),
+    [saveOnlyItems, subscriptions, installedGames]
+  )
+  const games = useMemo(
+    () => [...installedGames, ...saveOnlyGames],
+    [installedGames, saveOnlyGames]
+  )
+  const kindFiltersActive =
+    savesFilter !== 'exclude' || archivesFilter !== 'off' || installsFilter !== 'off'
   const needle = query.trim().toLowerCase()
   const playingByThread = useMemo(() => {
     const ids = new Set<number>()
@@ -115,15 +164,42 @@ export default function LibraryPage({
       games
         .filter((game) => matchesQuery(game, needle))
         .filter((game) => {
-          if (hideCompleted && isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog))) {
+          if (
+            !matchesTriState(
+              isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog)),
+              completedFilter
+            )
+          ) {
             return false
           }
-          if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
-          if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
+          if (!matchesTriState(gameHasFavoriteTag(game.tags, favoriteTags), favoritesFilter)) return false
+          if (!matchesTriState(gameHasFavoriteTag(game.tags, hatedTags), hatedFilter)) return false
+          if (!matchesTriState(followedIds.has(game.threadId), followedFilter)) return false
+          const exclusiveKind = libraryExclusiveKind(game, libraryByThread.get(game.threadId))
+          if (!matchesTriState(exclusiveKind === 'saves', savesFilter)) return false
+          if (!matchesTriState(exclusiveKind === 'archive', archivesFilter)) return false
+          if (!matchesTriState(exclusiveKind === 'install', installsFilter)) return false
           return true
         })
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [games, needle, sort, descending, hideCompleted, favoritesOnly, favoriteTags, hatedActive, hatedTags, prefixCatalog]
+    [
+      games,
+      needle,
+      sort,
+      descending,
+      completedFilter,
+      favoritesFilter,
+      favoriteTags,
+      hatedFilter,
+      hatedTags,
+      followedIds,
+      followedFilter,
+      prefixCatalog,
+      libraryByThread,
+      savesFilter,
+      archivesFilter,
+      installsFilter
+    ]
   )
 
   async function playThread(game: LibraryGame): Promise<void> {
@@ -200,63 +276,111 @@ export default function LibraryPage({
           }
         />
         <button
-          className={hideCompleted ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(completedFilter)}
           type="button"
-          aria-pressed={hideCompleted}
-          title={
-            hideCompleted
-              ? 'Show completed, on hold, and abandoned titles'
-              : 'Hide completed, on hold, and abandoned titles'
-          }
-          aria-label={
-            hideCompleted
-              ? 'Show completed, on hold, and abandoned titles'
-              : 'Hide completed, on hold, and abandoned titles'
-          }
-          onClick={() => setHideCompleted((value) => !value)}
+          aria-pressed={completedFilter === 'include'}
+          title={completedToolbarTitle(completedFilter)}
+          aria-label="Filter completed, on hold, and abandoned titles"
+          onClick={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
+          onContextMenu={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
         >
           <HideCompletedIcon />
         </button>
         <button
-          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(favoritesFilter)}
           type="button"
-          aria-pressed={favoritesOnly}
+          aria-pressed={favoritesFilter === 'include'}
           disabled={!favoriteTags.length}
-          title={
-            favoriteTags.length
-              ? favoritesOnly
-                ? 'Showing all tags'
-                : 'Show only favorite tags'
-              : 'Add favorite tags in Settings'
-          }
+          title={favoriteToolbarTitle(favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={() => setFavoritesOnly((value) => !value)}
+          onClick={(event) => onTriStateMouse(event, setFavoritesFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setFavoritesFilter)}
         >
-          <StarIcon />
+          <ThumbUpIcon />
         </button>
         <button
-          className={hatedActive ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(hatedFilter)}
           type="button"
-          aria-pressed={hatedActive}
+          aria-pressed={hatedFilter === 'include'}
           disabled={!hatedTags.length}
-          title={
-            hatedTags.length
-              ? hatedActive
-                ? 'Showing hated tags'
-                : 'Hide games with hated tags'
-              : 'Add hated tags in Settings'
-          }
-          aria-label="Hide games with hated tags"
-          onClick={() => setHatedActive((value) => !value)}
+          title={hatedToolbarTitle(hatedFilter, hatedTags.length > 0)}
+          aria-label="Filter by hated tags"
+          onClick={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
+          onContextMenu={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
         >
-          <HateIcon />
+          <ThumbDownIcon />
+        </button>
+        <button
+          className={toolbarTriStateClass(followedFilter)}
+          type="button"
+          aria-pressed={followedFilter === 'include'}
+          title={exclusiveKindTitle(followedFilter, {
+            include: 'Showing only followed games',
+            exclude: 'Hiding followed games',
+            off: 'Showing followed and unfollowed games'
+          })}
+          aria-label="Filter followed games"
+          onClick={(event) => onTriStateMouse(event, setFollowedFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setFollowedFilter)}
+        >
+          <FollowedIcon />
+        </button>
+        <button
+          className={toolbarTriStateClass(savesFilter)}
+          type="button"
+          aria-pressed={savesFilter === 'include'}
+          title={exclusiveKindTitle(savesFilter, {
+            include: 'Showing only games that have nothing except identified saves',
+            exclude: 'Hiding games that only have identified saves',
+            off: 'Showing games that only have identified saves'
+          })}
+          aria-label="Filter games that only have saves"
+          onClick={(event) => onTriStateMouse(event, setSavesFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setSavesFilter)}
+        >
+          <SavesOnlyIcon />
+        </button>
+        <button
+          className={toolbarTriStateClass(archivesFilter)}
+          type="button"
+          aria-pressed={archivesFilter === 'include'}
+          title={exclusiveKindTitle(archivesFilter, {
+            include: 'Showing only games that have nothing except archives',
+            exclude: 'Hiding games that only have archives',
+            off: 'Showing games that only have archives'
+          })}
+          aria-label="Filter games that only have archives"
+          onClick={(event) => onTriStateMouse(event, setArchivesFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setArchivesFilter)}
+        >
+          <ArchiveIcon />
+        </button>
+        <button
+          className={toolbarTriStateClass(installsFilter)}
+          type="button"
+          aria-pressed={installsFilter === 'include'}
+          title={exclusiveKindTitle(installsFilter, {
+            include: 'Showing only games that have nothing except installs',
+            exclude: 'Hiding games that only have installs',
+            off: 'Showing games that only have installs'
+          })}
+          aria-label="Filter games that only have installs"
+          onClick={(event) => onTriStateMouse(event, setInstallsFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setInstallsFilter)}
+        >
+          <InstallIcon />
         </button>
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || hideCompleted || favoritesOnly || hatedActive
+          {needle ||
+          completedFilter !== 'off' ||
+          favoritesFilter !== 'off' ||
+          hatedFilter !== 'off' ||
+          followedFilter !== 'off' ||
+          kindFiltersActive
             ? `${visible.length}/${games.length}`
-            : `${games.length} in library`}
+            : `${visible.length} in library`}
         </span>
       </FooterPortal>
 
@@ -267,11 +391,38 @@ export default function LibraryPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {favoritesOnly && !needle
-            ? 'No library games match your favorite tags.'
-            : hatedActive && !needle
-              ? 'No library games remain after hiding hated tags.'
-              : 'No library games match that filter.'}
+          {savesFilter === 'include' && !needle
+            ? 'No games have only identified saves. Identify save folders on the Storage page to list them here.'
+            : archivesFilter === 'include' && !needle
+              ? 'No games have only archives.'
+              : installsFilter === 'include' && !needle
+                ? 'No games have only installs.'
+                : savesFilter === 'exclude' &&
+                    archivesFilter === 'exclude' &&
+                    installsFilter === 'exclude' &&
+                    !needle &&
+                    favoritesFilter === 'off' &&
+                    hatedFilter === 'off' &&
+                    followedFilter === 'off' &&
+                    completedFilter === 'off'
+                  ? 'Exclusive save, archive, and install games are hidden.'
+                  : completedFilter === 'include' && !needle
+                    ? 'No library games are completed, on hold, or abandoned.'
+                    : completedFilter === 'exclude' && !needle
+                      ? 'No library games remain after hiding completed, on hold, and abandoned titles.'
+                      : followedFilter === 'include' && !needle
+                    ? 'No followed games are in the library.'
+                    : followedFilter === 'exclude' && !needle
+                      ? 'No unfollowed games are in the library.'
+                      : favoritesFilter === 'include' && !needle
+                        ? 'No library games match your favorite tags.'
+                        : favoritesFilter === 'exclude' && !needle
+                          ? 'No library games remain after hiding favorite tags.'
+                          : hatedFilter === 'include' && !needle
+                            ? 'No library games match your hated tags.'
+                            : hatedFilter === 'exclude' && !needle
+                              ? 'No library games remain after hiding hated tags.'
+                              : 'No library games match that filter.'}
         </div>
       ) : (
         <div className="catalog-grid">
@@ -285,7 +436,7 @@ export default function LibraryPage({
                   favoriteTags={favoriteTags}
                   hatedTags={hatedTags}
                   onToggle={() => void onToggleFollow(toCatalogGame(game))}
-                  onOpen={() => onOpen(game)}
+                  onOpen={() => onOpen(game, game.savesOnly ? 'saves' : undefined)}
                   onPlay={
                     libraryByThread.get(game.threadId)?.isInstalled
                       ? () => playThread(game)

@@ -15,10 +15,19 @@ import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
-import { ArchiveIcon, HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
+import { ArchiveIcon, HideCompletedIcon, ImportIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
+import {
+  completedToolbarTitle,
+  favoriteToolbarTitle,
+  hatedToolbarTitle,
+  matchesTriState,
+  onTriStateMouse,
+  toolbarTriStateClass,
+  type FilterChipState
+} from '../components/FilterChip'
 import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
@@ -134,10 +143,10 @@ export default function FollowedPage({
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
   const updatesOnly = mode === 'updates'
-  const [hideCompleted, setHideCompleted] = useState(false)
-  const [showArchived, setShowArchived] = useState(false)
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const [hatedActive, setHatedActive] = useState(false)
+  const [completedFilter, setCompletedFilter] = useState<FilterChipState>('off')
+  const [archiveFilter, setArchiveFilter] = useState<FilterChipState>('exclude')
+  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
+  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -198,22 +207,31 @@ export default function FollowedPage({
   )
   const listedCount = updatesOnly
     ? pendingUpdates.length
-    : showArchived
-      ? games.length
-      : games.filter((game) => !game.archived).length
+    : archiveFilter === 'include'
+      ? games.filter((game) => game.archived).length
+      : archiveFilter === 'off'
+        ? games.length
+        : games.filter((game) => !game.archived).length
   const sourceCount = listedCount
   const visible = useMemo(
     () =>
       games
         .filter((game) => matchesQuery(game, needle))
         .filter((game) => {
-          if (hideCompleted && isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog))) {
+          if (
+            !matchesTriState(
+              isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog)),
+              completedFilter
+            )
+          ) {
             return false
           }
-          if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
-          if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
+          if (!matchesTriState(gameHasFavoriteTag(game.tags, favoriteTags), favoritesFilter)) return false
+          if (!matchesTriState(gameHasFavoriteTag(game.tags, hatedTags), hatedFilter)) return false
           if (hiddenThreadIds?.has(game.threadId) && updatesOnly) return false
-          if (game.archived && (updatesOnly || !showArchived)) return false
+          if (updatesOnly ? game.archived : !matchesTriState(Boolean(game.archived), archiveFilter)) {
+            return false
+          }
           if (!updatesOnly) return true
           return gameHasPendingUpdate(game, libraryByThread, rosterIds)
         })
@@ -224,11 +242,11 @@ export default function FollowedPage({
       sort,
       descending,
       updatesOnly,
-      hideCompleted,
-      showArchived,
-      favoritesOnly,
+      completedFilter,
+      archiveFilter,
+      favoritesFilter,
       favoriteTags,
-      hatedActive,
+      hatedFilter,
       hatedTags,
       libraryByThread,
       rosterIds,
@@ -359,68 +377,58 @@ export default function FollowedPage({
           }
         />
         <button
-          className={hideCompleted ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(completedFilter)}
           type="button"
-          aria-pressed={hideCompleted}
-          title={
-            hideCompleted
-              ? 'Show completed, on hold, and abandoned titles'
-              : 'Hide completed, on hold, and abandoned titles'
-          }
-          aria-label={
-            hideCompleted
-              ? 'Show completed, on hold, and abandoned titles'
-              : 'Hide completed, on hold, and abandoned titles'
-          }
-          onClick={() => setHideCompleted((value) => !value)}
+          aria-pressed={completedFilter === 'include'}
+          title={completedToolbarTitle(completedFilter)}
+          aria-label="Filter completed, on hold, and abandoned titles"
+          onClick={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
+          onContextMenu={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
         >
           <HideCompletedIcon />
         </button>
         {updatesOnly ? null : (
           <button
-            className={showArchived ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+            className={toolbarTriStateClass(archiveFilter)}
             type="button"
-            aria-pressed={showArchived}
-            title={showArchived ? 'Hide archived games' : 'Show archived games'}
-            aria-label={showArchived ? 'Hide archived games' : 'Show archived games'}
-            onClick={() => setShowArchived((value) => !value)}
+            aria-pressed={archiveFilter === 'include'}
+            title={
+              archiveFilter === 'include'
+                ? 'Showing only archived games'
+                : archiveFilter === 'exclude'
+                  ? 'Hiding archived games'
+                  : 'Showing archived and unarchived games'
+            }
+            aria-label="Filter archived games"
+            onClick={(event) => onTriStateMouse(event, setArchiveFilter)}
+            onContextMenu={(event) => onTriStateMouse(event, setArchiveFilter)}
           >
             <ArchiveIcon />
           </button>
         )}
         <button
-          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(favoritesFilter)}
           type="button"
-          aria-pressed={favoritesOnly}
+          aria-pressed={favoritesFilter === 'include'}
           disabled={!favoriteTags.length}
-          title={
-            favoriteTags.length
-              ? favoritesOnly
-                ? 'Showing all tags'
-                : 'Show only favorite tags'
-              : 'Add favorite tags in Settings'
-          }
+          title={favoriteToolbarTitle(favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={() => setFavoritesOnly((value) => !value)}
+          onClick={(event) => onTriStateMouse(event, setFavoritesFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setFavoritesFilter)}
         >
-          <StarIcon />
+          <ThumbUpIcon />
         </button>
         <button
-          className={hatedActive ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(hatedFilter)}
           type="button"
-          aria-pressed={hatedActive}
+          aria-pressed={hatedFilter === 'include'}
           disabled={!hatedTags.length}
-          title={
-            hatedTags.length
-              ? hatedActive
-                ? 'Showing hated tags'
-                : 'Hide games with hated tags'
-              : 'Add hated tags in Settings'
-          }
-          aria-label="Hide games with hated tags"
-          onClick={() => setHatedActive((value) => !value)}
+          title={hatedToolbarTitle(hatedFilter, hatedTags.length > 0)}
+          aria-label="Filter by hated tags"
+          onClick={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
+          onContextMenu={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
         >
-          <HateIcon />
+          <ThumbDownIcon />
         </button>
         <div className="toolbar-actions">
           <button
@@ -493,7 +501,11 @@ export default function FollowedPage({
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || hideCompleted || favoritesOnly || hatedActive || (!updatesOnly && showArchived)
+          {needle ||
+          completedFilter !== 'off' ||
+          favoritesFilter !== 'off' ||
+          hatedFilter !== 'off' ||
+          (!updatesOnly && archiveFilter !== 'exclude')
             ? `${visible.length}/${sourceCount}`
             : updatesOnly
               ? `${visible.length} update${visible.length === 1 ? '' : 's'}`
@@ -517,21 +529,33 @@ export default function FollowedPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {updatesOnly && !needle && !favoritesOnly && !hatedActive && !hideCompleted
+          {updatesOnly &&
+            !needle &&
+            favoritesFilter === 'off' &&
+            hatedFilter === 'off' &&
+            completedFilter === 'off'
             ? 'No followed games have a newer version than the install or last play.'
             : !updatesOnly &&
-                !showArchived &&
+                archiveFilter === 'exclude' &&
                 !needle &&
-                !favoritesOnly &&
-                !hatedActive &&
-                !hideCompleted &&
+                favoritesFilter === 'off' &&
+                hatedFilter === 'off' &&
+                completedFilter === 'off' &&
                 games.some((game) => game.archived)
               ? 'Archived followed games are hidden.'
-              : favoritesOnly && !needle
+              : completedFilter === 'include' && !needle
+                ? 'No followed games are completed, on hold, or abandoned.'
+                : completedFilter === 'exclude' && !needle
+                  ? 'No followed games remain after hiding completed, on hold, and abandoned titles.'
+                  : favoritesFilter === 'include' && !needle
               ? 'No followed games match your favorite tags.'
-              : hatedActive && !needle
-                ? 'No followed games remain after hiding hated tags.'
-                : 'No followed games match that filter.'}
+              : favoritesFilter === 'exclude' && !needle
+                ? 'No followed games remain after hiding favorite tags.'
+                : hatedFilter === 'include' && !needle
+                  ? 'No followed games match your hated tags.'
+                  : hatedFilter === 'exclude' && !needle
+                    ? 'No followed games remain after hiding hated tags.'
+                    : 'No followed games match that filter.'}
         </div>
       ) : (
         <div className="catalog-grid">

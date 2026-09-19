@@ -86,6 +86,7 @@ import {
   assignSaveFolder,
   identifySaveFolder,
   listSaveFolderPeek,
+  listSaveOnlyItems,
   openManagedSaveFolder
 } from './save-folders'
 import { getSettings, saveSettings } from './settings-store'
@@ -639,6 +640,14 @@ export function registerIpc(): void {
 
   ipcMain.handle('library:storageScan', () => getLibraryStorageScan())
 
+  ipcMain.handle('library:saveOnlyItems', async () => {
+    try {
+      return await listSaveOnlyItems()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('library:clearSaves', async (_event, threadId: number, savePath?: string) => {
     try {
       await clearGameSaves(Number(threadId) || 0, savePath ? String(savePath) : undefined)
@@ -683,6 +692,16 @@ export function registerIpc(): void {
         coverUrl?: string | null
         creator?: string
         engine?: string
+        version?: string
+        rating?: number
+        likes?: number
+        views?: number
+        threadUrl?: string
+        prefixes?: number[]
+        tags?: number[]
+        timestamp?: number
+        updatedAt?: string
+        screens?: string[]
       }
     ) => {
       try {

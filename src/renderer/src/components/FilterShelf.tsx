@@ -2,7 +2,7 @@ import { useMemo, type JSX } from 'react'
 import type { CatalogFilters, FavoriteTag, HatedTag, MatchMode } from '@shared/types'
 import { decodeHtmlEntities } from '@shared/engines'
 import { sortFavoriteTags } from '../lib/favorites'
-import FilterChip, { type FilterChipState } from './FilterChip'
+import FilterChip, { type ChipCycleDirection, type FilterChipState } from './FilterChip'
 import TagBrowser from './TagBrowser'
 
 type FilterShelfProps = {
@@ -14,14 +14,14 @@ type FilterShelfProps = {
   creatorInput: string
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
-  favoritesOnly?: boolean
-  hatedActive?: boolean
+  favoriteFilter?: FilterChipState
+  hatedFilter?: FilterChipState
   lockedFavoriteIds?: number[]
   lockedHatedIds?: number[]
   includeLimitReached?: boolean
   excludeLimitReached?: boolean
-  onTogglePrefix: (id: number) => void
-  onToggleTag: (id: number) => void
+  onTogglePrefix: (id: number, direction?: ChipCycleDirection) => void
+  onToggleTag: (id: number, direction?: ChipCycleDirection) => void
   onTagType: (value: MatchMode) => void
   onTagQuery: (value: string) => void
   onCreatorInput: (value: string) => void
@@ -36,8 +36,8 @@ export default function FilterShelf({
   creatorInput,
   favoriteTags,
   hatedTags,
-  favoritesOnly = false,
-  hatedActive = false,
+  favoriteFilter = 'off',
+  hatedFilter = 'off',
   lockedFavoriteIds = [],
   lockedHatedIds = [],
   includeLimitReached = false,
@@ -63,7 +63,7 @@ export default function FilterShelf({
     () => [...hatedTags].sort((a, b) => a.name.localeCompare(b.name)),
     [hatedTags]
   )
-  const offTagsLocked = includeLimitReached || excludeLimitReached
+  const offTagsLocked = includeLimitReached && excludeLimitReached
 
   function tagLocked(id: number, state: FilterChipState | undefined): boolean {
     if (lockedFavoriteSet.has(id) || lockedHatedSet.has(id)) return true
@@ -71,8 +71,12 @@ export default function FilterShelf({
   }
 
   function tagLockedTitle(id: number): string {
-    if (lockedFavoriteSet.has(id)) return 'Locked on by favorite tags'
-    if (lockedHatedSet.has(id)) return 'Locked off by hated tags'
+    if (lockedFavoriteSet.has(id)) {
+      return favoriteFilter === 'exclude' ? 'Locked off by favorite tags' : 'Locked on by favorite tags'
+    }
+    if (lockedHatedSet.has(id)) {
+      return hatedFilter === 'include' ? 'Locked on by hated tags' : 'Locked off by hated tags'
+    }
     if (includeLimitReached && excludeLimitReached) {
       return 'Include and exclude limits reached'
     }
@@ -83,14 +87,14 @@ export default function FilterShelf({
     () => filters.tags.filter((tag) => tagState[tag.id] && !reservedIds.has(tag.id)),
     [filters.tags, tagState, reservedIds]
   )
-  const matchLocked = favoritesOnly || hatedActive
+  const matchLocked = favoriteFilter !== 'off' || hatedFilter !== 'off'
 
   return (
     <section className="filter-shelf">
       <div className="filter-panel">
         <div className="filter-panel-head">
           <h3 className="filter-panel-title">Basics</h3>
-          <p className="filter-panel-hint">Click a chip to include, again to exclude.</p>
+          <p className="filter-panel-hint">Left-click a chip to include, again to exclude. Right-click reverses.</p>
         </div>
         <label className="filter-field">
           <span>Creator</span>
@@ -109,7 +113,7 @@ export default function FilterShelf({
                 key={prefix.id}
                 label={decodeHtmlEntities(prefix.name)}
                 state={prefixState[prefix.id] ?? 'off'}
-                onClick={() => onTogglePrefix(prefix.id)}
+                onCycle={(direction) => onTogglePrefix(prefix.id, direction)}
               />
             ))}
           </div>
@@ -122,7 +126,7 @@ export default function FilterShelf({
                 key={prefix.id}
                 label={decodeHtmlEntities(prefix.name)}
                 state={prefixState[prefix.id] ?? 'off'}
-                onClick={() => onTogglePrefix(prefix.id)}
+                onCycle={(direction) => onTogglePrefix(prefix.id, direction)}
               />
             ))}
           </div>
@@ -142,11 +146,15 @@ export default function FilterShelf({
         {sortedFavorites.length ? (
           <div className="filter-group">
             <span className="filter-group-label">
-              {favoritesOnly
+              {favoriteFilter === 'include'
                 ? lockedFavoriteIds.length < favoriteTags.length
                   ? 'Favorites (highest tiers locked on)'
                   : 'Favorites (locked on)'
-                : 'Favorites'}
+                : favoriteFilter === 'exclude'
+                  ? lockedFavoriteIds.length < favoriteTags.length
+                    ? 'Favorites (highest tiers locked off)'
+                    : 'Favorites (locked off)'
+                  : 'Favorites'}
             </span>
             <div className="filter-chips">
               {sortedFavorites.map((tag) => (
@@ -157,7 +165,7 @@ export default function FilterShelf({
                   tone={tag.tier}
                   locked={tagLocked(tag.id, tagState[tag.id])}
                   lockedTitle={tagLockedTitle(tag.id)}
-                  onClick={() => onToggleTag(tag.id)}
+                  onCycle={(direction) => onToggleTag(tag.id, direction)}
                 />
               ))}
             </div>
@@ -166,7 +174,11 @@ export default function FilterShelf({
         {sortedHated.length ? (
           <div className="filter-group">
             <span className="filter-group-label">
-              {hatedActive ? 'Hated (locked off)' : 'Hated'}
+              {hatedFilter === 'include'
+                ? 'Hated (locked on)'
+                : hatedFilter === 'exclude'
+                  ? 'Hated (locked off)'
+                  : 'Hated'}
             </span>
             <div className="filter-chips">
               {sortedHated.map((tag) => (
@@ -177,7 +189,7 @@ export default function FilterShelf({
                   tone="hate"
                   locked={tagLocked(tag.id, tagState[tag.id])}
                   lockedTitle={tagLockedTitle(tag.id)}
-                  onClick={() => onToggleTag(tag.id)}
+                  onCycle={(direction) => onToggleTag(tag.id, direction)}
                 />
               ))}
             </div>
@@ -194,7 +206,7 @@ export default function FilterShelf({
                   state={tagState[tag.id]}
                   locked={tagLocked(tag.id, tagState[tag.id])}
                   lockedTitle={tagLockedTitle(tag.id)}
-                  onClick={() => onToggleTag(tag.id)}
+                  onCycle={(direction) => onToggleTag(tag.id, direction)}
                 />
               ))}
             </div>
@@ -212,7 +224,7 @@ export default function FilterShelf({
               state={tagState[tag.id] ?? 'off'}
               locked={tagLocked(tag.id, tagState[tag.id])}
               lockedTitle={tagLockedTitle(tag.id)}
-              onClick={() => onToggleTag(tag.id)}
+              onCycle={(direction) => onToggleTag(tag.id, direction)}
             />
           )}
         />

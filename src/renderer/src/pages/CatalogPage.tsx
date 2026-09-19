@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
 import type {
   CatalogFilters,
   CatalogGame,
@@ -12,7 +12,15 @@ import type {
 } from '@shared/types'
 import { DEFAULT_CATALOG_PAGE_SIZE, TAG_QUERY_LIMIT, type CatalogPageSize } from '@shared/types'
 import { FALLBACK_PREFIXES } from '@shared/prefixes'
-import { nextChipState, type FilterChipState } from '../components/FilterChip'
+import {
+  cycleChipState,
+  cycleDirectionFromEvent,
+  favoriteToolbarTitle,
+  hatedToolbarTitle,
+  toolbarTriStateClass,
+  type ChipCycleDirection,
+  type FilterChipState
+} from '../components/FilterChip'
 import FilterShelf from '../components/FilterShelf'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
@@ -23,7 +31,7 @@ import CatalogPageTurn, {
   type PageTurnDirection
 } from '../components/CatalogPageTurn'
 import { selectTagsForQuery } from '../lib/favorites'
-import { ClearIcon, FilterIcon, HateIcon, PagerIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
+import { ClearIcon, FilterIcon, PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
@@ -103,8 +111,8 @@ export default function CatalogPage({
   const [tagQuery, setTagQuery] = useState('')
   const [creatorInput, setCreatorInput] = useState('')
   const [creator, setCreator] = useState('')
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const [hatedActive, setHatedActive] = useState(false)
+  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
+  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
 
   const prefixes = useMemo(() => selectedIds(prefixState, 'include'), [prefixState])
   const excludePrefixes = useMemo(() => selectedIds(prefixState, 'exclude'), [prefixState])
@@ -115,15 +123,15 @@ export default function CatalogPage({
     [favoriteTags]
   )
   const appliedHatedIds = hatedIds
-  const lockedFavoriteIds = favoritesOnly ? appliedFavoriteIds : []
-  const lockedHatedIds = hatedActive ? appliedHatedIds : []
+  const lockedFavoriteIds = favoritesFilter === 'off' ? [] : appliedFavoriteIds
+  const lockedHatedIds = hatedFilter === 'off' ? [] : appliedHatedIds
   const lockedFavoriteSet = useMemo(() => new Set(lockedFavoriteIds), [lockedFavoriteIds])
   const lockedHatedSet = useMemo(() => new Set(lockedHatedIds), [lockedHatedIds])
   const includedTags = useMemo(() => selectedIds(tagState, 'include'), [tagState])
   const excludedTags = useMemo(() => selectedIds(tagState, 'exclude'), [tagState])
   const includeLimitReached = includedTags.length >= TAG_QUERY_LIMIT
   const excludeLimitReached = excludedTags.length >= TAG_QUERY_LIMIT
-  const queryTagType = favoritesOnly || hatedActive ? 'or' : tagType
+  const queryTagType = favoritesFilter !== 'off' || hatedFilter !== 'off' ? 'or' : tagType
   const activeFilterCount =
     prefixes.length + excludePrefixes.length + includedTags.length + excludedTags.length + (creator ? 1 : 0)
 
@@ -142,15 +150,15 @@ export default function CatalogPage({
   }, [])
 
   useEffect(() => {
-    if (!favoritesOnly) return
+    if (favoritesFilter === 'off') return
     const selected = new Set(appliedFavoriteIds)
     setTagState((current) => {
       const next = { ...current }
       let changed = false
       for (const id of favoriteIds) {
         if (selected.has(id)) {
-          if (next[id] !== 'include') {
-            next[id] = 'include'
+          if (next[id] !== favoritesFilter) {
+            next[id] = favoritesFilter
             changed = true
           }
         } else if (next[id]) {
@@ -161,18 +169,18 @@ export default function CatalogPage({
       return changed ? next : current
     })
     setTagType('or')
-  }, [favoritesOnly, favoriteIds, appliedFavoriteIds])
+  }, [favoritesFilter, favoriteIds, appliedFavoriteIds])
 
   useEffect(() => {
-    if (!hatedActive) return
+    if (hatedFilter === 'off') return
     const selected = new Set(appliedHatedIds)
     setTagState((current) => {
       const next = { ...current }
       let changed = false
       for (const id of hatedIds) {
         if (selected.has(id)) {
-          if (next[id] !== 'exclude') {
-            next[id] = 'exclude'
+          if (next[id] !== hatedFilter) {
+            next[id] = hatedFilter
             changed = true
           }
         } else if (next[id]) {
@@ -183,7 +191,7 @@ export default function CatalogPage({
       return changed ? next : current
     })
     setTagType('or')
-  }, [hatedActive, hatedIds, appliedHatedIds])
+  }, [hatedFilter, hatedIds, appliedHatedIds])
 
   useEffect(() => {
     if (!filtersOpen) return
@@ -238,8 +246,8 @@ export default function CatalogPage({
     includedTags,
     excludedTags,
     queryTagType,
-    favoritesOnly,
-    hatedActive,
+    favoritesFilter,
+    hatedFilter,
     catalogPageSize
   ])
 
@@ -313,8 +321,8 @@ export default function CatalogPage({
     includedTags,
     excludedTags,
     queryTagType,
-    favoritesOnly,
-    hatedActive,
+    favoritesFilter,
+    hatedFilter,
     catalogPageSize,
     onSessionExpired
   ])
@@ -424,9 +432,9 @@ export default function CatalogPage({
     )
   }
 
-  function togglePrefix(id: number): void {
+  function togglePrefix(id: number, direction: ChipCycleDirection = 'forward'): void {
     setPrefixState((current) => {
-      const next = nextChipState(current[id] ?? 'off')
+      const next = cycleChipState(current[id] ?? 'off', direction)
       const copy = { ...current }
       if (next === 'off') delete copy[id]
       else copy[id] = next
@@ -434,14 +442,19 @@ export default function CatalogPage({
     })
   }
 
-  function toggleTag(id: number): void {
+  function toggleTag(id: number, direction: ChipCycleDirection = 'forward'): void {
     if (lockedFavoriteSet.has(id) || lockedHatedSet.has(id)) return
     setTagState((current) => {
       const currentState = current[id] ?? 'off'
-      if (currentState === 'off' && (includeLimitReached || excludeLimitReached)) return current
-      let next = nextChipState(currentState)
-      if (next === 'include' && includeLimitReached) return current
-      if (next === 'exclude' && excludeLimitReached) next = 'off'
+      if (currentState === 'off' && includeLimitReached && excludeLimitReached) return current
+      let next = cycleChipState(currentState, direction)
+      if (next === 'include' && includeLimitReached) {
+        next = cycleChipState(next, direction)
+      }
+      if (next === 'exclude' && excludeLimitReached) {
+        next = cycleChipState(next, direction)
+      }
+      if (next === currentState) return current
       const copy = { ...current }
       if (next === 'off') delete copy[id]
       else copy[id] = next
@@ -449,51 +462,44 @@ export default function CatalogPage({
     })
   }
 
-  function setFavoriteTagFilters(on: boolean): void {
-    const selected = new Set(appliedFavoriteIds)
+  function applyLockedTagFilters(
+    ids: number[],
+    appliedIds: number[],
+    state: FilterChipState
+  ): void {
+    const selected = new Set(appliedIds)
     setTagState((current) => {
       const next = { ...current }
-      for (const id of favoriteIds) {
-        if (on && selected.has(id)) next[id] = 'include'
+      for (const id of ids) {
+        if (state !== 'off' && selected.has(id)) next[id] = state
         else delete next[id]
       }
       return next
     })
-    if (on) setTagType('or')
+    if (state !== 'off') setTagType('or')
   }
 
-  function setHatedTagFilters(on: boolean): void {
-    const selected = new Set(appliedHatedIds)
-    setTagState((current) => {
-      const next = { ...current }
-      for (const id of hatedIds) {
-        if (on && selected.has(id)) next[id] = 'exclude'
-        else delete next[id]
-      }
-      return next
-    })
-    if (on) setTagType('or')
+  function cycleFavoritesFilter(event: MouseEvent): void {
+    event.preventDefault()
+    const next = cycleChipState(favoritesFilter, cycleDirectionFromEvent(event))
+    setFavoritesFilter(next)
+    applyLockedTagFilters(favoriteIds, appliedFavoriteIds, next)
   }
 
-  function toggleFavoritesOnly(): void {
-    const next = !favoritesOnly
-    setFavoritesOnly(next)
-    setFavoriteTagFilters(next)
-  }
-
-  function toggleHatedActive(): void {
-    const next = !hatedActive
-    setHatedActive(next)
-    setHatedTagFilters(next)
+  function cycleHatedFilter(event: MouseEvent): void {
+    event.preventDefault()
+    const next = cycleChipState(hatedFilter, cycleDirectionFromEvent(event, 'reverse'))
+    setHatedFilter(next)
+    applyLockedTagFilters(hatedIds, appliedHatedIds, next)
   }
 
   function lockedTagState(): Record<number, FilterChipState> {
     const next: Record<number, FilterChipState> = {}
-    if (favoritesOnly) {
-      for (const id of appliedFavoriteIds) next[id] = 'include'
+    if (favoritesFilter !== 'off') {
+      for (const id of appliedFavoriteIds) next[id] = favoritesFilter
     }
-    if (hatedActive) {
-      for (const id of appliedHatedIds) next[id] = 'exclude'
+    if (hatedFilter !== 'off') {
+      for (const id of appliedHatedIds) next[id] = hatedFilter
     }
     return next
   }
@@ -522,38 +528,28 @@ export default function CatalogPage({
           onChange={setSort}
         />
         <button
-          className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(favoritesFilter)}
           type="button"
-          aria-pressed={favoritesOnly}
+          aria-pressed={favoritesFilter === 'include'}
           disabled={!favoriteIds.length}
-          title={
-            favoriteIds.length
-              ? favoritesOnly
-                ? 'Showing all tags'
-                : 'Show only favorite tags'
-              : 'Add favorite tags in Settings'
-          }
+          title={favoriteToolbarTitle(favoritesFilter, favoriteIds.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={toggleFavoritesOnly}
+          onClick={cycleFavoritesFilter}
+          onContextMenu={cycleFavoritesFilter}
         >
-          <StarIcon />
+          <ThumbUpIcon />
         </button>
         <button
-          className={hatedActive ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+          className={toolbarTriStateClass(hatedFilter)}
           type="button"
-          aria-pressed={hatedActive}
+          aria-pressed={hatedFilter === 'include'}
           disabled={!hatedIds.length}
-          title={
-            hatedIds.length
-              ? hatedActive
-                ? 'Showing hated tags'
-                : 'Hide games with hated tags'
-              : 'Add hated tags in Settings'
-          }
-          aria-label="Hide games with hated tags"
-          onClick={toggleHatedActive}
+          title={hatedToolbarTitle(hatedFilter, hatedIds.length > 0)}
+          aria-label="Filter by hated tags"
+          onClick={cycleHatedFilter}
+          onContextMenu={cycleHatedFilter}
         >
-          <HateIcon />
+          <ThumbDownIcon />
         </button>
         <div
           className={[
@@ -675,8 +671,8 @@ export default function CatalogPage({
             creatorInput={creatorInput}
             favoriteTags={favoriteTags}
             hatedTags={hatedTags}
-            favoritesOnly={favoritesOnly}
-            hatedActive={hatedActive}
+            favoriteFilter={favoritesFilter}
+            hatedFilter={hatedFilter}
             lockedFavoriteIds={lockedFavoriteIds}
             lockedHatedIds={lockedHatedIds}
             includeLimitReached={includeLimitReached}

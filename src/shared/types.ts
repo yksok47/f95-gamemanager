@@ -305,6 +305,28 @@ export type LibraryStorageItem = {
   identifyFailed?: boolean
 }
 
+/** Remembered save-folder → thread mapping, including catalog snapshot for library tiles. */
+export type IdentifiedSaveFolder = {
+  title: string
+  threadId: number
+  coverUrl: string | null
+  savePath: string
+  folderName: string
+  identifiedAt: number
+  creator?: string
+  engine?: string
+  version?: string
+  rating?: number
+  likes?: number
+  views?: number
+  threadUrl?: string
+  prefixes?: number[]
+  tags?: number[]
+  timestamp?: number
+  updatedAt?: string
+  screens?: string[]
+}
+
 export type SaveFolderPeekShot = {
   label: string
   page: string

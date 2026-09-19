@@ -11,6 +11,7 @@ import type {
   GameFileContext,
   GameLibraryFile,
   GameRarity,
+  IdentifiedSaveFolder,
   LibraryStorageScan,
   LibraryStorageStats,
   SaveFolderPeekShot,
@@ -183,6 +184,14 @@ const api = {
     storageStats: (force?: boolean): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:storageStats', Boolean(force)),
     storageScan: (): Promise<LibraryStorageScan> => ipcRenderer.invoke('library:storageScan'),
+    saveOnlyItems: (): Promise<IdentifiedSaveFolder[]> => ipcRenderer.invoke('library:saveOnlyItems'),
+    onSaveFoldersChange: (listener: (items: IdentifiedSaveFolder[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, items: IdentifiedSaveFolder[]): void => listener(items)
+      ipcRenderer.on('library:save-folders-changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('library:save-folders-changed', wrapped)
+      }
+    },
     onStorageScan: (listener: (scan: LibraryStorageScan) => void): (() => void) => {
       const wrapped = (_event: unknown, next: LibraryStorageScan): void => listener(next)
       ipcRenderer.on('library:storage-scan', wrapped)
@@ -206,6 +215,16 @@ const api = {
         coverUrl?: string | null
         creator?: string
         engine?: string
+        version?: string
+        rating?: number
+        likes?: number
+        views?: number
+        threadUrl?: string
+        prefixes?: number[]
+        tags?: number[]
+        timestamp?: number
+        updatedAt?: string
+        screens?: string[]
       }
     ): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:assignSaveFolder', savePath, game),

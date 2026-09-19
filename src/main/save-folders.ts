@@ -1,15 +1,18 @@
 import { basename, isAbsolute, join, resolve, sep } from 'path'
+import { maxLikeCount, maxViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { engineKind } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import type {
   CatalogGame,
   GameLibraryFile,
+  IdentifiedSaveFolder,
   LibraryStorageItem,
   SaveFolderPeekShot,
   Subscription
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
-import { fetchCatalog } from './f95/catalog'
+import { uniqueScreenUrls, fetchCatalog } from './f95/catalog'
+import { lookupGame } from './f95/lookup'
 import { sanitizeCatalogQuery } from './f95/sanitize-query'
 import { fetchThreadDetails } from './f95/thread'
 import { listGameFiles, setRenpySaveDirectoryForThread } from './game-files-store'
@@ -42,8 +45,7 @@ import {
   markSaveFolderIdentifyFailed,
   pruneMissingSaveFolders,
   rememberIdentifiedSaveFolders,
-  saveFolderKey,
-  type IdentifiedSaveFolder
+  saveFolderKey
 } from './save-folders-store'
 import { listSubscriptions } from './subscriptions-store'
 import { getLibraryDirSync } from './settings-store'
@@ -59,6 +61,16 @@ type KnownGame = {
   creator: string
   coverUrl: string | null
   engine: string
+  version?: string
+  rating?: number
+  likes?: number
+  views?: number
+  threadUrl?: string
+  prefixes?: number[]
+  tags?: number[]
+  timestamp?: number
+  updatedAt?: string
+  screens?: string[]
   file: GameLibraryFile | null
   inLibrary: boolean
   inFollowed: boolean
@@ -156,6 +168,16 @@ function upsertKnown(byThread: Map<number, KnownGame>, game: KnownGame): void {
     creator: game.creator || prev.creator,
     coverUrl: game.coverUrl || prev.coverUrl,
     engine: game.engine || prev.engine,
+    version: game.version || prev.version,
+    rating: Math.max(game.rating || 0, prev.rating || 0) || undefined,
+    likes: maxLikeCount(game.likes, prev.likes) || undefined,
+    views: maxViewCount(game.views, prev.views) || undefined,
+    threadUrl: game.threadUrl || prev.threadUrl,
+    prefixes: game.prefixes?.length ? game.prefixes : prev.prefixes,
+    tags: game.tags?.length ? game.tags : prev.tags,
+    timestamp: Math.max(game.timestamp || 0, prev.timestamp || 0) || undefined,
+    updatedAt: game.updatedAt || prev.updatedAt,
+    screens: game.screens?.length ? game.screens : prev.screens,
     file: game.file || prev.file,
     inLibrary: prev.inLibrary || game.inLibrary,
     inFollowed: prev.inFollowed || game.inFollowed
@@ -177,6 +199,16 @@ async function loadKnownGames(files: GameLibraryFile[]): Promise<Map<number, Kno
       creator: firstText(...threadFiles.map((file) => file.creator)),
       coverUrl: coverOf(threadFiles),
       engine: engineOf(threadFiles),
+      version: firstText(...threadFiles.map((file) => file.version)),
+      rating: Math.max(0, ...threadFiles.map((file) => file.rating || 0)) || undefined,
+      likes: maxLikeCount(...threadFiles.map((file) => file.likes)),
+      views: maxViewCount(...threadFiles.map((file) => file.views)),
+      threadUrl: firstText(...threadFiles.map((file) => file.threadUrl)),
+      prefixes: threadFiles.map((file) => file.prefixes).find((list) => list?.length),
+      tags: threadFiles.map((file) => file.tags).find((list) => list?.length),
+      timestamp: Math.max(0, ...threadFiles.map((file) => file.timestamp || 0)) || undefined,
+      updatedAt: firstText(...threadFiles.map((file) => file.updatedAt)),
+      screens: threadFiles.map((file) => file.screens).find((list) => list?.length),
       file: pickSaveFile(threadFiles),
       inLibrary: true,
       inFollowed: false
@@ -191,6 +223,16 @@ async function loadKnownGames(files: GameLibraryFile[]): Promise<Map<number, Kno
       creator: game.creator || '',
       coverUrl: game.coverUrl ?? null,
       engine: game.engine || engineFromPrefixIds(game.prefixes) || '',
+      version: game.version,
+      rating: game.rating,
+      likes: game.likes,
+      views: game.views,
+      threadUrl: game.threadUrl,
+      prefixes: game.prefixes,
+      tags: game.tags,
+      timestamp: game.timestamp,
+      updatedAt: game.updatedAt,
+      screens: game.screens,
       file: null,
       inLibrary: false,
       inFollowed: true
@@ -201,9 +243,19 @@ async function loadKnownGames(files: GameLibraryFile[]): Promise<Map<number, Kno
     upsertKnown(byThread, {
       threadId: rec.threadId,
       title: rec.title,
-      creator: '',
+      creator: rec.creator || '',
       coverUrl: rec.coverUrl,
-      engine: '',
+      engine: rec.engine || '',
+      version: rec.version,
+      rating: rec.rating,
+      likes: rec.likes,
+      views: rec.views,
+      threadUrl: rec.threadUrl,
+      prefixes: rec.prefixes,
+      tags: rec.tags,
+      timestamp: rec.timestamp,
+      updatedAt: rec.updatedAt,
+      screens: rec.screens,
       file: null,
       inLibrary: false,
       inFollowed: false
@@ -247,15 +299,45 @@ function saveItem(input: {
   }
 }
 
-function toRemembered(item: LibraryStorageItem): IdentifiedSaveFolder | null {
+function rememberedFromKnown(
+  savePath: string,
+  folderName: string,
+  game: KnownGame
+): IdentifiedSaveFolder {
+  return {
+    title: game.title,
+    threadId: game.threadId,
+    coverUrl: game.coverUrl,
+    savePath,
+    folderName,
+    identifiedAt: Date.now(),
+    creator: game.creator || undefined,
+    engine: game.engine || undefined,
+    version: game.version || undefined,
+    rating: game.rating || undefined,
+    likes: game.likes || undefined,
+    views: game.views || undefined,
+    threadUrl: game.threadUrl || undefined,
+    prefixes: game.prefixes?.length ? game.prefixes : undefined,
+    tags: game.tags?.length ? game.tags : undefined,
+    timestamp: game.timestamp || undefined,
+    updatedAt: game.updatedAt || undefined,
+    screens: game.screens?.length ? uniqueScreenUrls(game.screens) : undefined
+  }
+}
+
+function toRemembered(item: LibraryStorageItem, game: KnownGame | null): IdentifiedSaveFolder | null {
   if (!item.threadId || !item.savePath || !item.title) return null
+  if (game) return rememberedFromKnown(item.savePath, item.saveFolderName || basename(item.savePath), game)
   return {
     title: item.title,
     threadId: item.threadId,
     coverUrl: item.coverUrl,
     savePath: item.savePath,
     folderName: item.saveFolderName || basename(item.savePath),
-    identifiedAt: Date.now()
+    identifiedAt: Date.now(),
+    creator: item.creator || undefined,
+    engine: item.engine || undefined
   }
 }
 
@@ -290,7 +372,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     if (item.threadId) claimedThreads.add(item.threadId)
     items.push(item)
     if (item.identified && item.threadId) {
-      const rec = toRemembered(item)
+      const rec = toRemembered(item, known.get(item.threadId) || null)
       if (rec) remember.push(rec)
     }
   }
@@ -514,6 +596,60 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   return items.sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title))
 }
 
+/** Identified save folders whose games are not installed and have no archive. */
+export async function listSaveOnlyItems(): Promise<IdentifiedSaveFolder[]> {
+  const files = await listGameFiles()
+  const libraryThreads = new Set(
+    files.filter((file) => file.hasArchive || file.isInstalled).map((file) => file.threadId)
+  )
+  const records = (await listIdentifiedSaveFolders()).filter(
+    (item) => item.threadId > 0 && !libraryThreads.has(item.threadId) && pathExists(item.savePath)
+  )
+  void hydrateSparseIdentifiedSaveFolders(libraryThreads)
+  return records
+}
+
+const hydratedSaveThreads = new Set<number>()
+
+function saveFolderNeedsLookup(item: IdentifiedSaveFolder): boolean {
+  return !item.coverUrl || !item.creator || !item.prefixes?.length
+}
+
+async function hydrateSparseIdentifiedSaveFolders(libraryThreads: Set<number>): Promise<void> {
+  const records = await listIdentifiedSaveFolders()
+  for (const rec of records) {
+    if (libraryThreads.has(rec.threadId)) continue
+    if (hydratedSaveThreads.has(rec.threadId) || !saveFolderNeedsLookup(rec)) continue
+    hydratedSaveThreads.add(rec.threadId)
+    try {
+      const details = await lookupGame(rec.threadId, rec.title, rec.creator)
+      if (!details) continue
+      const screens = uniqueScreenUrls(details.screens)
+      await rememberIdentifiedSaveFolders([
+        {
+          ...rec,
+          title: details.title || rec.title,
+          creator: details.creator || rec.creator,
+          coverUrl: details.coverUrl || rec.coverUrl,
+          engine: rec.engine || engineFromPrefixIds(details.prefixes) || undefined,
+          version: details.version || rec.version,
+          rating: details.rating || rec.rating,
+          likes: saneLikeCount(details.likes) || rec.likes,
+          views: saneViewCount(details.views) || rec.views,
+          threadUrl: rec.threadUrl || `https://f95zone.to/threads/${rec.threadId}/`,
+          prefixes: details.prefixes?.length ? details.prefixes : rec.prefixes,
+          tags: details.tags?.length ? details.tags : rec.tags,
+          timestamp: details.timestamp || rec.timestamp,
+          updatedAt: details.updatedAt || rec.updatedAt,
+          screens: screens.length ? screens : rec.screens
+        }
+      ])
+    } catch {
+      hydratedSaveThreads.delete(rec.threadId)
+    }
+  }
+}
+
 function uniqueCatalogHit(
   ranked: Array<{ game: CatalogGame; score: number }>
 ): CatalogGame | null {
@@ -541,14 +677,7 @@ function identityFromKnown(savePath: string, game: KnownGame): SaveFolderIdentit
 }
 
 async function rememberIdentity(savePath: string, game: KnownGame): Promise<SaveFolderIdentityPatch> {
-  await rememberAndSyncSaveFolder({
-    title: game.title,
-    threadId: game.threadId,
-    coverUrl: game.coverUrl,
-    savePath,
-    folderName: basename(savePath),
-    identifiedAt: Date.now()
-  })
+  await rememberAndSyncSaveFolder(rememberedFromKnown(savePath, basename(savePath), game))
   return identityFromKnown(savePath, game)
 }
 
@@ -593,6 +722,16 @@ export async function assignSaveFolder(
     coverUrl?: string | null
     creator?: string
     engine?: string
+    version?: string
+    rating?: number
+    likes?: number
+    views?: number
+    threadUrl?: string
+    prefixes?: number[]
+    tags?: number[]
+    timestamp?: number
+    updatedAt?: string
+    screens?: string[]
   }
 ): Promise<SaveFolderIdentityPatch> {
   const folder = assertManagedSavePath(savePath)
@@ -604,24 +743,28 @@ export async function assignSaveFolder(
   }
   const coverUrl = typeof game.coverUrl === 'string' && game.coverUrl ? game.coverUrl : null
   const known = (await loadKnownGames(await listGameFiles())).get(threadId)
-  await rememberAndSyncSaveFolder({
-    title,
-    threadId,
-    coverUrl: coverUrl || known?.coverUrl || null,
-    savePath: folder,
-    folderName: basename(folder),
-    identifiedAt: Date.now()
-  })
-  return identityFromKnown(folder, {
+  const assigned: KnownGame = {
     threadId,
     title,
-    creator: known?.creator || (typeof game.creator === 'string' ? game.creator : ''),
+    creator: firstText(known?.creator, typeof game.creator === 'string' ? game.creator : ''),
     coverUrl: coverUrl || known?.coverUrl || null,
-    engine: known?.engine || (typeof game.engine === 'string' ? game.engine : ''),
+    engine: firstText(known?.engine, typeof game.engine === 'string' ? game.engine : ''),
+    version: firstText(known?.version, game.version),
+    rating: known?.rating || game.rating,
+    likes: maxLikeCount(known?.likes, game.likes),
+    views: maxViewCount(known?.views, game.views),
+    threadUrl: firstText(known?.threadUrl, game.threadUrl),
+    prefixes: known?.prefixes?.length ? known.prefixes : game.prefixes,
+    tags: known?.tags?.length ? known.tags : game.tags,
+    timestamp: Math.max(known?.timestamp || 0, game.timestamp || 0) || undefined,
+    updatedAt: firstText(known?.updatedAt, game.updatedAt),
+    screens: known?.screens?.length ? known.screens : game.screens,
     file: known?.file || null,
     inLibrary: Boolean(known?.inLibrary),
     inFollowed: Boolean(known?.inFollowed)
-  })
+  }
+  await rememberAndSyncSaveFolder(rememberedFromKnown(folder, basename(folder), assigned))
+  return identityFromKnown(folder, assigned)
 }
 
 export async function identifySaveFolder(savePath: string): Promise<SaveFolderIdentityPatch> {
@@ -643,6 +786,13 @@ export async function identifySaveFolder(savePath: string): Promise<SaveFolderId
         creator: details.creator || '',
         coverUrl: details.coverUrl || null,
         engine: details.engine || 'RPG Maker',
+        version: details.version,
+        likes: details.likes,
+        views: details.views,
+        threadUrl: details.threadUrl,
+        timestamp: undefined,
+        updatedAt: details.updatedAt,
+        screens: details.gallery,
         file: null,
         inLibrary: false,
         inFollowed: false
@@ -666,7 +816,17 @@ export async function identifySaveFolder(savePath: string): Promise<SaveFolderId
       title: catalogHit.title,
       creator: catalogHit.creator || local?.creator || '',
       coverUrl: catalogHit.coverUrl || local?.coverUrl || null,
-      engine: catalogHit.engine || local?.engine || '',
+      engine: catalogHit.engine || local?.engine || engineFromPrefixIds(catalogHit.prefixes) || '',
+      version: catalogHit.version || local?.version,
+      rating: catalogHit.rating || local?.rating,
+      likes: maxLikeCount(catalogHit.likes, local?.likes),
+      views: maxViewCount(catalogHit.views, local?.views),
+      threadUrl: catalogHit.threadUrl || local?.threadUrl,
+      prefixes: catalogHit.prefixes?.length ? catalogHit.prefixes : local?.prefixes,
+      tags: catalogHit.tags?.length ? catalogHit.tags : local?.tags,
+      timestamp: catalogHit.timestamp || local?.timestamp,
+      updatedAt: catalogHit.updatedAt || local?.updatedAt,
+      screens: catalogHit.screens?.length ? catalogHit.screens : local?.screens,
       file: local?.file || null,
       inLibrary: Boolean(local?.inLibrary),
       inFollowed: Boolean(local?.inFollowed)

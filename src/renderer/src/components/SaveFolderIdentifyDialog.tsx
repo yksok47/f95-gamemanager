@@ -16,6 +16,16 @@ export type SaveFolderIdentifyPick = {
   coverUrl: string | null
   creator?: string
   engine?: string
+  version?: string
+  rating?: number
+  likes?: number
+  views?: number
+  threadUrl?: string
+  prefixes?: number[]
+  tags?: number[]
+  timestamp?: number
+  updatedAt?: string
+  screens?: string[]
 }
 
 export type SaveFolderIdentifyMatch = {
@@ -165,6 +175,16 @@ export default function SaveFolderIdentifyDialog({
           creator: file.creator || '',
           coverUrl: file.coverUrl ?? null,
           engine: file.engine,
+          version: file.version,
+          rating: file.rating,
+          likes: file.likes,
+          views: file.views,
+          threadUrl: file.threadUrl,
+          prefixes: file.prefixes,
+          tags: file.tags,
+          timestamp: file.timestamp,
+          updatedAt: file.updatedAt,
+          screens: file.screens,
           badge: 'Library'
         })
       }
@@ -176,6 +196,16 @@ export default function SaveFolderIdentifyDialog({
           creator: game.creator || '',
           coverUrl: game.coverUrl ?? null,
           engine: game.engine || engineFromPrefixIds(game.prefixes),
+          version: game.version,
+          rating: game.rating,
+          likes: game.likes,
+          views: game.views,
+          threadUrl: game.threadUrl,
+          prefixes: game.prefixes,
+          tags: game.tags,
+          timestamp: game.timestamp,
+          updatedAt: game.updatedAt,
+          screens: game.screens,
           badge: 'Followed'
         })
       }
@@ -199,6 +229,16 @@ export default function SaveFolderIdentifyDialog({
             creator: game.creator,
             coverUrl: game.coverUrl,
             engine: game.engine || engineFromPrefixIds(game.prefixes),
+            version: game.version,
+            rating: game.rating,
+            likes: game.likes,
+            views: game.views,
+            threadUrl: game.threadUrl,
+            prefixes: game.prefixes,
+            tags: game.tags,
+            timestamp: game.timestamp,
+            updatedAt: game.updatedAt,
+            screens: game.screens,
             matchedSave: matchFor(game.threadId)
           })
         }
@@ -240,7 +280,17 @@ export default function SaveFolderIdentifyDialog({
       title: game.title,
       coverUrl: game.coverUrl,
       creator: game.creator,
-      engine: game.engine
+      engine: game.engine,
+      version: game.version,
+      rating: game.rating,
+      likes: game.likes,
+      views: game.views,
+      threadUrl: game.threadUrl,
+      prefixes: game.prefixes,
+      tags: game.tags,
+      timestamp: game.timestamp,
+      updatedAt: game.updatedAt,
+      screens: game.screens
     }
   }
 
