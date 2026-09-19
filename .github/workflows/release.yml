@@ -171,6 +171,13 @@ jobs:
           find artifacts -type f -exec cp -n {} release/ \;
           ls -la release
 
+      - name: Write SHA-512 checksums
+        run: |
+          cd release
+          sha512sum * > ../SHA512SUMS
+          mv ../SHA512SUMS .
+          cat SHA512SUMS
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

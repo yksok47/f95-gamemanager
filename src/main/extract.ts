@@ -141,7 +141,8 @@ export async function listArchiveEntries(archivePath: string): Promise<string[]>
 export async function extractArchive(
   archivePath: string,
   destDir: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  options?: { unwrap?: boolean }
 ): Promise<void> {
   const kind = archiveKind(archivePath)
   if (!kind) {
@@ -155,6 +156,8 @@ export async function extractArchive(
   } else {
     await extractWith7z(archivePath, destDir, onProgress)
   }
-  await unwrapSingleRoot(destDir)
+  if (options?.unwrap !== false) {
+    await unwrapSingleRoot(destDir)
+  }
   await markExtractedExecutables(destDir)
 }

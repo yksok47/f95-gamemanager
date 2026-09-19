@@ -17,6 +17,8 @@ type AppNavProps = {
   downloadCount: number
   uploadCount?: number
   showUploads?: boolean
+  appUpdateAvailable?: boolean
+  appUpdateVersion?: string | null
   onViewChange: (view: AppView) => void
   onLogout: () => void
 }
@@ -47,6 +49,8 @@ export default function AppNav({
   downloadCount,
   uploadCount = 0,
   showUploads = false,
+  appUpdateAvailable = false,
+  appUpdateVersion = null,
   onViewChange,
   onLogout
 }: AppNavProps): JSX.Element {
@@ -148,11 +152,33 @@ export default function AppNav({
         <button
           className={view === 'settings' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
-          title="Settings"
-          aria-label="Settings"
+          title={
+            appUpdateAvailable
+              ? appUpdateVersion
+                ? `Settings — version ${appUpdateVersion} is available`
+                : 'Settings — update available'
+              : 'Settings'
+          }
+          aria-label={
+            appUpdateAvailable
+              ? appUpdateVersion
+                ? `Settings, update ${appUpdateVersion} available`
+                : 'Settings, update available'
+              : 'Settings'
+          }
           onClick={() => onViewChange('settings')}
         >
           <SettingsIcon />
+          {appUpdateAvailable ? (
+            <span className="icon-btn-badge icon-btn-badge-update" aria-hidden="true">
+              <svg viewBox="0 0 16 16">
+                <path
+                  fill="currentColor"
+                  d="M8 1.4c.4 0 .75.35.75.75v7.1l2.2-2.2 1.05 1.05L8 12.1 3.99 8.1l1.06-1.05 2.2 2.2V2.15c0-.4.35-.75.75-.75M3.2 13.1h9.6v1.5H3.2z"
+                />
+              </svg>
+            </span>
+          ) : null}
         </button>
         <button
           ref={avatarRef}

@@ -4,9 +4,16 @@ import appIcon from '../assets/icon.png'
 type LoginPageProps = {
   busy: boolean
   onSubmit: (username: string, password: string) => Promise<void>
+  currentVersion?: string
+  latestVersion?: string | null
 }
 
-export default function LoginPage({ busy, onSubmit }: LoginPageProps): JSX.Element {
+export default function LoginPage({
+  busy,
+  onSubmit,
+  currentVersion,
+  latestVersion
+}: LoginPageProps): JSX.Element {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
 
@@ -47,6 +54,12 @@ export default function LoginPage({ busy, onSubmit }: LoginPageProps): JSX.Eleme
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+        {currentVersion ? (
+          <p className="muted login-version">
+            Current version {currentVersion}
+            {latestVersion ? ` · available ${latestVersion}` : ''}
+          </p>
+        ) : null}
       </section>
     </div>
   )

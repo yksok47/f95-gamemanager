@@ -78,6 +78,7 @@ import { getAppPaths } from './paths'
 import { clearGameSaves, libraryStorageStats } from './storage-stats'
 import { assignSaveFolder, identifySaveFolder, openManagedSaveFolder } from './save-folders'
 import { getSettings, saveSettings } from './settings-store'
+import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
   applyCatalogGames,
   isSubscribed,
@@ -434,6 +435,24 @@ export function registerIpc(): void {
       const dir = getAppPaths().userData
       const error = await shell.openPath(dir)
       if (error) throw new Error(error)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('appUpdate:get', () => getAppUpdateStatus())
+
+  ipcMain.handle('appUpdate:check', async () => {
+    try {
+      return await checkForAppUpdate()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('appUpdate:downloadAndInstall', async () => {
+    try {
+      return await downloadAndInstallAppUpdate()
     } catch (error) {
       throw toIpcError(error)
     }

@@ -9,6 +9,7 @@ import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, registerSaveThumbScheme } from "./renpy/save-meta";
 import { getSettings } from "./settings-store";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
+import { cleanupStaleAppUpdates, initAppUpdateStatus, startAppUpdateService } from "./app-update";
 import { loadSession, persistSessionNow } from "./session-store";
 import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
 import { appIcon } from "./app-icon";
@@ -72,7 +73,12 @@ app.whenReady().then(async () => {
     );
   }
   registerSaveThumbProtocol();
+  initAppUpdateStatus();
+  await cleanupStaleAppUpdates().catch((error) =>
+    console.warn("[app-update] leftover cleanup failed", error)
+  );
   createWindow();
+  void startAppUpdateService();
   void adoptRunningLibrarySessions().catch((error) =>
     console.warn("Could not adopt running game processes", error)
   );

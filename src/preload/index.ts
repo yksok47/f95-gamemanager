@@ -36,6 +36,7 @@ import type {
   P2pTransferProgress,
   TorrentMapEntry
 } from '@shared/p2p'
+import type { AppUpdateStatus } from '@shared/app-update'
 
 const api = {
   window: {
@@ -129,6 +130,19 @@ const api = {
       ipcRenderer.invoke('settings:pickFolder', currentPath),
     userDataPath: (): Promise<string> => ipcRenderer.invoke('settings:userDataPath'),
     openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData')
+  },
+  appUpdate: {
+    get: (): Promise<AppUpdateStatus> => ipcRenderer.invoke('appUpdate:get'),
+    check: (): Promise<AppUpdateStatus> => ipcRenderer.invoke('appUpdate:check'),
+    downloadAndInstall: (): Promise<AppUpdateStatus> =>
+      ipcRenderer.invoke('appUpdate:downloadAndInstall'),
+    onChange: (listener: (next: AppUpdateStatus) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: AppUpdateStatus): void => listener(next)
+      ipcRenderer.on('app-update:status', wrapped)
+      return () => {
+        ipcRenderer.removeListener('app-update:status', wrapped)
+      }
+    }
   },
   downloads: {
     list: (): Promise<DownloadRecord[]> => ipcRenderer.invoke('downloads:list'),

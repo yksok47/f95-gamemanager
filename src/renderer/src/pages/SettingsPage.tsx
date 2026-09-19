@@ -4,8 +4,10 @@ import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import RankedTagsEditor from '../components/RankedTagsEditor'
+import AppUpdatePanel from '../components/AppUpdatePanel'
 import { notifyCaught } from '../components/ErrorNotifications'
 import Switch from '../components/Switch'
+import { useAppUpdate } from '../lib/app-update'
 
 type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated'
 
@@ -106,6 +108,7 @@ export default function SettingsPage({
   )
   const [statusBusy, setStatusBusy] = useState(false)
   const [metadataStatusBusy, setMetadataStatusBusy] = useState(false)
+  const appUpdate = useAppUpdate()
 
   useEffect(() => {
     void window.api.settings.userDataPath().then(setUserDataPath).catch(() => undefined)
@@ -247,6 +250,7 @@ export default function SettingsPage({
 
         {tab === 'general' ? (
           <div className="settings-tab-body">
+            <AppUpdatePanel status={appUpdate} />
             <div className="folder-field">
               <span className="filter-label">Downloads</span>
               <div className="folder-path-row">

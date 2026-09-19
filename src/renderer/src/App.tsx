@@ -36,6 +36,7 @@ import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
+import { useAppUpdate } from './lib/app-update'
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -164,6 +165,7 @@ export default function App(): JSX.Element {
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
+  const appUpdate = useAppUpdate()
   const details = detailsWindows.find((game) => game.threadId === activeThreadId) ?? null
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
@@ -519,7 +521,12 @@ export default function App(): JSX.Element {
       <p className="muted">Checking saved session…</p>
     </div>
   ) : !session.loggedIn ? (
-    <LoginPage busy={busy} onSubmit={handleLogin} />
+    <LoginPage
+      busy={busy}
+      onSubmit={handleLogin}
+      currentVersion={appUpdate.currentVersion}
+      latestVersion={appUpdate.latestVersion}
+    />
   ) : (
     <div className={view !== 'downloads' && activeDownloadCount ? 'app-shell app-shell-dock' : 'app-shell'}>
       <ConfirmHost />
@@ -534,6 +541,8 @@ export default function App(): JSX.Element {
         downloadCount={activeDownloadCount}
         uploadCount={uploadCount}
         showUploads={p2pEnabled}
+        appUpdateAvailable={appUpdate.available}
+        appUpdateVersion={appUpdate.latestVersion}
         onViewChange={(next) => {
           setView(next)
         }}
