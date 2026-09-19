@@ -17,12 +17,12 @@ export function FullscreenIcon({ active = false }: { active?: boolean }): JSX.El
       {active ? (
         <path
           fill="currentColor"
-          d="M6.25 1.4v4.55H1.7V4.15h2.75V1.4zm3.5 0h2.75v2.75H15.3v1.8H9.75zM1.7 9.85h4.55v4.75H4.45v-2.95H1.7zm8.05 0H15.3v1.8h-2.8v2.95H9.75z"
+          d="M4.7 1.5h1.8v5H1.5V4.7h3.2zM9.5 1.5h1.8v3.2h3.2v1.8H9.5zM1.5 9.5h5v5h-1.8V11.3H1.5zM9.5 9.5h5v1.8h-3.2v3.2H9.5z"
         />
       ) : (
         <path
           fill="currentColor"
-          d="M1.7 6.35V1.4h4.95v1.8H3.5v3.15zm8.05-4.95H14.7v4.95h-1.8V3.2H9.75zM1.7 9.65h1.8v3.15h3.15v1.8H1.7zm9.2 3.15h3.15V9.65h1.8v4.95H9.75z"
+          d="M1.5 6.5V1.5h5v1.8H3.3V6.5zM9.5 1.5h5v5h-1.8V3.3H9.5zM1.5 9.5h1.8v3.2h3.2v1.8H1.5zM9.5 12.7h3.2V9.5h1.8v5H9.5z"
         />
       )}
     </svg>
@@ -116,7 +116,7 @@ export function DownloadIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M7.1 1.45h1.8v6.45l2.4-2.4 1.35 1.35L8 11.7 3.35 7.05l1.35-1.35 2.4 2.4zm-4.7 9.3h11.2v2.15H2.4z"
+        d="M7.1 1.6h1.8v5.5l2.4-2.4 1.35 1.35L8 10.9 3.35 6.05l1.35-1.35L7.1 7.1zM2.4 12.15h11.2v1.5H2.4z"
       />
     </svg>
   )
@@ -127,7 +127,7 @@ export function UploadIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M8 4.3 12.65 8.95l-1.35 1.35-2.4-2.4v6.45H7.1V7.9l-2.4 2.4-1.35-1.35zm-5.6-2.85h11.2v2.15H2.4z"
+        d="M7.1 14.4h1.8V8.9l2.4 2.4 1.35-1.35L8 5.1 3.35 9.95l1.35 1.35L7.1 8.9zM2.4 2.35h11.2v1.5H2.4z"
       />
     </svg>
   )
@@ -248,7 +248,7 @@ export function InstallIcon(): JSX.Element {
     <svg viewBox="0 0 16 16" aria-hidden="true">
       <path
         fill="currentColor"
-        d="M7.1 1.4h1.8v6.6l2.35-2.35 1.3 1.3L8 11.35 3.45 6.95l1.3-1.3L7.1 8zM2.3 12.7h11.4v1.9H2.3z"
+        d="M7.1 1.6h1.8v5.5l2.4-2.4 1.35 1.35L8 10.9 3.35 6.05l1.35-1.35L7.1 7.1zM2.4 9.35v4.3h11.2v-4.3h-1.5v2.8H3.9v-2.8z"
       />
     </svg>
   )
