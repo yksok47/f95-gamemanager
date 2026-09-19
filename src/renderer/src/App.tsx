@@ -65,7 +65,8 @@ function toSummary(
     lastPlayedAt: 'lastPlayedAt' in game ? game.lastPlayedAt : undefined,
     playtimeMs: 'playtimeMs' in game ? game.playtimeMs : undefined,
     playedVersions: 'playedVersions' in game ? game.playedVersions : undefined,
-    checkedAt: 'checkedAt' in game ? game.checkedAt : undefined
+    checkedAt: 'checkedAt' in game ? game.checkedAt : undefined,
+    archived: 'archived' in game ? game.archived : undefined
   }
 }
 
@@ -164,6 +165,7 @@ export default function App(): JSX.Element {
     tab: StorageOpenTab
     key: number
   } | null>(null)
+  const [ignoredThreadIds, setIgnoredThreadIds] = useState<Set<number>>(() => new Set())
   const [downloads, setDownloads] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
@@ -198,18 +200,21 @@ export default function App(): JSX.Element {
   const rosterIds = useMemo(() => new Set(roster.map((game) => game.threadId)), [roster])
   const updatesCount = useMemo(
     () =>
-      subscriptions.filter((game) =>
-        shouldListOnUpdatesPage(
-          {
-            latestVersion: game.version,
-            installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
-            lastPlayedVersion: game.lastPlayedVersion,
-            playedVersions: game.playedVersions
-          },
-          rosterIds.has(game.threadId)
-        )
+      subscriptions.filter(
+        (game) =>
+          !ignoredThreadIds.has(game.threadId) &&
+          !game.archived &&
+          shouldListOnUpdatesPage(
+            {
+              latestVersion: game.version,
+              installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
+              lastPlayedVersion: game.lastPlayedVersion,
+              playedVersions: game.playedVersions
+            },
+            rosterIds.has(game.threadId)
+          )
       ).length,
-    [subscriptions, libraryByThread, rosterIds]
+    [subscriptions, libraryByThread, rosterIds, ignoredThreadIds]
   )
 
   const followedIds = useMemo(
@@ -469,6 +474,17 @@ export default function App(): JSX.Element {
     setSubscriptions(await window.api.subscriptions.setRarity(threadId, rarity))
   }, [])
 
+  const handleIgnoredChange = useCallback((threadId: number, ignored: boolean): void => {
+    setIgnoredThreadIds((current) => {
+      const has = current.has(threadId)
+      if (ignored === has) return current
+      const next = new Set(current)
+      if (ignored) next.add(threadId)
+      else next.delete(threadId)
+      return next
+    })
+  }, [])
+
   const openDetailsWindow = useCallback((game: GameSummary, tab?: StorageOpenTab) => {
     setDetailsWindows((windows) => {
       const index = windows.findIndex((item) => item.threadId === game.threadId)
@@ -586,6 +602,7 @@ export default function App(): JSX.Element {
           onToggleRoster={handleToggleRoster}
           onOpen={(game) => openDetailsWindow(toSummary(game, rarityById.get(game.threadId)))}
           onSessionExpired={handleSessionExpired}
+          hiddenThreadIds={ignoredThreadIds}
         />
       ) : view === 'downloads' ? (
         <DownloadsPage
@@ -634,6 +651,7 @@ export default function App(): JSX.Element {
           onOpen={(game) => openDetailsWindow(toSummary(game))}
           onImported={loadSubscriptions}
           onSessionExpired={handleSessionExpired}
+          hiddenThreadIds={ignoredThreadIds}
         />
       ) : view === 'updates' ? (
         <UpdatesPage
@@ -646,6 +664,7 @@ export default function App(): JSX.Element {
           onOpen={(game) => openDetailsWindow(toSummary(game))}
           onImported={loadSubscriptions}
           onSessionExpired={handleSessionExpired}
+          hiddenThreadIds={ignoredThreadIds}
         />
       ) : view === 'roster' ? (
         <RosterPage
@@ -689,7 +708,14 @@ export default function App(): JSX.Element {
           }}
         />
       ) : (
-        <SettingsPage settings={settings} onSaveSettings={handleSaveSettings} />
+        <SettingsPage
+          settings={settings}
+          onSaveSettings={handleSaveSettings}
+          onOpenThread={(threadId, title) => {
+            openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
+          }}
+          onIgnoredChange={handleIgnoredChange}
+        />
       )}
       </main>
       {details ? (
@@ -718,7 +744,8 @@ export default function App(): JSX.Element {
             ),
             checkedAt:
               Math.max(detailsFollowed?.checkedAt || 0, details.checkedAt || 0) || undefined,
-            screens: detailsFollowed?.screens?.length ? detailsFollowed.screens : details.screens
+            screens: detailsFollowed?.screens?.length ? detailsFollowed.screens : details.screens,
+            archived: detailsFollowed?.archived
           }}
           subscribed={followedIds.has(details.threadId)}
           rarity={rarityById.get(details.threadId) ?? details.rarity}
@@ -733,6 +760,7 @@ export default function App(): JSX.Element {
           onApplyCatalogGame={applyCatalogToDetails}
           onToggleFollow={handleToggleFollow}
           onSetRarity={handleSetRarity}
+          onIgnoredChange={handleIgnoredChange}
           onSessionExpired={handleSessionExpired}
           p2pEnabled={p2pEnabled}
           p2pSharedHashes={p2pSharedHashes}

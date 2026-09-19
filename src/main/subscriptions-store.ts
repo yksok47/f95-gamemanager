@@ -57,6 +57,7 @@ function emptyDetails(): Pick<
   | 'playedVersions'
   | 'checkedAt'
   | 'screens'
+  | 'archived'
 > {
   return {
     creator: '',
@@ -76,7 +77,8 @@ function emptyDetails(): Pick<
     playtimeMs: 0,
     playedVersions: [],
     checkedAt: 0,
-    screens: []
+    screens: [],
+    archived: false
   }
 }
 
@@ -108,7 +110,8 @@ export function subscriptionFromCatalog(
     playtimeMs: 0,
     playedVersions: ensureKnownVersion([], game.version, game.timestamp),
     checkedAt: 0,
-    screens: uniqueScreenUrls(game.screens)
+    screens: uniqueScreenUrls(game.screens),
+    archived: false
   }
 }
 
@@ -179,7 +182,8 @@ async function readStore(): Promise<Subscription[]> {
       views: saneViewCount(game.views),
       screens: uniqueScreenUrls(game.screens),
       timestamp: catalogTimestamp(game.timestamp),
-      updatedAt: isRelativeDate(game.updatedAt) ? '' : game.updatedAt || ''
+      updatedAt: isRelativeDate(game.updatedAt) ? '' : game.updatedAt || '',
+      archived: Boolean(game.archived)
     }))
     const healed = loaded.some((game, index) => {
       const prev = stored[index]
@@ -290,7 +294,8 @@ export async function upsertSubscription(entry: Subscription): Promise<Subscript
       views: pickViewCount(entry.views, games[index].views),
       screens: uniqueScreenUrls(entry.screens).length
         ? uniqueScreenUrls(entry.screens)
-        : games[index].screens ?? []
+        : games[index].screens ?? [],
+      archived: games[index].archived
     }
   } else {
     games.push({
@@ -414,6 +419,20 @@ export async function refreshSubscription(threadId: number): Promise<Subscriptio
       ? uniqueScreenUrls(details.screens)
       : current.screens ?? []
   }
+  await writeStore(games)
+  return listSubscriptions()
+}
+
+export async function setSubscriptionArchived(
+  threadId: number,
+  archived: boolean
+): Promise<Subscription[]> {
+  const games = await readStore()
+  const game = games.find((item) => item.threadId === threadId)
+  if (!game) {
+    throw new Error('That game is not in the followed list.')
+  }
+  game.archived = Boolean(archived)
   await writeStore(games)
   return listSubscriptions()
 }

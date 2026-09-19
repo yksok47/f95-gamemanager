@@ -2,22 +2,27 @@ import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { AppSettings, CatalogTag, FavoriteTag, HatedTag } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import HatedTagsEditor from '../components/HatedTagsEditor'
+import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
 import AppUpdatePanel from '../components/AppUpdatePanel'
 import { notifyCaught } from '../components/ErrorNotifications'
 import Switch from '../components/Switch'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated'
+type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated' | 'ignored'
 
 type SettingsPageProps = {
   settings: AppSettings
   onSaveSettings: (next: Partial<AppSettings>) => Promise<void>
+  onOpenThread: (threadId: number, title: string) => void
+  onIgnoredChange?: (threadId: number, ignored: boolean) => void
 }
 
 export default function SettingsPage({
   settings,
-  onSaveSettings
+  onSaveSettings,
+  onOpenThread,
+  onIgnoredChange
 }: SettingsPageProps): JSX.Element {
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
@@ -97,7 +102,8 @@ export default function SettingsPage({
     { id: 'general', label: 'General' },
     { id: 'p2p', label: 'P2P' },
     { id: 'tags', label: 'Favorite tags' },
-    { id: 'hated', label: 'Hated tags' }
+    { id: 'hated', label: 'Hated tags' },
+    { id: 'ignored', label: 'Ignored' }
   ]
 
   return (
@@ -258,6 +264,10 @@ export default function SettingsPage({
             blockedIds={favoriteIds}
             onChange={saveHated}
           />
+        ) : null}
+
+        {tab === 'ignored' ? (
+          <IgnoredThreadsPanel onOpenThread={onOpenThread} onIgnoredChange={onIgnoredChange} />
         ) : null}
       </section>
     </div>

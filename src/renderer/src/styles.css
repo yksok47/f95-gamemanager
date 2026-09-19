@@ -1688,6 +1688,11 @@ button {
     0 12px 28px rgba(240, 180, 41, 0.32);
 }
 
+.game-card-archived {
+  opacity: 0.62;
+  filter: grayscale(0.28);
+}
+
 .rarity-field {
   display: flex;
   align-items: center;
@@ -2659,6 +2664,55 @@ button {
   max-width: 62ch;
 }
 
+.ignored-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 0 0 16px;
+}
+
+.ignored-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.ignored-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.ignored-row-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ignored-row-main:hover .ignored-row-title {
+  color: var(--accent);
+}
+
+.ignored-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 650;
+}
+
 .folder-field {
   display: grid;
   gap: 6px;
@@ -3500,6 +3554,11 @@ button.details-pill {
 
 .details-actions .rarity-slider {
   margin-left: auto;
+}
+
+.details-pill-archived {
+  border-color: color-mix(in srgb, #8b93a7 50%, var(--border));
+  color: #a8b0c2;
 }
 
 .details-tabs {

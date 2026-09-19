@@ -82,6 +82,7 @@ type GameCardProps = {
   onIgnoreUpdate?: () => void | Promise<void>;
   inRoster?: boolean;
   onToggleRoster?: () => void | Promise<void>;
+  archived?: boolean;
 };
 
 function cardEngine(
@@ -116,6 +117,7 @@ function GameCard({
   onIgnoreUpdate,
   inRoster = false,
   onToggleRoster,
+  archived = false,
 }: GameCardProps): JSX.Element {
   const [broken, setBroken] = useState(!game.coverUrl);
   const [loadNonce, setLoadNonce] = useState(0);
@@ -264,6 +266,7 @@ function GameCard({
     rarity === "regular" ? "game-card" : `game-card game-card-${rarity}`,
     onOpen ? "game-card-openable" : "",
     previewIndex != null ? "is-previewing" : "",
+    archived ? "game-card-archived" : "",
   ]
     .filter(Boolean)
     .join(" ");

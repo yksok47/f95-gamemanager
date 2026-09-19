@@ -31,7 +31,8 @@ import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importWatchedThreads } from './f95/import'
 import { lookupCatalogGame } from './f95/lookup'
-import { fetchThreadDetails, fetchThreadReviews } from './f95/thread'
+import { fetchThreadDetails, fetchThreadReviews, invalidateThreadDetailsCache } from './f95/thread'
+import { listIgnoredThreads, setThreadIgnored } from './f95/ignore'
 import {
   applyThreadMetadata,
   applyCatalogScreens as applyLibraryCatalogScreens,
@@ -85,6 +86,7 @@ import {
   listSubscriptions,
   refreshSubscription,
   removeSubscription,
+  setSubscriptionArchived,
   setSubscriptionRarity,
   setSubscriptionVersionStatus,
   subscriptionFromCatalog,
@@ -301,6 +303,14 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('subscriptions:setArchived', async (_event, threadId: number, archived: boolean) => {
+    try {
+      return await setSubscriptionArchived(threadId, Boolean(archived))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('subscriptions:setRarity', async (_event, threadId: number, rarity: GameRarity) => {
     try {
       return await setSubscriptionRarity(threadId, rarity)
@@ -351,6 +361,27 @@ export function registerIpc(): void {
   ipcMain.handle('threads:reviews', async (_event, threadId: number, page: number) => {
     try {
       return await fetchThreadReviews(Number(threadId), Number(page) || 1)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'threads:setIgnored',
+    async (_event, threadId: number, ignored: boolean, href?: string | null) => {
+      try {
+        const next = await setThreadIgnored(Number(threadId), Boolean(ignored), href)
+        invalidateThreadDetailsCache(Number(threadId))
+        return next
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('threads:listIgnored', async () => {
+    try {
+      return await listIgnoredThreads()
     } catch (error) {
       throw toIpcError(error)
     }

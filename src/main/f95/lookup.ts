@@ -189,6 +189,7 @@ async function scrapeThread(threadId: number): Promise<GameDetails | null> {
   };
 }
 
+/** Latest Updates hides ignored threads by default; include them so modal lookup still hits. */
 export async function lookupCatalogGame(
   threadId: number,
   title: string,
@@ -201,6 +202,7 @@ export async function lookupCatalogGame(
         creator: attempt.creator,
         rows: 90,
         page: 1,
+        ignored: 'show',
       });
       const match = page.games.find((game) => game.threadId === threadId);
       if (match) return match;

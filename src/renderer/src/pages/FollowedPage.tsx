@@ -15,7 +15,7 @@ import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
-import { HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
+import { ArchiveIcon, HateIcon, HideCompletedIcon, ImportIcon, RefreshIcon, StarIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
@@ -98,6 +98,7 @@ export type FollowedPageProps = {
   onOpen: (game: Subscription) => void
   onImported: () => Promise<void>
   onSessionExpired: () => Promise<void>
+  hiddenThreadIds?: ReadonlySet<number>
 }
 
 function syncProgress(sync: FollowSyncStatus): number {
@@ -120,7 +121,8 @@ export default function FollowedPage({
   onToggleRoster,
   onOpen,
   onImported,
-  onSessionExpired
+  onSessionExpired,
+  hiddenThreadIds
 }: FollowedPageProps): JSX.Element {
   const libraryByThread = useLibraryByThread()
   const sessions = usePlaySessions()
@@ -133,6 +135,7 @@ export default function FollowedPage({
   const [descending, setDescending] = useState(true)
   const updatesOnly = mode === 'updates'
   const [hideCompleted, setHideCompleted] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [favoritesOnly, setFavoritesOnly] = useState(false)
   const [hatedActive, setHatedActive] = useState(false)
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
@@ -184,10 +187,21 @@ export default function FollowedPage({
     return ids
   }, [sessions])
   const pendingUpdates = useMemo(
-    () => games.filter((game) => gameHasPendingUpdate(game, libraryByThread, rosterIds)),
-    [games, libraryByThread, rosterIds]
+    () =>
+      games.filter(
+        (game) =>
+          !game.archived &&
+          !hiddenThreadIds?.has(game.threadId) &&
+          gameHasPendingUpdate(game, libraryByThread, rosterIds)
+      ),
+    [games, libraryByThread, rosterIds, hiddenThreadIds]
   )
-  const sourceCount = updatesOnly ? pendingUpdates.length : games.length
+  const listedCount = updatesOnly
+    ? pendingUpdates.length
+    : showArchived
+      ? games.length
+      : games.filter((game) => !game.archived).length
+  const sourceCount = listedCount
   const visible = useMemo(
     () =>
       games
@@ -198,6 +212,8 @@ export default function FollowedPage({
           }
           if (favoritesOnly && !gameHasFavoriteTag(game.tags, favoriteTags)) return false
           if (hatedActive && gameHasFavoriteTag(game.tags, hatedTags)) return false
+          if (hiddenThreadIds?.has(game.threadId) && updatesOnly) return false
+          if (game.archived && (updatesOnly || !showArchived)) return false
           if (!updatesOnly) return true
           return gameHasPendingUpdate(game, libraryByThread, rosterIds)
         })
@@ -209,13 +225,15 @@ export default function FollowedPage({
       descending,
       updatesOnly,
       hideCompleted,
+      showArchived,
       favoritesOnly,
       favoriteTags,
       hatedActive,
       hatedTags,
       libraryByThread,
       rosterIds,
-      prefixCatalog
+      prefixCatalog,
+      hiddenThreadIds
     ]
   )
 
@@ -343,6 +361,18 @@ export default function FollowedPage({
         >
           <HideCompletedIcon />
         </button>
+        {updatesOnly ? null : (
+          <button
+            className={showArchived ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+            type="button"
+            aria-pressed={showArchived}
+            title={showArchived ? 'Hide archived games' : 'Show archived games'}
+            aria-label={showArchived ? 'Hide archived games' : 'Show archived games'}
+            onClick={() => setShowArchived((value) => !value)}
+          >
+            <ArchiveIcon />
+          </button>
+        )}
         <button
           className={favoritesOnly ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
@@ -448,11 +478,11 @@ export default function FollowedPage({
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || hideCompleted || favoritesOnly || hatedActive
+          {needle || hideCompleted || favoritesOnly || hatedActive || (!updatesOnly && showArchived)
             ? `${visible.length}/${sourceCount}`
             : updatesOnly
               ? `${visible.length} update${visible.length === 1 ? '' : 's'}`
-              : `${games.length} followed`}
+              : `${listedCount} followed`}
         </span>
         {sync?.running ? (
           <span className="muted pager-label">
@@ -474,7 +504,15 @@ export default function FollowedPage({
         <div className="empty-state">
           {updatesOnly && !needle && !favoritesOnly && !hatedActive && !hideCompleted
             ? 'No followed games have a newer version than the install or last play.'
-            : favoritesOnly && !needle
+            : !updatesOnly &&
+                !showArchived &&
+                !needle &&
+                !favoritesOnly &&
+                !hatedActive &&
+                !hideCompleted &&
+                games.some((game) => game.archived)
+              ? 'Archived followed games are hidden.'
+              : favoritesOnly && !needle
               ? 'No followed games match your favorite tags.'
               : hatedActive && !needle
                 ? 'No followed games remain after hiding hated tags.'
@@ -506,6 +544,7 @@ export default function FollowedPage({
                 prefixCatalog={prefixCatalog}
                 coverEager={index < EAGER_CARDS}
                 inRoster={rosterIds.has(game.threadId)}
+                archived={Boolean(game.archived)}
                 onToggleRoster={() => onToggleRoster(game)}
                 onMarkPlayed={
                   updatesOnly && usableVersion(game.version)

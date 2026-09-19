@@ -40,6 +40,7 @@ type CatalogViewProps = {
   onToggleRoster: (game: CatalogGame) => Promise<void>
   onOpen: (game: CatalogGame) => void
   onSessionExpired: () => Promise<void>
+  hiddenThreadIds?: ReadonlySet<number>
 }
 
 const SORTS: Array<{ value: CatalogSort; label: string }> = [
@@ -72,7 +73,8 @@ export default function CatalogPage({
   onToggleFollow,
   onToggleRoster,
   onOpen,
-  onSessionExpired
+  onSessionExpired,
+  hiddenThreadIds
 }: CatalogViewProps): JSX.Element {
   const libraryByThread = useLibraryByThread()
   const sessions = usePlaySessions()
@@ -322,6 +324,16 @@ export default function CatalogPage({
 
   const incomingGamesRef = useRef<CatalogGame[] | null>(null)
   incomingGamesRef.current = incomingGames
+
+  const visibleDisplayGames = useMemo(() => {
+    if (!displayGames || !hiddenThreadIds?.size) return displayGames
+    return displayGames.filter((game) => !hiddenThreadIds.has(game.threadId))
+  }, [displayGames, hiddenThreadIds])
+
+  const visibleIncomingGames = useMemo(() => {
+    if (!incomingGames || !hiddenThreadIds?.size) return incomingGames
+    return incomingGames.filter((game) => !hiddenThreadIds.has(game.threadId))
+  }, [incomingGames, hiddenThreadIds])
 
   const finishTurn = useCallback((): void => {
     const settled = turnRef.current
@@ -676,9 +688,9 @@ export default function CatalogPage({
 
       {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
 
-      {displayGames && displayGames.length === 0 && !turn ? (
+      {visibleDisplayGames && visibleDisplayGames.length === 0 && !turn ? (
         <div className="empty-state">No games match these filters.</div>
-      ) : displayGames || incomingGames ? (
+      ) : visibleDisplayGames || visibleIncomingGames ? (
         <CatalogPageTurn
           totalPages={data?.totalPages ?? 1}
           disabled={busy && !turn}
@@ -686,11 +698,11 @@ export default function CatalogPage({
           currentKey={displayPage}
           incomingKey={turn?.toPage ?? page}
           incoming={
-            incomingGames ? (
-              incomingGames.length === 0 ? (
+            visibleIncomingGames ? (
+              visibleIncomingGames.length === 0 ? (
                 <div className="empty-state">No games match these filters.</div>
               ) : (
-                renderGameGrid(incomingGames, turn?.toPage ?? page, true)
+                renderGameGrid(visibleIncomingGames, turn?.toPage ?? page, true)
               )
             ) : null
           }
@@ -698,10 +710,10 @@ export default function CatalogPage({
           onNext={goNext}
           onTurnAnimationEnd={finishTurn}
         >
-          {!displayGames || displayGames.length === 0 ? (
+          {!visibleDisplayGames || visibleDisplayGames.length === 0 ? (
             <div className="empty-state">No games match these filters.</div>
           ) : (
-            renderGameGrid(displayGames, displayPage)
+            renderGameGrid(visibleDisplayGames, displayPage)
           )}
         </CatalogPageTurn>
       ) : null}

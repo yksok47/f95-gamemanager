@@ -24,6 +24,7 @@ import type {
   Subscription,
   ThreadDetails,
   ThreadReviewsPage,
+  IgnoredThread,
   FollowSyncStatus,
   UnRenAction,
   VersionPlayStatus
@@ -74,6 +75,8 @@ const api = {
     importBookmarks: (): Promise<ImportResult> => ipcRenderer.invoke('subscriptions:importBookmarks'),
     refresh: (threadId: number): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:refresh', threadId),
+    setArchived: (threadId: number, archived: boolean): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:setArchived', threadId, archived),
     setRarity: (threadId: number, rarity: GameRarity): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:setRarity', threadId, rarity),
     setVersionStatus: (
@@ -104,7 +107,10 @@ const api = {
   threads: {
     details: (threadId: number): Promise<ThreadDetails> => ipcRenderer.invoke('threads:details', threadId),
     reviews: (threadId: number, page = 1): Promise<ThreadReviewsPage> =>
-      ipcRenderer.invoke('threads:reviews', threadId, page)
+      ipcRenderer.invoke('threads:reviews', threadId, page),
+    setIgnored: (threadId: number, ignored: boolean, href?: string | null): Promise<boolean> =>
+      ipcRenderer.invoke('threads:setIgnored', threadId, ignored, href),
+    listIgnored: (): Promise<IgnoredThread[]> => ipcRenderer.invoke('threads:listIgnored')
   },
   roster: {
     list: (): Promise<RosterGame[]> => ipcRenderer.invoke('roster:list'),

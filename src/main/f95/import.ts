@@ -107,7 +107,8 @@ function toSubscriptions(
       lastPlayedAt: 0,
       playtimeMs: 0,
       playedVersions: [],
-      checkedAt: 0
+      checkedAt: 0,
+      archived: false
     }
   })
 }

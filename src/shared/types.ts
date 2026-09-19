@@ -21,6 +21,8 @@ export type CatalogQuery = {
   excludeTags?: number[]
   tagType?: MatchMode
   creator?: string
+  /** Browse catalog hides ignored threads; lookup must show them to load metadata. */
+  ignored?: 'hide' | 'show'
 }
 
 export type CatalogLookupQuery = {
@@ -503,6 +505,8 @@ export type Subscription = {
   playedVersions: VersionPlayStat[]
   checkedAt: number
   screens: string[]
+  /** Hidden from the followed list unless the archive switch is on. */
+  archived: boolean
 }
 
 /** Games the user currently intends to play (independent of follow). */
@@ -554,6 +558,7 @@ export type GameSummary = {
   playtimeMs?: number
   playedVersions?: VersionPlayStat[]
   checkedAt?: number
+  archived?: boolean
 }
 
 export type FollowSyncStatus = {
@@ -865,6 +870,15 @@ export type NoteSection = {
   html: string
 }
 
+/** A thread hidden via F95zone's Ignore Content list. */
+export type IgnoredThread = {
+  threadId: number
+  title: string
+  threadUrl: string
+  /** Confirmation-page link from the ignored list, when present. */
+  unignoreHref: string | null
+}
+
 export type ThreadDetails = {
   threadId: number
   threadUrl: string
@@ -889,4 +903,6 @@ export type ThreadDetails = {
   engine: string
   likes: number
   views: number
+  /** True when this account has ignored the thread on F95zone. */
+  ignored: boolean
 }

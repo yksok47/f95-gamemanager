@@ -1,6 +1,7 @@
 ﻿import { load, type CheerioAPI } from 'cheerio'
 import type { ThreadDetails, ThreadField, ThreadReviewsPage } from '@shared/types'
 import { F95Error, f95Fetch, f95Url } from './http'
+import { parseThreadIgnoreActionFromDocument } from './ignore-parse'
 import { engineFromTitle, normalizeEngine } from '@shared/engines'
 import { parseGameTitle } from './parse'
 import { isWeakCover } from './lookup'
@@ -13,7 +14,7 @@ import {
 import { parseThreadPageDocument } from './parser/threadPage/threadPageParser'
 
 const HOST = 'https://f95zone.to'
-const CACHE_VERSION = 27
+const CACHE_VERSION = 28
 const DETAILS_TTL_MS = 10 * 60 * 1000
 
 const detailsCache = new Map<string, { at: number; value: ThreadDetails }>()
@@ -135,8 +136,17 @@ async function loadThreadDetails(threadId: number): Promise<ThreadDetails> {
         engineFromTitle(page.ogTitle)
     ),
     likes: page.likes,
-    views: page.views
+    views: page.views,
+    ignored: parseThreadIgnoreActionFromDocument($, threadId)?.ignored ?? false
   }
+}
+
+export function invalidateThreadDetailsCache(threadId?: number): void {
+  if (threadId == null) {
+    detailsCache.clear()
+    return
+  }
+  detailsCache.delete(`${CACHE_VERSION}:${threadId}`)
 }
 
 /** Fetch the thread HTML once; only follow to page 1 when the OP is missing. */

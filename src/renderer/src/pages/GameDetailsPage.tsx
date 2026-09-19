@@ -118,6 +118,7 @@ type GameDetailsPageProps = {
   onApplyCatalogGame: (game: CatalogGame) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
+  onIgnoredChange?: (threadId: number, ignored: boolean) => void
   onSessionExpired: () => Promise<void>
   /** When false/undefined, P2P section is hidden */
   p2pEnabled?: boolean
@@ -395,6 +396,7 @@ function GameDetailsPage({
   onApplyCatalogGame,
   onToggleFollow,
   onSetRarity,
+  onIgnoredChange,
   onSessionExpired,
   p2pEnabled = false,
   p2pSharedHashes,
@@ -458,6 +460,8 @@ function GameDetailsPage({
   const [transfers, setTransfers] = useState<DownloadRecord[]>([])
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [threadIdCopied, setThreadIdCopied] = useState(false)
+  const [ignoreBusy, setIgnoreBusy] = useState(false)
+  const [archiveBusy, setArchiveBusy] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -486,6 +490,8 @@ function GameDetailsPage({
     setReviewsError(null)
     setReviewsReload(0)
     setThreadIdCopied(false)
+    setIgnoreBusy(false)
+    setArchiveBusy(false)
     applyModalOffset(0, 0)
 
     async function load(): Promise<void> {
@@ -1440,6 +1446,34 @@ function GameDetailsPage({
     }
   }
 
+  async function toggleIgnored(): Promise<void> {
+    if (!details || ignoreBusy) return
+    const next = !details.ignored
+    setIgnoreBusy(true)
+    try {
+      const ignored = await window.api.threads.setIgnored(summary.threadId, next)
+      setDetails((current) => (current ? { ...current, ignored } : current))
+      onIgnoredChange?.(summary.threadId, ignored)
+    } catch (err) {
+      notifyCaught(err, next ? 'Could not ignore this game.' : 'Could not unignore this game.')
+    } finally {
+      setIgnoreBusy(false)
+    }
+  }
+
+  async function toggleArchived(): Promise<void> {
+    if (!subscribed || archiveBusy) return
+    const next = !summary.archived
+    setArchiveBusy(true)
+    try {
+      await window.api.subscriptions.setArchived(summary.threadId, next)
+    } catch (err) {
+      notifyCaught(err, next ? 'Could not archive this game.' : 'Could not unarchive this game.')
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
   function versionStatusMenuItems(item: VersionPlayStat): MenuItem[] {
     if (!subscribed || !item.version) return []
     const current = effectiveVersionStatus(item)
@@ -1756,6 +1790,12 @@ function GameDetailsPage({
                     Abandoned
                   </span>
                 ) : null}
+                {details?.ignored ? (
+                  <span className="details-pill details-pill-ignored">Ignored</span>
+                ) : null}
+                {subscribed && summary.archived ? (
+                  <span className="details-pill details-pill-archived">Archived</span>
+                ) : null}
               </div>
               <div className="details-sub">
                 <div className="details-sub-row">
@@ -1876,6 +1916,39 @@ function GameDetailsPage({
                     Download
                   </button>
                 ) : null}
+                <MoreMenu
+                  disabled={ignoreBusy || archiveBusy}
+                  items={[
+                    {
+                      id: 'ignore',
+                      label: ignoreBusy
+                        ? details?.ignored
+                          ? 'Unignoring…'
+                          : 'Ignoring…'
+                        : details?.ignored
+                          ? 'Unignore'
+                          : 'Ignore',
+                      disabled: !details || ignoreBusy,
+                      onClick: () => void toggleIgnored()
+                    },
+                    ...(subscribed
+                      ? [
+                          {
+                            id: 'archive',
+                            label: archiveBusy
+                              ? summary.archived
+                                ? 'Unarchiving…'
+                                : 'Archiving…'
+                              : summary.archived
+                                ? 'Unarchive'
+                                : 'Archive',
+                            disabled: archiveBusy,
+                            onClick: () => void toggleArchived()
+                          }
+                        ]
+                      : [])
+                  ]}
+                />
                 {subscribed && onSetRarity ? (
                   <RaritySlider
                     value={rarity}

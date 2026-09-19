@@ -89,6 +89,17 @@ export function HideCompletedIcon(): JSX.Element {
   )
 }
 
+export function ArchiveIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M2.2 2.35h11.6v2.7H2.2zm.9 3.5h9.8v7.8H3.1zm3.2 2.15v1.4h3.4v-1.4z"
+      />
+    </svg>
+  )
+}
+
 export function ImportIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

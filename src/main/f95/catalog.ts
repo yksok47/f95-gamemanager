@@ -335,7 +335,7 @@ export async function fetchCatalog(query: CatalogQuery = {}): Promise<CatalogPag
   params.set('page', String(page))
   params.set('sort', sort)
   params.set('rows', String(rows))
-  params.set('ignored', 'hide')
+  params.set('ignored', query.ignored === 'show' ? 'show' : 'hide')
   params.set('_', String(ts))
   if (search) params.set('search', search)
   if (creator) params.set('creator', creator)
