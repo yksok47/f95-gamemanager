@@ -75,6 +75,15 @@ describe('matchSaveFoldersToGames', () => {
     ])
     expect(matched).toEqual([])
   })
+
+  test('lets one game keep multiple matching folders', () => {
+    const matched = matchSaveFoldersToGames(
+      ['CAG-11111111', 'CAG-22222222', 'Other-1'],
+      [{ threadId: 1, title: 'Cool Adventure Game' }]
+    )
+    expect(matched.map((item) => item.folderName).sort()).toEqual(['CAG-11111111', 'CAG-22222222'])
+    expect(matched.every((item) => item.game.threadId === 1)).toBe(true)
+  })
 })
 
 describe('folderSearchQueries', () => {

@@ -314,7 +314,10 @@ function appendArray(params: URLSearchParams, name: string, values?: number[]): 
   }
 }
 
-export async function fetchCatalog(query: CatalogQuery = {}): Promise<CatalogPage> {
+export async function fetchCatalog(
+  query: CatalogQuery = {},
+  options?: { skipFilterFetch?: boolean; skipSessionOptions?: boolean }
+): Promise<CatalogPage> {
   const page = query.page && query.page > 0 ? query.page : 1
   const requested = query.rows && query.rows > 0 ? query.rows : CATALOG_ROWS_MAX
   const rows = Math.min(requested, CATALOG_ROWS_MAX)
@@ -323,11 +326,11 @@ export async function fetchCatalog(query: CatalogQuery = {}): Promise<CatalogPag
   const ts = Date.now()
   const search = sanitizeCatalogQuery(query.search ?? '')
   const creator = sanitizeCatalogQuery(query.creator ?? '')
-  const filtersPromise = fetchCatalogFilters().catch(
-    (): CatalogFilters => ({ prefixes: FALLBACK_PREFIXES, tags: [] })
-  )
+  const filtersPromise = options?.skipFilterFetch
+    ? Promise.resolve(cachedFilters || { prefixes: FALLBACK_PREFIXES, tags: [] })
+    : fetchCatalogFilters().catch((): CatalogFilters => ({ prefixes: FALLBACK_PREFIXES, tags: [] }))
 
-  await ensureCatalogSessionOptions()
+  if (!options?.skipSessionOptions) await ensureCatalogSessionOptions()
 
   const params = new URLSearchParams()
   params.set('cmd', 'list')

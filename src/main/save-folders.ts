@@ -1,7 +1,13 @@
 import { basename, isAbsolute, join, resolve, sep } from 'path'
 import { engineKind } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
-import type { CatalogGame, GameLibraryFile, LibraryStorageItem, Subscription } from '@shared/types'
+import type {
+  CatalogGame,
+  GameLibraryFile,
+  LibraryStorageItem,
+  SaveFolderPeekShot,
+  Subscription
+} from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
 import { fetchCatalog } from './f95/catalog'
 import { sanitizeCatalogQuery } from './f95/sanitize-query'
@@ -17,6 +23,7 @@ import { gameDirFromRoot } from './renpy/scan'
 import {
   clearRenpySaveFolder,
   clearSaveFolderContents,
+  listRenpySaveFiles,
   listRenpySaveFolders,
   openSaveFolderPath,
   renpySavesRoot,
@@ -30,8 +37,7 @@ import {
   rpgMakerSavesRoot
 } from './rpgmaker/saves'
 import {
-  getFailedSaveFolder,
-  getIdentifiedSaveFolder,
+  listFailedSaveFolders,
   listIdentifiedSaveFolders,
   markSaveFolderIdentifyFailed,
   pruneMissingSaveFolders,
@@ -42,8 +48,10 @@ import {
 import { listSubscriptions } from './subscriptions-store'
 import { getLibraryDirSync } from './settings-store'
 import { pathExists } from './win-path'
+import type { SaveFolderIdentityPatch } from './storage-identity'
 
 const IDENTIFY_MIN_SCORE = 40
+const IDENTIFY_CATALOG_QUERIES = 3
 
 type KnownGame = {
   threadId: number
@@ -79,6 +87,37 @@ function isInside(target: string, root: string): boolean {
   const resolved = resolve(target)
   const base = resolve(root)
   return resolved === base || resolved.startsWith(base + sep)
+}
+
+function peekShotLabel(save: {
+  kind: string
+  page: string
+  slot: number | null
+  label: string
+}): string {
+  if (save.kind === 'auto') return save.slot != null ? `Auto ${save.slot}` : 'Auto'
+  if (save.kind === 'quick') return save.slot != null ? `Quick ${save.slot}` : 'Quick'
+  if (save.kind === 'slot' && /^\d+$/.test(save.page)) {
+    return save.slot != null ? `Page ${save.page} · Slot ${save.slot}` : `Page ${save.page}`
+  }
+  return save.label
+}
+
+export async function listSaveFolderPeek(savePath: string): Promise<SaveFolderPeekShot[]> {
+  const folder = assertManagedSavePath(savePath)
+  if (isInside(folder, rpgMakerSavesRoot())) return []
+  const saves = await listRenpySaveFiles(folder)
+  return saves
+    .filter((save): save is typeof save & { thumbnailUrl: string } =>
+      Boolean(save.thumbnailUrl) && save.kind !== 'persistent'
+    )
+    .map((save) => ({
+      label: peekShotLabel(save),
+      page: save.page,
+      saveName: save.saveName,
+      thumbnailUrl: save.thumbnailUrl,
+      modifiedAt: save.modifiedAt
+    }))
 }
 
 export function assertManagedSavePath(savePath: string): string {
@@ -231,6 +270,8 @@ async function rememberAndSyncSaveFolder(entry: IdentifiedSaveFolder): Promise<v
   await rememberIdentifiedSaveFolders([entry])
   const saveDirectory = renpySaveDirectoryForFolder(entry.savePath)
   if (!saveDirectory || !entry.threadId) return
+  const files = await listGameFiles(entry.threadId)
+  if (files.some((file) => file.renpySaveDirectory !== undefined)) return
   await setRenpySaveDirectoryForThread(entry.threadId, saveDirectory)
 }
 
@@ -257,6 +298,12 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   const diskFolders = (await listRenpySaveFolders()).filter((folder) => folder.bytes > 0)
   const foldersByKey = new Map(diskFolders.map((folder) => [saveFolderKey(folder.path), folder]))
   const foldersByName = new Map(diskFolders.map((folder) => [folder.name, folder]))
+  const identifiedByPath = new Map(
+    (await listIdentifiedSaveFolders()).map((item) => [saveFolderKey(item.savePath), item])
+  )
+  const failedByPath = new Map(
+    (await listFailedSaveFolders()).map((item) => [saveFolderKey(item.savePath), item])
+  )
 
   for (const game of known.values()) {
     const dir = game.file?.renpySaveDirectory
@@ -280,9 +327,9 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
 
   for (const folder of diskFolders) {
     if (claimedFolders.has(saveFolderKey(folder.path))) continue
-    const stored = await getIdentifiedSaveFolder(folder.path)
+    const stored = identifiedByPath.get(saveFolderKey(folder.path))
     const storedGame = stored ? known.get(stored.threadId) : null
-    if (stored && stored.threadId && !claimedThreads.has(stored.threadId)) {
+    if (stored && stored.threadId) {
       claim(
         saveItem({
           path: folder.path,
@@ -313,7 +360,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   }
 
   const leftover = diskFolders.filter((folder) => !claimedFolders.has(saveFolderKey(folder.path)))
-  const matchable = [...known.values()].filter((game) => game.title && !claimedThreads.has(game.threadId))
+  const matchable = [...known.values()].filter((game) => game.title)
   const matches = matchSaveFoldersToGames(
     leftover.map((folder) => folder.name),
     matchable
@@ -336,7 +383,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
 
   for (const folder of diskFolders) {
     if (claimedFolders.has(saveFolderKey(folder.path))) continue
-    const failed = await getFailedSaveFolder(folder.path)
+    const failed = failedByPath.get(saveFolderKey(folder.path))
     claim(
       saveItem({
         path: folder.path,
@@ -418,7 +465,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
 
   for (const folder of rpgBackups) {
     if (claimedFolders.has(saveFolderKey(folder.path)) || claimedThreads.has(folder.threadId)) continue
-    const stored = await getIdentifiedSaveFolder(folder.path)
+    const stored = identifiedByPath.get(saveFolderKey(folder.path))
     const knownGame = known.get(folder.threadId) || (stored ? known.get(stored.threadId) : null)
     if (knownGame || stored) {
       const game =
@@ -448,7 +495,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
       )
       continue
     }
-    const failed = await getFailedSaveFolder(folder.path)
+    const failed = failedByPath.get(saveFolderKey(folder.path))
     claim(
       saveItem({
         path: folder.path,
@@ -467,12 +514,59 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   return items.sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title))
 }
 
+function uniqueCatalogHit(
+  ranked: Array<{ game: CatalogGame; score: number }>
+): CatalogGame | null {
+  if (!ranked.length) return null
+  if (ranked.length > 1 && ranked[0].score === ranked[1].score) return null
+  return ranked[0].game
+}
+
+function identityFromKnown(savePath: string, game: KnownGame): SaveFolderIdentityPatch {
+  return {
+    savePath,
+    identified: true,
+    identifyFailed: false,
+    threadId: game.threadId,
+    title: game.title,
+    coverUrl: game.coverUrl,
+    creator: game.creator,
+    engine: game.engine,
+    inLibrary: game.inLibrary,
+    inFollowed: game.inFollowed,
+    fileId: game.file?.id || null,
+    hasArchive: Boolean(game.file?.hasArchive),
+    isInstalled: Boolean(game.file?.isInstalled)
+  }
+}
+
+async function rememberIdentity(savePath: string, game: KnownGame): Promise<SaveFolderIdentityPatch> {
+  await rememberAndSyncSaveFolder({
+    title: game.title,
+    threadId: game.threadId,
+    coverUrl: game.coverUrl,
+    savePath,
+    folderName: basename(savePath),
+    identifiedAt: Date.now()
+  })
+  return identityFromKnown(savePath, game)
+}
+
+async function failIdentify(savePath: string, folderName: string): Promise<SaveFolderIdentityPatch> {
+  await markSaveFolderIdentifyFailed(savePath, folderName)
+  return { savePath, identified: false, identifyFailed: true }
+}
+
 async function identifyFromCatalog(folderName: string): Promise<CatalogGame | null> {
   const bestByThread = new Map<number, { game: CatalogGame; score: number }>()
-  for (const search of folderSearchQueries(folderName)) {
+  const queries = folderSearchQueries(folderName).slice(0, IDENTIFY_CATALOG_QUERIES)
+  for (const search of queries) {
     if (!sanitizeCatalogQuery(search)) continue
     try {
-      const page = await fetchCatalog({ search, rows: 90, page: 1 })
+      const page = await fetchCatalog(
+        { search, rows: 90, page: 1 },
+        { skipFilterFetch: true, skipSessionOptions: true }
+      )
       for (const game of page.games) {
         const score = scoreSaveFolder(folderName, game.title)
         if (score < IDENTIFY_MIN_SCORE) continue
@@ -482,19 +576,25 @@ async function identifyFromCatalog(folderName: string): Promise<CatalogGame | nu
     } catch {
       // Try the next query shape.
     }
+    const ranked = [...bestByThread.values()].sort(
+      (a, b) => b.score - a.score || a.game.threadId - b.game.threadId
+    )
+    const unique = uniqueCatalogHit(ranked)
+    if (unique) return unique
   }
-  const ranked = [...bestByThread.values()].sort(
-    (a, b) => b.score - a.score || a.game.threadId - b.game.threadId
-  )
-  if (!ranked.length) return null
-  if (ranked.length > 1 && ranked[0].score === ranked[1].score) return null
-  return ranked[0].game
+  return null
 }
 
 export async function assignSaveFolder(
   savePath: string,
-  game: { threadId: number; title: string; coverUrl?: string | null }
-): Promise<void> {
+  game: {
+    threadId: number
+    title: string
+    coverUrl?: string | null
+    creator?: string
+    engine?: string
+  }
+): Promise<SaveFolderIdentityPatch> {
   const folder = assertManagedSavePath(savePath)
   if (!pathExists(folder)) throw new Error('The save folder does not exist yet.')
   const threadId = Number(game.threadId)
@@ -502,17 +602,29 @@ export async function assignSaveFolder(
   if (!Number.isFinite(threadId) || threadId <= 0 || !title) {
     throw new Error('Pick a game to assign this save folder to.')
   }
+  const coverUrl = typeof game.coverUrl === 'string' && game.coverUrl ? game.coverUrl : null
+  const known = (await loadKnownGames(await listGameFiles())).get(threadId)
   await rememberAndSyncSaveFolder({
     title,
     threadId,
-    coverUrl: typeof game.coverUrl === 'string' && game.coverUrl ? game.coverUrl : null,
+    coverUrl: coverUrl || known?.coverUrl || null,
     savePath: folder,
     folderName: basename(folder),
     identifiedAt: Date.now()
   })
+  return identityFromKnown(folder, {
+    threadId,
+    title,
+    creator: known?.creator || (typeof game.creator === 'string' ? game.creator : ''),
+    coverUrl: coverUrl || known?.coverUrl || null,
+    engine: known?.engine || (typeof game.engine === 'string' ? game.engine : ''),
+    file: known?.file || null,
+    inLibrary: Boolean(known?.inLibrary),
+    inFollowed: Boolean(known?.inFollowed)
+  })
 }
 
-export async function identifySaveFolder(savePath: string): Promise<void> {
+export async function identifySaveFolder(savePath: string): Promise<SaveFolderIdentityPatch> {
   const folder = assertManagedSavePath(savePath)
   if (!pathExists(folder)) throw new Error('The save folder does not exist yet.')
   const folderName = basename(folder)
@@ -521,21 +633,22 @@ export async function identifySaveFolder(savePath: string): Promise<void> {
 
   if (isInside(folder, rpgMakerSavesRoot()) && /^\d+$/.test(folderName)) {
     const threadId = Number(folderName)
+    const local = known.get(threadId)
+    if (local) return rememberIdentity(folder, local)
     try {
       const details = await fetchThreadDetails(threadId)
-      const game = known.get(threadId)
-      await rememberAndSyncSaveFolder({
-        title: details.title || game?.title || `Thread ${threadId}`,
+      return rememberIdentity(folder, {
         threadId,
-        coverUrl: details.coverUrl || game?.coverUrl || null,
-        savePath: folder,
-        folderName,
-        identifiedAt: Date.now()
+        title: details.title || `Thread ${threadId}`,
+        creator: details.creator || '',
+        coverUrl: details.coverUrl || null,
+        engine: details.engine || 'RPG Maker',
+        file: null,
+        inLibrary: false,
+        inFollowed: false
       })
-      return
     } catch {
-      await markSaveFolderIdentifyFailed(folder, folderName)
-      return
+      return failIdentify(folder, folderName)
     }
   }
 
@@ -543,37 +656,40 @@ export async function identifySaveFolder(savePath: string): Promise<void> {
     [folderName],
     [...known.values()].filter((game) => game.title)
   )[0]
-  if (live) {
-    await rememberAndSyncSaveFolder({
-      title: live.game.title,
-      threadId: live.game.threadId,
-      coverUrl: live.game.coverUrl,
-      savePath: folder,
-      folderName,
-      identifiedAt: Date.now()
-    })
-    return
-  }
+  if (live) return rememberIdentity(folder, live.game)
 
   const catalogHit = await identifyFromCatalog(folderName)
   if (catalogHit) {
-    await rememberAndSyncSaveFolder({
-      title: catalogHit.title,
+    const local = known.get(catalogHit.threadId)
+    return rememberIdentity(folder, {
       threadId: catalogHit.threadId,
-      coverUrl: catalogHit.coverUrl,
-      savePath: folder,
-      folderName,
-      identifiedAt: Date.now()
+      title: catalogHit.title,
+      creator: catalogHit.creator || local?.creator || '',
+      coverUrl: catalogHit.coverUrl || local?.coverUrl || null,
+      engine: catalogHit.engine || local?.engine || '',
+      file: local?.file || null,
+      inLibrary: Boolean(local?.inLibrary),
+      inFollowed: Boolean(local?.inFollowed)
     })
-    return
   }
 
-  await markSaveFolderIdentifyFailed(folder, folderName)
+  return failIdentify(folder, folderName)
 }
 
 export async function openManagedSaveFolder(savePath: string): Promise<void> {
   const folder = assertManagedSavePath(savePath)
   await openSaveFolderPath(folder)
+}
+
+async function clearIdentifiedSaveFolders(threadId: number): Promise<boolean> {
+  if (!threadId) return false
+  let cleared = false
+  for (const rec of await listIdentifiedSaveFolders()) {
+    if (rec.threadId !== threadId || !rec.savePath || !pathExists(rec.savePath)) continue
+    await clearSaveFolderContents(assertManagedSavePath(rec.savePath))
+    cleared = true
+  }
+  return cleared
 }
 
 export async function clearGameSaves(threadId: number, savePath?: string): Promise<void> {
@@ -607,6 +723,9 @@ export async function clearGameSaves(threadId: number, savePath?: string): Promi
         lastError = error
       }
     }
+    if (!path && threadId) {
+      await clearIdentifiedSaveFolders(threadId)
+    }
     if (!attempted) throw new Error('Save cleanup is not available for this engine.')
     if (lastError) {
       throw lastError instanceof Error ? lastError : new Error('Could not delete those saves.')
@@ -629,11 +748,7 @@ export async function clearGameSaves(threadId: number, savePath?: string): Promi
   }
 
   if (threadId) {
-    const stored = (await listIdentifiedSaveFolders()).find((item) => item.threadId === threadId)
-    if (stored?.savePath && pathExists(stored.savePath)) {
-      await clearSaveFolderContents(assertManagedSavePath(stored.savePath))
-      return
-    }
+    if (await clearIdentifiedSaveFolders(threadId)) return
     const followed = (await listSubscriptions()).find((item: Subscription) => item.threadId === threadId)
     if (followed) {
       try {

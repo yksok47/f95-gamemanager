@@ -1,7 +1,8 @@
-import { useEffect, useId, useState, type JSX } from 'react'
+import { useEffect, useId, useState, type JSX, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import { notifyCaught } from './ErrorNotifications'
+import { SavePeekStrip } from './SavePeek'
 
 export type SaveFolderIdentifyTarget = {
   id: string
@@ -13,12 +14,20 @@ export type SaveFolderIdentifyPick = {
   threadId: number
   title: string
   coverUrl: string | null
+  creator?: string
+  engine?: string
+}
+
+export type SaveFolderIdentifyMatch = {
+  folderName: string
+  savePath: string
 }
 
 type SearchHit = SaveFolderIdentifyPick & {
   creator: string
   engine: string
   badge?: string
+  matchedSave?: SaveFolderIdentifyMatch | null
 }
 
 function folderSearchHint(folderName: string): string {
@@ -35,6 +44,15 @@ function folderSearchHint(folderName: string): string {
 
 function matchesNeedle(haystack: string, needle: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase())
+}
+
+function pathKey(value: string): string {
+  return value.replace(/[\\/]+$/, '').toLowerCase()
+}
+
+function folderLabel(value: string): string {
+  const trimmed = value.replace(/[\\/]+$/, '')
+  return trimmed.split(/[\\/]/).pop() || trimmed
 }
 
 function Cover({ url, title }: { url: string | null; title: string }): JSX.Element {
@@ -62,13 +80,17 @@ function Cover({ url, title }: { url: string | null; title: string }): JSX.Eleme
 export default function SaveFolderIdentifyDialog({
   target,
   busy,
+  matchedSavesByThread,
   onClose,
-  onPick
+  onPick,
+  onOpenGame
 }: {
   target: SaveFolderIdentifyTarget
   busy: boolean
+  matchedSavesByThread?: Map<number, SaveFolderIdentifyMatch[]>
   onClose: () => void
   onPick: (game: SaveFolderIdentifyPick) => void
+  onOpenGame: (game: SaveFolderIdentifyPick) => void
 }): JSX.Element {
   const titleId = useId()
   const hint = folderSearchHint(target.folderName)
@@ -77,6 +99,7 @@ export default function SaveFolderIdentifyDialog({
   const [games, setGames] = useState<SearchHit[]>([])
   const [loading, setLoading] = useState(Boolean(hint.trim().length >= 2))
   const [searchError, setSearchError] = useState(false)
+  const targetKey = pathKey(target.savePath)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(query.trim()), 350)
@@ -98,10 +121,25 @@ export default function SaveFolderIdentifyDialog({
     async function run(): Promise<void> {
       const seen = new Set<number>()
       const local: SearchHit[] = []
+      const matchedFromFiles = new Map<number, SaveFolderIdentifyMatch>()
+
+      const sameAsTarget = (item: SaveFolderIdentifyMatch): boolean =>
+        pathKey(item.savePath) === targetKey ||
+        folderLabel(item.savePath).toLowerCase() === target.folderName.toLowerCase()
+
+      const matchFor = (threadId: number): SaveFolderIdentifyMatch | null => {
+        const listed = matchedSavesByThread?.get(threadId) || []
+        const other = listed.find((item) => !sameAsTarget(item))
+        if (other) return other
+        const fromFile = matchedFromFiles.get(threadId)
+        if (fromFile && !sameAsTarget(fromFile)) return fromFile
+        return null
+      }
+
       const add = (game: SearchHit): void => {
         if (!game.threadId || seen.has(game.threadId)) return
         seen.add(game.threadId)
-        local.push(game)
+        local.push({ ...game, matchedSave: game.matchedSave ?? matchFor(game.threadId) })
       }
 
       const [files, followed] = await Promise.all([
@@ -109,6 +147,15 @@ export default function SaveFolderIdentifyDialog({
         window.api.subscriptions.list().catch(() => [])
       ])
       if (cancelled) return
+
+      for (const file of files) {
+        if (!file.renpySaveDirectory) continue
+        if (matchedFromFiles.has(file.threadId)) continue
+        matchedFromFiles.set(file.threadId, {
+          folderName: folderLabel(file.renpySaveDirectory),
+          savePath: file.renpySaveDirectory
+        })
+      }
 
       for (const file of files) {
         if (!matchesNeedle(`${file.title} ${file.creator || ''}`, needle)) continue
@@ -151,7 +198,8 @@ export default function SaveFolderIdentifyDialog({
             title: game.title,
             creator: game.creator,
             coverUrl: game.coverUrl,
-            engine: game.engine || engineFromPrefixIds(game.prefixes)
+            engine: game.engine || engineFromPrefixIds(game.prefixes),
+            matchedSave: matchFor(game.threadId)
           })
         }
         setGames([...local, ...catalog])
@@ -171,7 +219,7 @@ export default function SaveFolderIdentifyDialog({
     return () => {
       cancelled = true
     }
-  }, [search])
+  }, [matchedSavesByThread, search, target.folderName, targetKey])
 
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
@@ -185,6 +233,22 @@ export default function SaveFolderIdentifyDialog({
   }, [busy, onClose])
 
   const emptyQuery = search.trim().length < 2
+
+  function pick(game: SearchHit): SaveFolderIdentifyPick {
+    return {
+      threadId: game.threadId,
+      title: game.title,
+      coverUrl: game.coverUrl,
+      creator: game.creator,
+      engine: game.engine
+    }
+  }
+
+  function openGallery(event: MouseEvent, game: SearchHit): void {
+    event.preventDefault()
+    event.stopPropagation()
+    onOpenGame(pick(game))
+  }
 
   return createPortal(
     <div
@@ -206,9 +270,10 @@ export default function SaveFolderIdentifyDialog({
           </h2>
           <p className="muted">
             Could not identify <strong>{target.folderName}</strong> automatically. Search for the game
-            this folder belongs to.
+            this folder belongs to, or peek at screenshots stored in the saves.
           </p>
         </div>
+        <SavePeekStrip savePath={target.savePath} />
         <form
           className="storage-identify-search"
           onSubmit={(event) => {
@@ -218,6 +283,7 @@ export default function SaveFolderIdentifyDialog({
         >
           <input
             className="folder-path"
+            type="search"
             value={query}
             autoFocus
             placeholder="Search by title or keywords"
@@ -236,36 +302,51 @@ export default function SaveFolderIdentifyDialog({
             <ul className="storage-identify-list">
               {games.map((game) => (
                 <li key={game.threadId}>
-                  <button
-                    className="storage-identify-row"
-                    type="button"
-                    disabled={busy}
-                    onClick={() =>
-                      onPick({
-                        threadId: game.threadId,
-                        title: game.title,
-                        coverUrl: game.coverUrl
-                      })
-                    }
-                  >
-                    <Cover url={game.coverUrl} title={game.title} />
-                    <span className="storage-row-copy">
-                      <strong>{game.title}</strong>
-                      <span className="muted">
-                        {[game.creator, game.engine].filter(Boolean).join(' · ')}
-                      </span>
-                      {game.badge ? (
-                        <span className="storage-status">
-                          <span
-                            className={`storage-status-pill storage-status-${game.badge === 'Library' ? 'library' : 'followed'}`}
-                          >
-                            {game.badge}
-                          </span>
+                  <div className="storage-identify-row-wrap">
+                    <button
+                      className="storage-identify-row"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => onPick(pick(game))}
+                    >
+                      <Cover url={game.coverUrl} title={game.title} />
+                      <span className="storage-row-copy">
+                        <strong>{game.title}</strong>
+                        <span className="muted">
+                          {[game.creator, game.engine].filter(Boolean).join(' · ')}
                         </span>
-                      ) : null}
-                    </span>
-                    <span className="storage-identify-pick">{busy ? 'Saving…' : 'Select'}</span>
-                  </button>
+                        {(game.badge || game.matchedSave) ? (
+                        <span className="storage-status">
+                          {game.badge ? (
+                            <span
+                              className={`storage-status-pill storage-status-${game.badge === 'Library' ? 'library' : 'followed'}`}
+                            >
+                              {game.badge}
+                            </span>
+                          ) : null}
+                          {game.matchedSave ? (
+                            <span
+                              className="storage-status-pill storage-status-identified"
+                              title={game.matchedSave.savePath}
+                            >
+                              Has saves: {game.matchedSave.folderName}
+                            </span>
+                          ) : null}
+                        </span>
+                        ) : null}
+                      </span>
+                      <span className="storage-identify-pick">{busy ? 'Saving…' : 'Select'}</span>
+                    </button>
+                    <button
+                      className="ghost-btn storage-identify-gallery"
+                      type="button"
+                      disabled={busy}
+                      title="Open game gallery to compare screenshots"
+                      onClick={(event) => openGallery(event, game)}
+                    >
+                      Gallery
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -68,6 +68,7 @@ export default function IgnoredThreadsPanel({
         <input
           className="folder-path"
           type="search"
+          data-page-search=""
           value={query}
           placeholder="Filter ignored threads"
           onChange={(event) => setQuery(event.target.value)}

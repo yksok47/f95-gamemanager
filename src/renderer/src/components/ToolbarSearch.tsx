@@ -6,13 +6,15 @@ type ToolbarSearchProps = {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  pageSearch?: boolean
 }
 
 export default function ToolbarSearch({
   value,
   onChange,
   placeholder,
-  className = 'toolbar-search'
+  className = 'toolbar-search',
+  pageSearch = className === 'toolbar-search'
 }: ToolbarSearchProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null)
   const hasValue = Boolean(value)
@@ -22,6 +24,8 @@ export default function ToolbarSearch({
       <input
         ref={inputRef}
         className={className}
+        type="search"
+        data-page-search={pageSearch ? '' : undefined}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}

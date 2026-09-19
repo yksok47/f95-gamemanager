@@ -3,7 +3,7 @@ import type { RenpySaveFile } from '@shared/types'
 import { openZipReader } from '../zip-read'
 
 const META_CACHE_MAX = 400
-const SHOT_CACHE_MAX = 48
+const SHOT_CACHE_MAX = 120
 const JSON_LIMITS = { maxCompressed: 256 * 1024, maxUncompressed: 256 * 1024 }
 const SHOT_LIMITS = { maxCompressed: 4 * 1024 * 1024, maxUncompressed: 8 * 1024 * 1024 }
 const SHOT_NAMES = ['screenshot.png', 'screenshot.jpg', 'screenshot.jpeg']

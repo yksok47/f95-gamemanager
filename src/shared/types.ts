@@ -305,6 +305,14 @@ export type LibraryStorageItem = {
   identifyFailed?: boolean
 }
 
+export type SaveFolderPeekShot = {
+  label: string
+  page: string
+  saveName?: string
+  thumbnailUrl: string
+  modifiedAt: number
+}
+
 export type LibraryStorageGame = {
   threadId: number
   title: string

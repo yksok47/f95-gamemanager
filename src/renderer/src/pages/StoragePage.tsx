@@ -6,13 +6,14 @@ import SaveFolderIdentifyDialog, {
   type SaveFolderIdentifyPick,
   type SaveFolderIdentifyTarget
 } from '../components/SaveFolderIdentifyDialog'
+import { SavePeekButton, SavePeekCover } from '../components/SavePeek'
 import { RefreshIcon } from '../components/ToolbarIcons'
 import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught } from '../components/ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
 import { useStorageScan } from '../lib/storage-scan'
 
-export type StorageOpenTab = 'files' | 'saves'
+export type StorageOpenTab = 'files' | 'saves' | 'gallery'
 
 export type StorageOpenGame = {
   threadId: number
@@ -179,6 +180,19 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
   const archives = useMemo(() => itemsByKind('archive'), [itemsByKind])
   const installs = useMemo(() => itemsByKind('install'), [itemsByKind])
   const saves = useMemo(() => itemsByKind('saves'), [itemsByKind])
+  const matchedSavesByThread = useMemo(() => {
+    const map = new Map<number, Array<{ folderName: string; savePath: string }>>()
+    for (const item of stats.items) {
+      if (item.kind !== 'saves' || !item.identified || !item.threadId || !item.savePath) continue
+      const list = map.get(item.threadId) || []
+      list.push({
+        folderName: item.saveFolderName || item.title,
+        savePath: item.savePath
+      })
+      map.set(item.threadId, list)
+    }
+    return map
+  }, [stats.items])
   const topGames = useMemo(() => games.slice(0, 10), [games])
   const maxGameBytes = topGames[0]?.totalBytes || 0
   const redundantArchives = useMemo(
@@ -542,6 +556,8 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
           </div>
           <input
             className="folder-path storage-search"
+            type="search"
+            data-page-search=""
             value={query}
             placeholder="Filter by name"
             onChange={(event) => setQuery(event.target.value)}
@@ -665,11 +681,24 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         <SaveFolderIdentifyDialog
           target={identifyTarget}
           busy={Boolean(acting)}
+          matchedSavesByThread={matchedSavesByThread}
           onClose={() => {
             if (acting) return
             setIdentifyTarget(null)
           }}
           onPick={(game) => void assignIdentifiedGame(game)}
+          onOpenGame={(game) =>
+            openGame(
+              {
+                threadId: game.threadId,
+                title: game.title,
+                creator: game.creator || '',
+                coverUrl: game.coverUrl,
+                engine: game.engine || ''
+              },
+              'gallery'
+            )
+          }
         />
       ) : null}
     </div>
@@ -721,7 +750,12 @@ function StorageSavesList({
               type="button"
               onClick={() => (canOpenGame ? onOpenGame(item) : onOpenFolder(item))}
             >
-              <StorageCover url={item.coverUrl} title={item.title} />
+              <SavePeekCover
+                url={item.coverUrl}
+                title={item.title}
+                savePath={item.savePath}
+                identified={item.identified}
+              />
               <span className="storage-row-copy">
                 <strong>{item.title}</strong>
                 <span className="muted">
@@ -758,6 +792,9 @@ function StorageSavesList({
                 >
                   Folder
                 </button>
+              ) : null}
+              {item.savePath ? (
+                <SavePeekButton savePath={item.savePath} disabled={Boolean(busyId)} />
               ) : null}
               {!item.identified ? (
                 <button

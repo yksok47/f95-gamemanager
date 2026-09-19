@@ -142,7 +142,8 @@ export type SaveFolderGameMatch<T> = {
 }
 
 /**
- * Assign each save folder to at most one game, and each game to at most one folder.
+ * Assign each save folder to at most one game. A game may own several folders
+ * (Ren'Py titles often change `save_directory` across versions).
  * Tied top scores for a folder are left unmatched.
  */
 export function matchSaveFoldersToGames<T extends { title: string; threadId: number }>(
@@ -167,17 +168,12 @@ export function matchSaveFoldersToGames<T extends { title: string; threadId: num
   )
 
   const usedFolders = new Set<string>()
-  const usedGames = new Set<number>()
   const skippedFolders = new Set<string>()
   const result: Array<SaveFolderGameMatch<T>> = []
 
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i]
-    if (
-      usedFolders.has(pair.folderName) ||
-      usedGames.has(pair.game.threadId) ||
-      skippedFolders.has(pair.folderName)
-    ) {
+    if (usedFolders.has(pair.folderName) || skippedFolders.has(pair.folderName)) {
       continue
     }
     const next = pairs[i + 1]
@@ -191,7 +187,6 @@ export function matchSaveFoldersToGames<T extends { title: string; threadId: num
       continue
     }
     usedFolders.add(pair.folderName)
-    usedGames.add(pair.game.threadId)
     result.push(pair)
   }
 

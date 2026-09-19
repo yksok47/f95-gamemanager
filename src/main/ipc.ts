@@ -76,8 +76,18 @@ import {
   showRenpySave
 } from './renpy/saves'
 import { getAppPaths } from './paths'
-import { clearGameSaves, getLibraryStorageScan, requestLibraryStorageStats } from './storage-stats'
-import { assignSaveFolder, identifySaveFolder, openManagedSaveFolder } from './save-folders'
+import {
+  applySaveFolderIdentityToScan,
+  clearGameSaves,
+  getLibraryStorageScan,
+  requestLibraryStorageStats
+} from './storage-stats'
+import {
+  assignSaveFolder,
+  identifySaveFolder,
+  listSaveFolderPeek,
+  openManagedSaveFolder
+} from './save-folders'
 import { getSettings, saveSettings } from './settings-store'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
@@ -645,10 +655,18 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('library:peekSaveFolder', async (_event, savePath: string) => {
+    try {
+      return await listSaveFolderPeek(String(savePath || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('library:identifySaveFolder', async (_event, savePath: string) => {
     try {
-      await identifySaveFolder(String(savePath || ''))
-      return await requestLibraryStorageStats({ force: true })
+      const patch = await identifySaveFolder(String(savePath || ''))
+      return await applySaveFolderIdentityToScan(patch)
     } catch (error) {
       throw toIpcError(error)
     }
@@ -659,11 +677,17 @@ export function registerIpc(): void {
     async (
       _event,
       savePath: string,
-      game: { threadId: number; title: string; coverUrl?: string | null }
+      game: {
+        threadId: number
+        title: string
+        coverUrl?: string | null
+        creator?: string
+        engine?: string
+      }
     ) => {
       try {
-        await assignSaveFolder(String(savePath || ''), game || { threadId: 0, title: '' })
-        return await requestLibraryStorageStats({ force: true })
+        const patch = await assignSaveFolder(String(savePath || ''), game || { threadId: 0, title: '' })
+        return await applySaveFolderIdentityToScan(patch)
       } catch (error) {
         throw toIpcError(error)
       }

@@ -9,6 +9,7 @@ import type {
 import { fileBytes, folderBytes, mapLimit } from './disk-usage'
 import { listGameFiles } from './game-files-store'
 import { clearGameSaves, collectSaveItems } from './save-folders'
+import { patchLibraryStorageStatsForSaveFolder, type SaveFolderIdentityPatch } from './storage-identity'
 import { sendToRenderer } from './windows'
 
 const INSTALL_CONCURRENCY = 4
@@ -97,6 +98,21 @@ export function requestLibraryStorageStats(options?: { force?: boolean }): Promi
   if (!force && scan.stats) return Promise.resolve(scan.stats)
   if (!force && latest && pendingCount > 0) return latest
   return enqueueLibraryStorageScan()
+}
+
+export async function applySaveFolderIdentityToScan(
+  patch: SaveFolderIdentityPatch
+): Promise<LibraryStorageStats> {
+  if (scan.stats) {
+    const next = patchLibraryStorageStatsForSaveFolder(scan.stats, patch)
+    if (next) {
+      scan.stats = next
+      scan.error = null
+      broadcastStorageScan()
+      return next
+    }
+  }
+  return requestLibraryStorageStats({ force: true })
 }
 
 async function measureLibraryFiles(files: GameLibraryFile[]): Promise<{

@@ -13,6 +13,7 @@ import type {
   GameRarity,
   LibraryStorageScan,
   LibraryStorageStats,
+  SaveFolderPeekShot,
   ImportResult,
   LoginPayload,
   PlaySessionStatus,
@@ -193,11 +194,19 @@ const api = {
       ipcRenderer.invoke('library:clearSaves', threadId, savePath),
     openSaveFolder: (savePath: string): Promise<void> =>
       ipcRenderer.invoke('library:openSaveFolder', savePath),
+    peekSaveFolder: (savePath: string): Promise<SaveFolderPeekShot[]> =>
+      ipcRenderer.invoke('library:peekSaveFolder', savePath),
     identifySaveFolder: (savePath: string): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:identifySaveFolder', savePath),
     assignSaveFolder: (
       savePath: string,
-      game: { threadId: number; title: string; coverUrl?: string | null }
+      game: {
+        threadId: number
+        title: string
+        coverUrl?: string | null
+        creator?: string
+        engine?: string
+      }
     ): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:assignSaveFolder', savePath, game),
     install: (id: string, engine?: string): Promise<GameLibraryFile> =>

@@ -125,6 +125,7 @@ type GameDetailsPageProps = {
   p2pSharedHashes?: ReadonlySet<string>
   initialTab?: DetailsTab
   initialTabKey?: number
+  elevated?: boolean
 }
 
 function formatDate(value: string): string {
@@ -401,7 +402,8 @@ function GameDetailsPage({
   p2pEnabled = false,
   p2pSharedHashes,
   initialTab,
-  initialTabKey = 0
+  initialTabKey = 0,
+  elevated = false
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
   const tagCatalog = useCatalogTags()
@@ -815,7 +817,12 @@ function GameDetailsPage({
         count: details?.reviewsTotal || details?.reviews.length,
         hidden: settled && !details?.reviews.length && !details?.reviewsTotal
       },
-      { id: 'gallery', label: 'Gallery', count: gallery.length, hidden: settled && !gallery.length },
+      {
+        id: 'gallery',
+        label: 'Gallery',
+        count: gallery.length,
+        hidden: settled && !gallery.length && initialTab !== 'gallery'
+      },
       { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
       { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
       { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
@@ -832,7 +839,8 @@ function GameDetailsPage({
     changelog.length,
     files,
     isRenpy,
-    isRpgMaker
+    isRpgMaker,
+    initialTab
   ])
 
   useEffect(() => {
@@ -923,6 +931,8 @@ function GameDetailsPage({
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
         if (lightbox != null) setLightbox(null)
         else onMinimize()
         return
@@ -934,8 +944,8 @@ function GameDetailsPage({
       }
     }
 
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [lightbox, gallery.length, onMinimize])
 
   useEffect(() => {
@@ -1660,7 +1670,7 @@ function GameDetailsPage({
 
   return (
     <div
-      className="details-backdrop"
+      className={elevated ? 'details-backdrop is-elevated' : 'details-backdrop'}
       onPointerDown={(event) => {
         backdropGesture.current = event.button === 0 && event.target === event.currentTarget
         if (event.target === event.currentTarget) suppressMiddleAutoscroll(event)
@@ -2573,7 +2583,7 @@ function GameDetailsPage({
 
       {lightbox != null && gallery[lightbox]
         ? createPortal(
-            <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
+            <div className={elevated ? 'lightbox is-elevated' : 'lightbox'} onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
               <button
                 className="lightbox-close"
                 type="button"

@@ -40,6 +40,7 @@ import { toCatalogGame } from './lib/catalog-game'
 import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
+import { focusPageSearchOnHotkey } from './lib/page-search'
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -251,6 +252,14 @@ export default function App(): JSX.Element {
 
   const handleSaveSettings = useCallback(async (next: Partial<AppSettings>): Promise<void> => {
     setSettings(await window.api.settings.save(next))
+  }, [])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent): void {
+      focusPageSearchOnHotkey(event)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   useEffect(() => {
@@ -773,6 +782,7 @@ export default function App(): JSX.Element {
           initialTabKey={
             detailsOpenTab?.threadId === details.threadId ? detailsOpenTab.key : 0
           }
+          elevated={detailsOpenTab?.threadId === details.threadId && detailsOpenTab.tab === 'gallery'}
         />
       ) : null}
       {view === 'downloads' ? null : (

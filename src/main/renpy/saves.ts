@@ -238,6 +238,10 @@ function occupiedKey(places: SavePlace[], ignorePath?: string): Set<string> {
   return used
 }
 
+export async function listRenpySaveFiles(savePath: string): Promise<RenpySaveFile[]> {
+  return listSaves(savePath)
+}
+
 async function listSaves(savePath: string): Promise<RenpySaveFile[]> {
   if (!pathExists(savePath)) return []
   const entries = await readdir(toFsPath(savePath), { withFileTypes: true })

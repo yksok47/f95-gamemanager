@@ -158,6 +158,11 @@ export async function getFailedSaveFolder(savePath: string): Promise<FailedSaveF
   return store.failed[saveFolderKey(savePath)] ?? null
 }
 
+export async function listFailedSaveFolders(): Promise<FailedSaveFolder[]> {
+  const store = await loadStore()
+  return Object.values(store.failed)
+}
+
 export async function rememberIdentifiedSaveFolders(entries: IdentifiedSaveFolder[]): Promise<void> {
   if (!entries.length) return
   const store = await loadStore()
@@ -168,12 +173,6 @@ export async function rememberIdentifiedSaveFolders(entries: IdentifiedSaveFolde
     const item = asIdentified(entry)
     if (!item) continue
     const key = saveFolderKey(item.savePath)
-    for (const [existingKey, existing] of Object.entries(identified)) {
-      if (existing.threadId === item.threadId && existingKey !== key) {
-        delete identified[existingKey]
-        changed = true
-      }
-    }
     identified[key] = { ...item, identifiedAt: item.identifiedAt || Date.now() }
     if (failed[key]) {
       delete failed[key]
