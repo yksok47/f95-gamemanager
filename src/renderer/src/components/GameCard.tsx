@@ -127,6 +127,8 @@ function GameCard({
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [starting, setStarting] = useState(false);
   const coverRef = useRef<HTMLDivElement>(null);
+  const tagsRef = useRef<HTMLDivElement>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
   const previewing = useRef(false);
   const coverRetrySeen = useRef(false);
   const coverErrorTries = useRef(0);
@@ -233,7 +235,30 @@ function GameCard({
     );
   }
 
+  function scrollTagsToPointer(
+    clientX: number | null,
+    card?: HTMLElement,
+  ): void {
+    const tags = tagsRef.current;
+    if (!tags) return;
+    const track = tags.firstElementChild as HTMLElement | null;
+    if (!track) return;
+    const overflow = Math.max(0, track.scrollWidth - tags.clientWidth);
+    if (clientX == null || overflow <= 0 || !card) {
+      tags.style.setProperty("--tags-x", "0px");
+      return;
+    }
+    const rect = card.getBoundingClientRect();
+    const pad = Math.max(40, rect.width * 0.2);
+    const span = Math.max(rect.width - pad * 2, 1);
+    const t = Math.min(1, Math.max(0, (clientX - rect.left - pad) / span));
+    tags.style.setProperty("--tags-x", `${-t * overflow}px`);
+  }
+
   function onPointerDown(event: PointerEvent<HTMLElement>): void {
+    if (event.button === 0) {
+      pressStart.current = { x: event.clientX, y: event.clientY };
+    }
     if (event.button !== 2 || !previews.length) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -242,9 +267,14 @@ function GameCard({
   }
 
   function onPointerMove(event: PointerEvent<HTMLElement>): void {
+    scrollTagsToPointer(event.clientX, event.currentTarget);
     if (!previewing.current || !previews.length) return;
     event.preventDefault();
     setPreviewIndex(previewFromX(event.clientX));
+  }
+
+  function onPointerLeave(): void {
+    scrollTagsToPointer(null);
   }
 
   function endPreview(event: PointerEvent<HTMLElement>): void {
@@ -283,6 +313,15 @@ function GameCard({
       )
     )
       return;
+    const start = pressStart.current;
+    pressStart.current = null;
+    if (start) {
+      const dx = event.clientX - start.x;
+      const dy = event.clientY - start.y;
+      if (dx * dx + dy * dy > 36) return;
+    }
+    const selection = window.getSelection()?.toString().trim();
+    if (selection) return;
     onOpen();
   }
 
@@ -293,6 +332,7 @@ function GameCard({
       onContextMenu={onContextMenu}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
       onPointerUp={endPreview}
       onPointerCancel={endPreview}
       onLostPointerCapture={endPreview}
@@ -390,97 +430,94 @@ function GameCard({
           ) : null}
           <EngineBadge name={engine} />
         </div>
-        {library?.isInstalled && (onPlay || playing) ? (
-          <div className="cover-bl">
-            <button
-              className={[
-                "play-badge",
-                starting ? "is-starting" : "",
-                playing ? "is-stop" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              type="button"
-              disabled={starting}
-              title={
-                starting
-                  ? "Starting…"
-                  : playing
-                    ? "Stop"
-                    : library.installedVersion
-                      ? `Play ${library.installedVersion}`
-                      : "Play"
-              }
-              onClick={(event) => {
-                event.stopPropagation();
-                if (starting) return;
-                if (playing) {
-                  void onStop?.();
-                  return;
-                }
-                if (!onPlay) return;
-                setStarting(true);
-                void Promise.resolve(onPlay()).catch(() => {
-                  setStarting(false);
-                });
-              }}
-            >
-              {starting ? (
-                <svg
-                  className="play-badge-spinner"
-                  viewBox="0 0 16 16"
-                  aria-hidden="true"
-                >
-                  <circle
-                    cx="8"
-                    cy="8"
-                    r="5.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeOpacity="0.28"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              ) : playing ? (
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <rect
-                    x="4"
-                    y="4"
-                    width="8"
-                    height="8"
-                    rx="1.2"
-                    fill="currentColor"
-                  />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path fill="currentColor" d="M4.2 2.8v10.4L13.4 8z" />
-                </svg>
-              )}
-              <span className="sr-only">
-                {starting ? "Starting" : playing ? "Stop" : "Play"}
-              </span>
-            </button>
-          </div>
-        ) : null}
-        {game.version ? (
-          <span className="cover-version" title={game.version}>
-            {game.version}
-          </span>
-        ) : null}
         <FollowButton subscribed={subscribed} onToggle={onToggle} />
       </div>
+      {library?.isInstalled && (onPlay || playing) ? (
+        <div className="cover-bl">
+          <button
+            className={[
+              "play-badge",
+              starting ? "is-starting" : "",
+              playing ? "is-stop" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            type="button"
+            disabled={starting}
+            title={
+              starting
+                ? "Starting…"
+                : playing
+                  ? "Stop"
+                  : library.installedVersion
+                    ? `Play ${library.installedVersion}`
+                    : "Play"
+            }
+            onClick={(event) => {
+              event.stopPropagation();
+              if (starting) return;
+              if (playing) {
+                void onStop?.();
+                return;
+              }
+              if (!onPlay) return;
+              setStarting(true);
+              void Promise.resolve(onPlay()).catch(() => {
+                setStarting(false);
+              });
+            }}
+          >
+            {starting ? (
+              <svg
+                className="play-badge-spinner"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="8"
+                  cy="8"
+                  r="5.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity="0.28"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : playing ? (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <rect
+                  x="4"
+                  y="4"
+                  width="8"
+                  height="8"
+                  rx="1.2"
+                  fill="currentColor"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path fill="currentColor" d="M4.2 2.8v10.4L13.4 8z" />
+              </svg>
+            )}
+            <span className="sr-only">
+              {starting ? "Starting" : playing ? "Stop" : "Play"}
+            </span>
+          </button>
+        </div>
+      ) : null}
       <div className="game-meta">
         <div className="game-title-row">
           <h2 className="game-title">{game.title}</h2>
-          {(subscribed && updates.unplayedUpdate) || library?.hasArchive ? (
+          {(game.version ||
+            (subscribed && updates.unplayedUpdate) ||
+            library?.hasArchive) ? (
             <div className="game-title-badges">
               {library?.hasArchive ? (
                 <span className="archive-badge" title="Archive downloaded">
@@ -493,16 +530,22 @@ function GameCard({
                   <span className="sr-only">Archive downloaded</span>
                 </span>
               ) : null}
-              {subscribed && updates.unplayedUpdate ? (
+              {game.version ? (
                 <span
-                  className="update-chip update-chip-new"
+                  className={
+                    subscribed && updates.unplayedUpdate
+                      ? "game-version is-new"
+                      : "game-version"
+                  }
                   title={
-                    game.lastPlayedVersion
-                      ? `New version available · last played ${game.lastPlayedVersion}`
-                      : "New version available"
+                    subscribed && updates.unplayedUpdate
+                      ? game.lastPlayedVersion
+                        ? `${game.version} · new · last played ${game.lastPlayedVersion}`
+                        : `${game.version} · new version`
+                      : game.version
                   }
                 >
-                  New
+                  {game.version}
                 </span>
               ) : null}
             </div>
@@ -644,8 +687,8 @@ function GameCard({
                   : ""}
           </span>
         </div>
-        {shownFavorites.length || shownHated.length ? (
-          <div className="card-tags">
+        <div ref={tagsRef} className="card-tags">
+          <div className="card-tags-track">
             {shownFavorites.map((tag) => (
               <span key={`fav-${tag.id}`} className={`chip chip-${tag.tier}`}>
                 {tag.name}
@@ -657,7 +700,7 @@ function GameCard({
               </span>
             ))}
           </div>
-        ) : null}
+        </div>
       </div>
     </article>
   );

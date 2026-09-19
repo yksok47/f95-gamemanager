@@ -179,3 +179,55 @@ export function PagerIcon({ kind }: { kind: PagerIconKind }): JSX.Element {
     </svg>
   )
 }
+
+export function CatalogIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M1.6 1.6h5.6v5.6H1.6zm7.2 0h5.6v5.6H8.8zM1.6 8.8h5.6v5.6H1.6zm7.2 0h5.6v5.6H8.8z"
+      />
+    </svg>
+  )
+}
+
+export function FollowedIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path fill="currentColor" d="M3.4 1.5h9.2v13L8 11.7 3.4 14.5z" />
+    </svg>
+  )
+}
+
+export function UpdatesIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M8 1.35A4.35 4.35 0 0 1 12.35 5.7v2.35l1.45 1.45v1.05H2.2v-1.05L3.65 8.05V5.7A4.35 4.35 0 0 1 8 1.35M6.35 13.4a1.65 1.65 0 0 0 3.3 0z"
+      />
+    </svg>
+  )
+}
+
+export function RosterIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M3.2 1.8h7.2v1.6H4.8v10.2H3.2zm4.8 3.4h6.4v1.5H8zm0 3.2h5.2v1.5H8zm0 3.2h3.6v1.5H8z"
+      />
+    </svg>
+  )
+}
+
+export function LibraryIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M2.2 2.1h2.2v11.8H2.2zm3.4 0h2.2v11.8H5.6zm3.5 0 4.7 1.1v9.6l-4.7 1.1z"
+      />
+    </svg>
+  )
+}

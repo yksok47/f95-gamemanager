@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { AppSettings, CatalogTag, FavoriteTag, HatedTag } from '@shared/types'
+import { CATALOG_PAGE_SIZES } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
@@ -32,6 +33,7 @@ export default function SettingsPage({
   const [saving, setSaving] = useState(false)
   const [userDataPath, setUserDataPath] = useState('')
   const [uploadLimitDraft, setUploadLimitDraft] = useState(String(settings.p2pUploadLimitKBps || ''))
+  const [catalogPageSizeDraft, setCatalogPageSizeDraft] = useState(settings.catalogPageSize)
   const appUpdate = useAppUpdate()
 
   useEffect(() => {
@@ -41,6 +43,10 @@ export default function SettingsPage({
   useEffect(() => {
     setUploadLimitDraft(settings.p2pUploadLimitKBps > 0 ? String(settings.p2pUploadLimitKBps) : '')
   }, [settings.p2pUploadLimitKBps])
+
+  useEffect(() => {
+    setCatalogPageSizeDraft(settings.catalogPageSize)
+  }, [settings.catalogPageSize])
 
 
   useEffect(() => {
@@ -154,6 +160,65 @@ export default function SettingsPage({
                 >
                   Browse
                 </button>
+              </div>
+            </div>
+            <div className="folder-field">
+              <div className="settings-slider-head">
+                <span className="filter-label" id="catalog-page-size-label">
+                  Catalog page size
+                </span>
+                <span className="settings-slider-value" aria-live="polite">
+                  {catalogPageSizeDraft}
+                </span>
+              </div>
+              <p className="muted download-meta">
+                How many titles to load at once when browsing the catalog.
+              </p>
+              <div className="settings-slider-control">
+                <input
+                  className="settings-slider"
+                  type="range"
+                  min={0}
+                  max={CATALOG_PAGE_SIZES.length - 1}
+                  step={1}
+                  value={Math.max(0, CATALOG_PAGE_SIZES.indexOf(catalogPageSizeDraft))}
+                  disabled={saving}
+                  aria-labelledby="catalog-page-size-label"
+                  aria-valuemin={CATALOG_PAGE_SIZES[0]}
+                  aria-valuemax={CATALOG_PAGE_SIZES[CATALOG_PAGE_SIZES.length - 1]}
+                  aria-valuenow={catalogPageSizeDraft}
+                  aria-valuetext={`${catalogPageSizeDraft} titles`}
+                  onChange={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.target.value)]
+                    if (next) setCatalogPageSizeDraft(next)
+                  }}
+                  onPointerUp={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
+                    if (next && next !== settings.catalogPageSize) {
+                      void persist({ catalogPageSize: next })
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
+                    if (next && next !== settings.catalogPageSize) {
+                      void persist({ catalogPageSize: next })
+                    }
+                  }}
+                />
+                <div className="settings-slider-scale" aria-hidden="true">
+                  {CATALOG_PAGE_SIZES.map((size) => (
+                    <span
+                      key={size}
+                      className={
+                        size === catalogPageSizeDraft
+                          ? 'settings-slider-mark is-active'
+                          : 'settings-slider-mark'
+                      }
+                    >
+                      {size}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="folder-field">

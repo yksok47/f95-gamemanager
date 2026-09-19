@@ -2,9 +2,12 @@
 import { dirname, isAbsolute, join } from 'path'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
+  DEFAULT_CATALOG_PAGE_SIZE,
   TAG_QUERY_LIMIT,
   TAG_TIERS,
+  isCatalogPageSize,
   type AppSettings,
+  type CatalogPageSize,
   type FavoriteTag,
   type HatedTag,
   type TagTier
@@ -97,6 +100,11 @@ function normalizeUploadLimitKBps(value: unknown): number {
   return Math.min(MAX_UPLOAD_LIMIT_KBPS, Math.floor(n))
 }
 
+function normalizeCatalogPageSize(value: unknown): CatalogPageSize {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return isCatalogPageSize(n) ? n : DEFAULT_CATALOG_PAGE_SIZE
+}
+
 function readRankedTags(value: unknown): FavoriteTag[] {
   const seen = new Set<number>()
   const tags: FavoriteTag[] = []
@@ -148,6 +156,7 @@ function emptySettings(): AppSettings {
     metadataBaseUrl: hardcodedMetadataUrl(),
     trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: 0,
+    catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
     ...defaultFolders()
   }
 }
@@ -168,7 +177,8 @@ function normalizeSettings(value: unknown): AppSettings {
       typeof raw.metadataApiEnabled === 'boolean' ? raw.metadataApiEnabled : true,
     metadataBaseUrl: hardcodedMetadataUrl(),
     trackerWebRtcUrl: hardcodedTrackerUrl(),
-    p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps)
+    p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps),
+    catalogPageSize: normalizeCatalogPageSize(raw.catalogPageSize)
   }
 }
 

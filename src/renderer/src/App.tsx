@@ -9,6 +9,7 @@ import type {
   RosterGame,
   Subscription
 } from '@shared/types'
+import { DEFAULT_CATALOG_PAGE_SIZE } from '@shared/types'
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
 import { ErrorNotificationHost, errorMessage, notifyError } from './components/ErrorNotifications'
@@ -156,7 +157,8 @@ export default function App(): JSX.Element {
     metadataApiEnabled: true,
     metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL,
     trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL,
-    p2pUploadLimitKBps: 0
+    p2pUploadLimitKBps: 0,
+    catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
@@ -597,6 +599,7 @@ export default function App(): JSX.Element {
           rarityById={rarityById}
           favoriteTags={favoriteTags}
           hatedTags={hatedTags}
+          catalogPageSize={settings.catalogPageSize}
           rosterIds={rosterIds}
           onToggleFollow={handleToggleFollow}
           onToggleRoster={handleToggleRoster}

@@ -322,27 +322,42 @@ export default function FollowedPage({
             setSort(next)
             setDescending(next !== 'title')
           }}
-        />
-        <button
-          className="ghost-btn pager-btn"
-          type="button"
-          title={
-            sort === 'title'
-              ? descending
-                ? 'Z–A'
-                : 'A–Z'
-              : sort === 'rating' || sort === 'rarity' || sort === 'likes' || sort === 'views'
-                ? descending
-                  ? 'Highest first'
-                  : 'Lowest first'
-                : descending
-                  ? 'Newest first'
-                  : 'Oldest first'
+          addon={
+            <button
+              className="ghost-btn icon-btn sort-split-dir"
+              type="button"
+              title={
+                sort === 'title'
+                  ? descending
+                    ? 'Z–A'
+                    : 'A–Z'
+                  : sort === 'rating' || sort === 'rarity' || sort === 'likes' || sort === 'views'
+                    ? descending
+                      ? 'Highest first'
+                      : 'Lowest first'
+                    : descending
+                      ? 'Newest first'
+                      : 'Oldest first'
+              }
+              aria-label={
+                sort === 'title'
+                  ? descending
+                    ? 'Sort Z to A'
+                    : 'Sort A to Z'
+                  : sort === 'rating' || sort === 'rarity' || sort === 'likes' || sort === 'views'
+                    ? descending
+                      ? 'Highest first'
+                      : 'Lowest first'
+                    : descending
+                      ? 'Newest first'
+                      : 'Oldest first'
+              }
+              onClick={() => setDescending((value) => !value)}
+            >
+              {descending ? '↓' : '↑'}
+            </button>
           }
-          onClick={() => setDescending((value) => !value)}
-        >
-          {descending ? '↓' : '↑'}
-        </button>
+        />
         <button
           className={hideCompleted ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"

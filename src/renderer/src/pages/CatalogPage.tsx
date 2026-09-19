@@ -10,7 +10,7 @@ import type {
   MatchMode,
   VersionPlayStat
 } from '@shared/types'
-import { TAG_QUERY_LIMIT } from '@shared/types'
+import { DEFAULT_CATALOG_PAGE_SIZE, TAG_QUERY_LIMIT, type CatalogPageSize } from '@shared/types'
 import { FALLBACK_PREFIXES } from '@shared/prefixes'
 import { nextChipState, type FilterChipState } from '../components/FilterChip'
 import FilterShelf from '../components/FilterShelf'
@@ -35,6 +35,7 @@ type CatalogViewProps = {
   rarityById: Map<number, GameRarity>
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
+  catalogPageSize?: CatalogPageSize
   rosterIds: Set<number>
   onToggleFollow: (game: CatalogGame) => Promise<void>
   onToggleRoster: (game: CatalogGame) => Promise<void>
@@ -69,6 +70,7 @@ export default function CatalogPage({
   rarityById,
   favoriteTags,
   hatedTags,
+  catalogPageSize = DEFAULT_CATALOG_PAGE_SIZE,
   rosterIds,
   onToggleFollow,
   onToggleRoster,
@@ -237,7 +239,8 @@ export default function CatalogPage({
     excludedTags,
     queryTagType,
     favoritesOnly,
-    hatedActive
+    hatedActive,
+    catalogPageSize
   ])
 
   useEffect(() => {
@@ -248,7 +251,7 @@ export default function CatalogPage({
       try {
         const result = await window.api.catalog.list({
           page,
-          rows: 90,
+          rows: catalogPageSize,
           sort,
           search: search || undefined,
           creator: creator || undefined,
@@ -312,6 +315,7 @@ export default function CatalogPage({
     queryTagType,
     favoritesOnly,
     hatedActive,
+    catalogPageSize,
     onSessionExpired
   ])
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
-import { DownloadIcon, FullscreenIcon, RefreshIcon, SettingsIcon, StorageIcon, UploadIcon } from './ToolbarIcons'
+import { DownloadIcon, FullscreenIcon, RefreshIcon, SettingsIcon, StorageIcon, UploadIcon, CatalogIcon, FollowedIcon, UpdatesIcon, RosterIcon, LibraryIcon } from './ToolbarIcons'
 
 export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'storage' | 'downloads' | 'uploads' | 'settings'
 
@@ -73,37 +73,66 @@ export default function AppNav({
         <button
           className={view === 'catalog' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
+          title="Catalog"
+          aria-label="Catalog"
           onClick={() => onViewChange('catalog')}
         >
-          Catalog
+          <span className="nav-btn-icon">
+            <CatalogIcon />
+          </span>
+          <span className="nav-btn-label">Catalog</span>
         </button>
         <button
           className={view === 'followed' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
+          title={followedCount ? `Followed (${followedCount})` : 'Followed'}
+          aria-label={followedCount ? `Followed (${followedCount})` : 'Followed'}
           onClick={() => onViewChange('followed')}
         >
-          Followed{followedCount ? ` (${followedCount})` : ''}
+          <span className="nav-btn-icon">
+            <FollowedIcon />
+          </span>
+          <span className="nav-btn-label">Followed</span>
+          {followedCount ? <span className="icon-btn-badge nav-btn-count">{followedCount}</span> : null}
         </button>
         <button
           className={view === 'updates' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
+          title={updatesCount ? `Updates (${updatesCount})` : 'Updates'}
+          aria-label={updatesCount ? `Updates (${updatesCount})` : 'Updates'}
           onClick={() => onViewChange('updates')}
         >
-          Updates{updatesCount ? ` (${updatesCount})` : ''}
+          <span className="nav-btn-icon">
+            <UpdatesIcon />
+          </span>
+          <span className="nav-btn-label">Updates</span>
+          {updatesCount ? <span className="icon-btn-badge nav-btn-count">{updatesCount}</span> : null}
         </button>
         <button
           className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
+          title={rosterCount ? `Roster (${rosterCount})` : 'Roster'}
+          aria-label={rosterCount ? `Roster (${rosterCount})` : 'Roster'}
           onClick={() => onViewChange('roster')}
         >
-          Roster{rosterCount ? ` (${rosterCount})` : ''}
+          <span className="nav-btn-icon">
+            <RosterIcon />
+          </span>
+          <span className="nav-btn-label">Roster</span>
+          {rosterCount ? <span className="icon-btn-badge nav-btn-count">{rosterCount}</span> : null}
         </button>
         <button
           className={view === 'library' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
+          title={libraryCount ? `Library (${libraryCount})` : 'Library'}
+          aria-label={libraryCount ? `Library (${libraryCount})` : 'Library'}
           onClick={() => onViewChange('library')}
         >
-          Library{libraryCount ? ` (${libraryCount})` : ''}
+          <span className="nav-btn-icon">
+            <LibraryIcon />
+          </span>
+          <span className="nav-btn-label">Library</span>
+          {libraryCount ? <span className="icon-btn-badge nav-btn-count">{libraryCount}</span> : null}
         </button>
       </div>
       <ToolbarSlot />

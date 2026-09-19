@@ -90,6 +90,14 @@ export const TAG_TIERS: TagTier[] = ['gold', 'silver', 'bronze']
 export const TAGS_PER_TIER_LIMIT = 10
 /** F95 only honors this many include or exclude tags per request. */
 export const TAG_QUERY_LIMIT = 10
+/** Titles fetched per catalog page. SAM caps at 90. */
+export const CATALOG_PAGE_SIZES = [15, 30, 45, 60, 75, 90] as const
+export type CatalogPageSize = (typeof CATALOG_PAGE_SIZES)[number]
+export const DEFAULT_CATALOG_PAGE_SIZE: CatalogPageSize = 60
+
+export function isCatalogPageSize(value: unknown): value is CatalogPageSize {
+  return typeof value === 'number' && (CATALOG_PAGE_SIZES as readonly number[]).includes(value)
+}
 
 export const RARITY_RANK: Record<GameRarity, number> = {
   regular: 0,
@@ -133,6 +141,8 @@ export type AppSettings = {
   trackerWebRtcUrl: string
   /** P2P upload cap in KB/s. 0 = unlimited. */
   p2pUploadLimitKBps: number
+  /** Titles loaded per catalog page. */
+  catalogPageSize: CatalogPageSize
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
