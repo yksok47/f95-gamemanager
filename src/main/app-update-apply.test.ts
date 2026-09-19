@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   APPLY_RESUME_COOLDOWN_MS,
   shouldResumePendingUpdate,
+  trashAsarName,
   unixApplyScript,
   unixDetachedLaunchArgs,
   windowsApplyCmdContents,
@@ -97,6 +98,18 @@ describe('windowsApplyCommand', () => {
     expect(script).not.toMatch(/\$pid\s*=/)
   })
 
+  test('waits for app.asar to unlock and removes .old before relaunching', () => {
+    const script = windowsApplyCommand(config)
+    expect(script).toContain('Wait-AsarsUnlocked')
+    expect(script).toContain('Neutralize-Asars')
+    expect(script).toContain('.trash')
+    expect(script).toContain('Remove-OldTree $oldDir')
+    expect(script).toContain('Start-DelayedRemove')
+    expect(script.lastIndexOf('Remove-OldTree $oldDir')).toBeLessThan(
+      script.lastIndexOf('Start-App (Join-Path $dst $exeName) $dst')
+    )
+  })
+
   test('keeps the staged .next payload if apply fails', () => {
     const script = windowsApplyCommand(config)
     expect(script).toContain('Remove-Item -LiteralPath $tempRoot')
@@ -109,6 +122,18 @@ describe('windowsApplyCommand', () => {
     expect(script).toContain("'/S', '--updated'")
     expect(script).toContain('Installer finished but the app executable was not found')
     expect(script).toContain('Start-App $exe $dst')
+  })
+})
+
+describe('trashAsarName', () => {
+  test('renames asar archives so Electron will not reopen them', () => {
+    expect(trashAsarName('app.asar')).toBe('app.asar.trash')
+    expect(trashAsarName('C:\\games\\win-unpacked.old\\resources\\app.asar')).toBe(
+      'C:\\games\\win-unpacked.old\\resources\\app.asar.trash'
+    )
+    expect(trashAsarName('electron.asar')).toBe('electron.asar.trash')
+    expect(trashAsarName('app.asar.unpacked')).toBe(null)
+    expect(trashAsarName('app.asar.trash')).toBe(null)
   })
 })
 

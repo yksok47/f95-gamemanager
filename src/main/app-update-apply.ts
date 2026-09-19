@@ -69,6 +69,12 @@ export function unixDetachedLaunchArgs(scriptPath: string): { command: string; a
   }
 }
 
+export function trashAsarName(filePath: string): string | null {
+  const base = filePath.split(/[/\\]/).pop() || ''
+  if (!/\.asar$/i.test(base)) return null
+  return `${filePath}.trash`
+}
+
 export function windowsApplyCommand(config: ApplyHelperConfig): string {
   return `
 $ErrorActionPreference = 'Stop'
@@ -105,16 +111,78 @@ function Wait-AppExit {
 }
 
 function Wait-Unlocked($path) {
-  if (-not $path -or -not (Test-Path -LiteralPath $path)) { return }
-  for ($i = 0; $i -lt 40; $i++) {
+  if (-not $path -or -not (Test-Path -LiteralPath $path)) { return $true }
+  for ($i = 0; $i -lt 80; $i++) {
     try {
       $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
       $fs.Close()
-      return
+      return $true
     } catch {
       Start-Sleep -Milliseconds 500
     }
   }
+  return $false
+}
+
+function Wait-ExeReleased($exePath) {
+  if (-not $exePath) { return $true }
+  $leaf = [System.IO.Path]::GetFileNameWithoutExtension($exePath)
+  if (-not $leaf) { return $true }
+  for ($i = 0; $i -lt 60; $i++) {
+    $busy = $false
+    Get-Process -Name $leaf -ErrorAction SilentlyContinue | ForEach-Object {
+      try {
+        if ($_.Path -and [string]::Equals($_.Path, $exePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+          $busy = $true
+        }
+      } catch {}
+    }
+    if (-not $busy) { return $true }
+    Start-Sleep -Milliseconds 500
+  }
+  return $false
+}
+
+function Wait-AsarsUnlocked($root) {
+  $resources = Join-Path $root 'resources'
+  if (-not (Test-Path -LiteralPath $resources)) { return }
+  Get-ChildItem -LiteralPath $resources -File -Force -Filter *.asar -ErrorAction SilentlyContinue | ForEach-Object {
+    Wait-Unlocked $_.FullName | Out-Null
+  }
+}
+
+function Neutralize-Asars($root) {
+  Get-ChildItem -LiteralPath $root -Recurse -File -Force -Filter *.asar -ErrorAction SilentlyContinue | ForEach-Object {
+    Wait-Unlocked $_.FullName | Out-Null
+    try { Move-Item -LiteralPath $_.FullName -Destination ($_.FullName + '.trash') -Force } catch {}
+  }
+}
+
+function Start-DelayedRemove($path) {
+  if (-not $path -or -not (Test-Path -LiteralPath $path)) { return }
+  $inner = 'ping 127.0.0.1 -n 20 >nul & rmdir /s /q "' + $path + '" & del /f /q "' + $path + '"'
+  Start-Process -FilePath 'cmd.exe' -ArgumentList @('/c', $inner) -WindowStyle Hidden
+}
+
+function Remove-OldTree($path) {
+  if (-not $path -or -not (Test-Path -LiteralPath $path)) { return }
+  if (Test-Path -LiteralPath $path -PathType Leaf) {
+    Wait-Unlocked $path | Out-Null
+    try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop; return } catch {}
+    Start-DelayedRemove $path
+    return
+  }
+  Wait-AsarsUnlocked $path
+  Neutralize-Asars $path
+  for ($i = 0; $i -lt 8; $i++) {
+    try {
+      Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+      return
+    } catch {
+      Start-Sleep -Milliseconds 750
+    }
+  }
+  Start-DelayedRemove $path
 }
 
 function Invoke-Retry([scriptblock]$action) {
@@ -139,9 +207,11 @@ try {
   if (-not (Wait-AppExit)) { throw 'Timed out waiting for the app to close' }
   Start-Sleep -Seconds 2
   if ($mode -ne 'file') {
-    Wait-Unlocked (Join-Path $dst $exeName)
+    Wait-ExeReleased (Join-Path $dst $exeName) | Out-Null
+    Wait-Unlocked (Join-Path $dst $exeName) | Out-Null
+    Wait-AsarsUnlocked $dst
   } else {
-    Wait-Unlocked $dst
+    Wait-Unlocked $dst | Out-Null
   }
 
   if ($mode -eq 'nsis') {
@@ -155,7 +225,7 @@ try {
     if ($null -ne $p.ExitCode -and $p.ExitCode -ne 0) { throw "Installer exited $($p.ExitCode)" }
     $exe = Join-Path $dst $exeName
     if (-not (Test-Path -LiteralPath $exe)) { throw 'Installer finished but the app executable was not found' }
-    Wait-Unlocked $exe
+    Wait-Unlocked $exe | Out-Null
     Start-App $exe $dst
     Remove-Item -LiteralPath $src -Force -ErrorAction SilentlyContinue
     Write-Result $true ''
@@ -163,19 +233,20 @@ try {
   elseif ($mode -eq 'file') {
     Invoke-Retry {
       if (Test-Path -LiteralPath $dst) {
-        Move-Item -LiteralPath $dst -Destination "$dst.old" -Force
+        Move-Item -LiteralPath $dst -Destination $oldDir -Force
       }
       Move-Item -LiteralPath $src -Destination $dst -Force
     }
-    Remove-Item -LiteralPath "$dst.old" -Force -ErrorAction SilentlyContinue
+    Remove-OldTree $oldDir
     Start-App $dst (Split-Path -Parent $dst)
+    Start-DelayedRemove $oldDir
     Write-Result $true ''
   }
   else {
     $newExe = Join-Path $src $exeName
     if (-not (Test-Path -LiteralPath $newExe)) { throw 'The downloaded build is missing the app executable' }
     if (Test-Path -LiteralPath $oldDir) {
-      Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue
+      Remove-OldTree $oldDir
     }
     try {
       Invoke-Retry { Rename-Item -LiteralPath $dst -NewName (Split-Path $oldDir -Leaf) }
@@ -192,10 +263,9 @@ try {
         Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
       }
     }
+    Remove-OldTree $oldDir
     Start-App (Join-Path $dst $exeName) $dst
-    if (Test-Path -LiteralPath $oldDir) {
-      Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    Start-DelayedRemove $oldDir
     Write-Result $true ''
   }
 } catch {

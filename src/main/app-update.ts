@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import { execFile as execFileCb, spawn } from 'child_process'
+import { createRequire } from 'module'
 import { readdirSync } from 'fs'
 import {
   chmod,
@@ -9,7 +10,6 @@ import {
   readdir,
   readFile,
   rename,
-  rm,
   stat,
   writeFile
 } from 'fs/promises'
@@ -45,18 +45,29 @@ import {
   windowsApplyCommand,
   windowsCmdStartArgs,
   windowsShellExecuteCommand,
-  shouldResumePendingUpdate
+  shouldResumePendingUpdate,
+  trashAsarName
 } from './app-update-apply'
 import { extractArchive } from './extract'
 import { getAppPaths } from './paths'
 import { pathExists, toFsPath } from './win-path'
 
 const execFile = promisify(execFileCb)
+const nodeRequire = createRequire(__filename)
 const TEMP_PREFIX = 'f95-gamemanager-update-'
 const APPLY_PREFIX = 'f95-gamemanager-apply-update-'
+const STALE_CLEANUP_RETRY_MS = [5_000, 20_000, 60_000]
 const API_BASE = `https://api.github.com/repos/${APP_UPDATE_GITHUB_OWNER}/${APP_UPDATE_GITHUB_REPO}`
 const HELPER_READY_TIMEOUT_MS = 15_000
 const BEFORE_EXIT_TIMEOUT_MS = 10_000
+
+function diskFs(): typeof import('fs/promises') {
+  try {
+    return nodeRequire('original-fs/promises') as typeof import('fs/promises')
+  } catch {
+    return nodeRequire('fs/promises') as typeof import('fs/promises')
+  }
+}
 
 type BeforeExitHook = () => Promise<void>
 
@@ -238,8 +249,35 @@ async function fetchChecksums(release: GithubRelease): Promise<Map<string, { alg
   return parseChecksumFile(await response.text())
 }
 
+async function neutralizeAsars(target: string): Promise<void> {
+  const fs = diskFs()
+  let st
+  try {
+    st = await fs.stat(toFsPath(target))
+  } catch {
+    return
+  }
+  if (st.isFile()) {
+    const trashed = trashAsarName(target)
+    if (trashed) await fs.rename(toFsPath(target), toFsPath(trashed)).catch(() => undefined)
+    return
+  }
+  if (!st.isDirectory()) return
+  let names: string[]
+  try {
+    names = await fs.readdir(toFsPath(target))
+  } catch {
+    return
+  }
+  for (const name of names) {
+    await neutralizeAsars(join(target, name))
+  }
+}
+
 async function rmrf(target: string): Promise<void> {
-  await rm(toFsPath(target), { recursive: true, force: true }).catch(() => undefined)
+  const fs = diskFs()
+  await neutralizeAsars(target)
+  await fs.rm(toFsPath(target), { recursive: true, force: true }).catch(() => undefined)
 }
 
 async function copyOrRename(from: string, to: string): Promise<void> {
@@ -472,7 +510,9 @@ async function cleanupNamed(target: string): Promise<void> {
   await rmrf(target)
 }
 
-export async function cleanupStaleAppUpdates(): Promise<void> {
+let staleCleanupFollowup = false
+
+async function cleanupStaleOnce(): Promise<void> {
   const kind = currentInstallKind()
   const root = appRootForKind(kind)
   await cleanupNamed(`${root}.old`)
@@ -486,6 +526,19 @@ export async function cleanupStaleAppUpdates(): Promise<void> {
     )
   } catch {
     /* ignore */
+  }
+}
+
+export async function cleanupStaleAppUpdates(): Promise<void> {
+  await cleanupStaleOnce()
+  if (staleCleanupFollowup) return
+  staleCleanupFollowup = true
+  for (const ms of STALE_CLEANUP_RETRY_MS) {
+    setTimeout(() => {
+      void cleanupStaleOnce().catch((error) =>
+        console.warn('[app-update] leftover cleanup failed', error)
+      )
+    }, ms)
   }
 }
 

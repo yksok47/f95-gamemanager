@@ -25,7 +25,12 @@ function copyP2pShimsPlugin() {
 export default defineConfig({
   main: {
     resolve: { alias: sharedAlias },
-    plugins: [copyP2pShimsPlugin()]
+    plugins: [copyP2pShimsPlugin()],
+    build: {
+      rollupOptions: {
+        external: ['original-fs', 'original-fs/promises']
+      }
+    }
   },
   preload: {
     resolve: { alias: sharedAlias }
