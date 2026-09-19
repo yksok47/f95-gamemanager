@@ -341,8 +341,16 @@ export default function GameP2pSection({
       }
     };
     void refreshOwned();
-    const stop = window.api.library.onChange(() => {
-      void refreshOwned();
+    const stop = window.api.library.onChange((files) => {
+      if (cancelled) return;
+      const next = new Set<string>();
+      for (const f of files) {
+        if (f.threadId !== threadId || !f.hasArchive) continue;
+        const h =
+          typeof f.hash === "string" ? f.hash.trim().toLowerCase() : "";
+        if (h) next.add(h);
+      }
+      setOwnedContentHashes(next);
     });
     return () => {
       cancelled = true;

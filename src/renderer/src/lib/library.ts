@@ -8,12 +8,14 @@ import {
 import { maxLikeCount, maxViewCount } from '@shared/counts'
 import { compareGameVersions, engineKind } from '@shared/engines'
 import { mergeVersionPlayStats, versionPlayStatsFromFiles } from '@shared/updates'
+import type { ThreadDownloadProgress } from './downloads'
 
 export type GameLibraryStatus = {
   hasArchive: boolean
   isInstalled: boolean
   installedVersion: string | null
   engine: string | null
+  installPercent: number | null
 }
 
 export type LibraryGame = {
@@ -63,9 +65,15 @@ export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibr
       ),
       isInstalled: installed.length > 0,
       installedVersion: latest?.version || null,
-      engine: items.find((file) => file.engine)?.engine || null
+      engine: items.find((file) => file.engine)?.engine || null,
+      installPercent: items.find((file) => file.installPercent != null)?.installPercent ?? null
     }
-    if (status.hasArchive || status.isInstalled || items.some((file) => file.hasArchive || file.isInstalled)) {
+    if (
+      status.hasArchive ||
+      status.isInstalled ||
+      status.installPercent != null ||
+      items.some((file) => file.hasArchive || file.isInstalled)
+    ) {
       result.set(threadId, status)
     }
   }
@@ -221,6 +229,45 @@ export function groupLibraryGames(
     })
   }
   return games
+}
+
+/** Append in-progress downloads that do not have a library file yet. Cancelled transfers are omitted by the caller. */
+export function mergeDownloadingLibraryGames(
+  games: LibraryGame[],
+  pending: Map<number, ThreadDownloadProgress>,
+  subscriptions: Subscription[]
+): LibraryGame[] {
+  if (!pending.size) return games
+  const existing = new Set(games.map((game) => game.threadId))
+  const followed = new Map(subscriptions.map((game) => [game.threadId, game]))
+  const extra: LibraryGame[] = []
+  for (const [threadId, download] of pending) {
+    if (existing.has(threadId)) continue
+    const sub = followed.get(threadId)
+    extra.push({
+      threadId,
+      title: (sub?.title || download.title).trim() || `Thread ${threadId}`,
+      creator: sub?.creator || download.creator || '',
+      version: download.version || sub?.version || '',
+      coverUrl: sub?.coverUrl || download.coverUrl,
+      rating: sub?.rating || 0,
+      likes: sub?.likes || 0,
+      views: sub?.views || 0,
+      engine: sub?.engine || download.engine || '',
+      prefixes: sub?.prefixes || [],
+      tags: sub?.tags || [],
+      screens: sub?.screens || [],
+      timestamp: sub?.timestamp || 0,
+      updatedAt: sub?.updatedAt || '',
+      threadUrl: sub?.threadUrl || `https://f95zone.to/threads/${threadId}/`,
+      lastPlayedVersion: sub?.lastPlayedVersion || '',
+      lastPlayedAt: sub?.lastPlayedAt || 0,
+      playtimeMs: sub?.playtimeMs || 0,
+      playedVersions: sub?.playedVersions || [],
+      downloadedAt: download.startedAt || 0
+    })
+  }
+  return extra.length ? [...games, ...extra] : games
 }
 
 export function usePlaySessions(): PlaySessionStatus[] {

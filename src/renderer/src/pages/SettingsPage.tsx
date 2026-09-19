@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { AppSettings, CatalogTag, FavoriteTag, HatedTag } from '@shared/types'
-import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import RankedTagsEditor from '../components/RankedTagsEditor'
@@ -16,78 +15,6 @@ type SettingsPageProps = {
   onSaveSettings: (next: Partial<AppSettings>) => Promise<void>
 }
 
-type StatusTone = 'ok' | 'down' | 'idle'
-
-function statusTone(ok: boolean | undefined, busy: boolean): StatusTone {
-  if (busy || ok == null) return 'idle'
-  return ok ? 'ok' : 'down'
-}
-
-function statusShortLabel(tone: StatusTone, busy: boolean): string {
-  if (busy) return '…'
-  if (tone === 'ok') return 'OK'
-  if (tone === 'down') return 'ERROR'
-  return '—'
-}
-
-function StatusIcon({ tone }: { tone: StatusTone }): JSX.Element {
-  if (tone === 'ok') {
-    return (
-      <svg className="status-icon status-icon-ok" viewBox="0 0 16 16" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M8 1.4A6.6 6.6 0 1 1 1.4 8 6.6 6.6 0 0 1 8 1.4m-.1 8.8L5.2 7.5l1.1-1.1 1.6 1.6 3-3 1.1 1.1z"
-        />
-      </svg>
-    )
-  }
-  if (tone === 'down') {
-    return (
-      <svg className="status-icon status-icon-down" viewBox="0 0 16 16" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M8 1.4A6.6 6.6 0 1 1 1.4 8 6.6 6.6 0 0 1 8 1.4m2.4 3.4L8 7.2 5.6 4.8 4.8 5.6 7.2 8l-2.4 2.4.8.8L8 8.8l2.4 2.4.8-.8L8.8 8l2.4-2.4z"
-        />
-      </svg>
-    )
-  }
-  return (
-    <svg className="status-icon status-icon-idle" viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="5.2" fill="currentColor" />
-    </svg>
-  )
-}
-
-function AddressStatusButton({
-  tone,
-  detail,
-  busy,
-  disabled,
-  onRefresh
-}: {
-  tone: StatusTone
-  detail?: string
-  busy: boolean
-  disabled?: boolean
-  onRefresh: () => void
-}): JSX.Element {
-  const short = statusShortLabel(tone, busy)
-  const label = busy ? 'Checking…' : detail || 'Refresh status'
-  return (
-    <button
-      className={`address-status-btn address-status-${tone}`}
-      type="button"
-      title={label}
-      aria-label={label}
-      disabled={disabled || busy}
-      onClick={onRefresh}
-    >
-      <StatusIcon tone={tone} />
-      <span className="address-status-label">{short}</span>
-    </button>
-  )
-}
-
 export default function SettingsPage({
   settings,
   onSaveSettings
@@ -99,15 +26,7 @@ export default function SettingsPage({
   const [busy, setBusy] = useState(true)
   const [saving, setSaving] = useState(false)
   const [userDataPath, setUserDataPath] = useState('')
-  const [metadataDraft, setMetadataDraft] = useState(settings.metadataBaseUrl)
-  const [webrtcDraft, setWebrtcDraft] = useState(settings.trackerWebRtcUrl)
   const [uploadLimitDraft, setUploadLimitDraft] = useState(String(settings.p2pUploadLimitKBps || ''))
-  const [trackerStatus, setTrackerStatus] = useState<{ ok: boolean; message?: string } | null>(null)
-  const [metadataStatus, setMetadataStatus] = useState<{ ok: boolean; message?: string } | null>(
-    null
-  )
-  const [statusBusy, setStatusBusy] = useState(false)
-  const [metadataStatusBusy, setMetadataStatusBusy] = useState(false)
   const appUpdate = useAppUpdate()
 
   useEffect(() => {
@@ -115,20 +34,8 @@ export default function SettingsPage({
   }, [])
 
   useEffect(() => {
-    setMetadataDraft(settings.metadataBaseUrl)
-    setWebrtcDraft(settings.trackerWebRtcUrl)
     setUploadLimitDraft(settings.p2pUploadLimitKBps > 0 ? String(settings.p2pUploadLimitKBps) : '')
-  }, [settings.metadataBaseUrl, settings.trackerWebRtcUrl, settings.p2pUploadLimitKBps])
-
-  useEffect(() => {
-    if (tab !== 'p2p') return
-    void refreshP2pStatus()
-  }, [tab, settings.p2pEnabled, settings.trackerWebRtcUrl])
-
-  useEffect(() => {
-    if (tab !== 'general') return
-    void refreshMetadataStatus()
-  }, [tab, settings.metadataApiEnabled, settings.metadataBaseUrl])
+  }, [settings.p2pUploadLimitKBps])
 
 
   useEffect(() => {
@@ -192,40 +99,6 @@ export default function SettingsPage({
     { id: 'tags', label: 'Favorite tags' },
     { id: 'hated', label: 'Hated tags' }
   ]
-
-  async function refreshP2pStatus(): Promise<void> {
-    setStatusBusy(true)
-    try {
-      const status = (await window.api.p2p.status()) as {
-        tracker?: { ok: boolean; message?: string }
-      }
-      setTrackerStatus(status.tracker ?? { ok: false, message: 'no status' })
-    } catch (err) {
-      setTrackerStatus({
-        ok: false,
-        message: err instanceof Error ? err.message : 'status failed'
-      })
-    } finally {
-      setStatusBusy(false)
-    }
-  }
-
-  async function refreshMetadataStatus(): Promise<void> {
-    setMetadataStatusBusy(true)
-    try {
-      const status = (await window.api.p2p.status()) as {
-        metadata?: { ok: boolean; message?: string }
-      }
-      setMetadataStatus(status.metadata ?? { ok: false, message: 'no status' })
-    } catch (err) {
-      setMetadataStatus({
-        ok: false,
-        message: err instanceof Error ? err.message : 'status failed'
-      })
-    } finally {
-      setMetadataStatusBusy(false)
-    }
-  }
 
   return (
     <div className="settings-page">
@@ -305,44 +178,6 @@ export default function SettingsPage({
               Catalog discovery, share-claims, and package flags. Off by choice still leaves P2P
               torrenting available when enabled separately.
             </p>
-
-            <div className="folder-field">
-              <span className="filter-label">Metadata base URL</span>
-              <div className="folder-path-row">
-                <div className="folder-path-with-status">
-                  <input
-                    className="folder-path"
-                    value={metadataDraft}
-                    disabled={saving || settings.metadataApiEnabled === false}
-                    placeholder={P2P_ENV_DEFAULTS.METADATA_BASE_URL}
-                    onChange={(event) => setMetadataDraft(event.target.value)}
-                    onBlur={() => {
-                      const next = metadataDraft.trim() || P2P_ENV_DEFAULTS.METADATA_BASE_URL
-                      setMetadataDraft(next)
-                      if (next !== settings.metadataBaseUrl) void persist({ metadataBaseUrl: next })
-                    }}
-                  />
-                  <AddressStatusButton
-                    tone={statusTone(metadataStatus?.ok, metadataStatusBusy)}
-                    detail={metadataStatus?.message}
-                    busy={metadataStatusBusy}
-                    disabled={saving || settings.metadataApiEnabled === false}
-                    onRefresh={() => void refreshMetadataStatus()}
-                  />
-                </div>
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  disabled={saving || settings.metadataApiEnabled === false}
-                  onClick={() => {
-                    setMetadataDraft(P2P_ENV_DEFAULTS.METADATA_BASE_URL)
-                    void persist({ metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL })
-                  }}
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
           </div>
         ) : null}
 
@@ -395,52 +230,6 @@ export default function SettingsPage({
                   }}
                 >
                   Unlimited
-                </button>
-              </div>
-            </div>
-
-            <div className="folder-field">
-              <span className="filter-label">Tracker URL</span>
-              <p className="muted download-meta">
-                WebSocket tracker for peer discovery and hole-punch. Archive bytes stay
-                peer-to-peer.
-              </p>
-              <div className="folder-path-row">
-                <div className="folder-path-with-status">
-                  <input
-                    className="folder-path"
-                    value={webrtcDraft}
-                    disabled={saving}
-                    placeholder={P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL}
-                    onChange={(event) => setWebrtcDraft(event.target.value)}
-                    onBlur={() => {
-                      const raw = webrtcDraft.trim()
-                      const next =
-                        raw.startsWith('ws://') || raw.startsWith('wss://')
-                          ? raw
-                          : P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL
-                      setWebrtcDraft(next)
-                      if (next !== settings.trackerWebRtcUrl) void persist({ trackerWebRtcUrl: next })
-                    }}
-                  />
-                  <AddressStatusButton
-                    tone={statusTone(trackerStatus?.ok, statusBusy)}
-                    detail={trackerStatus?.message}
-                    busy={statusBusy}
-                    disabled={saving || !settings.p2pEnabled}
-                    onRefresh={() => void refreshP2pStatus()}
-                  />
-                </div>
-                <button
-                  className="ghost-btn"
-                  type="button"
-                  disabled={saving}
-                  onClick={() => {
-                    setWebrtcDraft(P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL)
-                    void persist({ trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL })
-                  }}
-                >
-                  Reset
                 </button>
               </div>
             </div>

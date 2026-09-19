@@ -32,11 +32,13 @@ import StoragePage, { type StorageOpenTab } from './pages/StoragePage'
 import GameDetailsPage from './pages/GameDetailsPage'
 import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
-import { isActiveDownload, isActiveP2pDownload } from './lib/downloads'
+import { isActiveDownload, isActiveP2pDownload, collectThreadDownloads } from './lib/downloads'
+import { DownloadProgressProvider } from './lib/download-progress'
 import { useLibraryByThread, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
+import { useStorageScan } from './lib/storage-scan'
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -166,6 +168,7 @@ export default function App(): JSX.Element {
   const [p2pTransfers, setP2pTransfers] = useState<P2pTransferProgress[]>([])
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
   const appUpdate = useAppUpdate()
+  const storageScan = useStorageScan()
   const details = detailsWindows.find((game) => game.threadId === activeThreadId) ?? null
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
@@ -181,7 +184,17 @@ export default function App(): JSX.Element {
   const activeDownloadCount = downloads.filter(isActiveDownload).length + activeP2pCount
   const uploadCount = p2pEnabled ? p2pShared.length : 0
   const libraryByThread = useLibraryByThread()
-  const libraryCount = libraryByThread.size
+  const pendingDownloads = useMemo(
+    () => collectThreadDownloads(downloads, p2pEnabled ? p2pTransfers : [], p2pSharedHashes),
+    [downloads, p2pEnabled, p2pTransfers, p2pSharedHashes]
+  )
+  const libraryCount = useMemo(() => {
+    let extra = 0
+    for (const threadId of pendingDownloads.keys()) {
+      if (!libraryByThread.has(threadId)) extra += 1
+    }
+    return libraryByThread.size + extra
+  }, [libraryByThread, pendingDownloads])
   const rosterIds = useMemo(() => new Set(roster.map((game) => game.threadId)), [roster])
   const updatesCount = useMemo(
     () =>
@@ -529,6 +542,7 @@ export default function App(): JSX.Element {
     />
   ) : (
     <div className={view !== 'downloads' && activeDownloadCount ? 'app-shell app-shell-dock' : 'app-shell'}>
+      <DownloadProgressProvider value={pendingDownloads}>
       <ConfirmHost />
       <AppNav
         view={view}
@@ -543,6 +557,7 @@ export default function App(): JSX.Element {
         showUploads={p2pEnabled}
         appUpdateAvailable={appUpdate.available}
         appUpdateVersion={appUpdate.latestVersion}
+        storageScanning={storageScan.scanning}
         onViewChange={(next) => {
           setView(next)
         }}
@@ -749,6 +764,7 @@ export default function App(): JSX.Element {
           onStopP2p={(id) => void handleStopP2p(id)}
         />
       )}
+      </DownloadProgressProvider>
     </div>
   )
 

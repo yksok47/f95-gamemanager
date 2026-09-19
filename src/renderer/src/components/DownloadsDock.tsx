@@ -35,7 +35,7 @@ function activeKeys(regular: DownloadRecord[], p2p: P2pTransferProgress[]): stri
   return [
     ...regular.map((item) => `dl:${item.id}`),
     ...p2p.map((item) => `p2p:${item.id}`)
-  ].sort()
+  ]
 }
 
 function overallPercent(regular: DownloadRecord[], p2p: P2pTransferProgress[]): number | null {
@@ -71,6 +71,7 @@ export default function DownloadsDock({
     document.getElementById(FOOTER_DOCK_ID)
   )
   const prevKeysRef = useRef<string[] | null>(null)
+  const dockOrderRef = useRef<string[]>([])
   const tileRef = useRef<HTMLElement | null>(null)
   const popupRef = useRef<HTMLElement | null>(null)
 
@@ -82,8 +83,24 @@ export default function DownloadsDock({
   )
   const dockP2p = p2pTransfers.filter((t) => isDockP2pDownload(t, p2pSharedHashes))
   const slots = 3
-  const p2pShown = dockP2p.slice(0, slots)
-  const regularShown = dockRegular.slice(0, Math.max(0, slots - p2pShown.length))
+  const dockRows = (() => {
+    const incoming: Array<
+      | { key: string; kind: 'p2p'; item: P2pTransferProgress }
+      | { key: string; kind: 'http'; item: DownloadRecord }
+    > = [
+      ...dockP2p.map((item) => ({ key: `p2p:${item.id}`, kind: 'p2p' as const, item })),
+      ...dockRegular.map((item) => ({ key: `dl:${item.id}`, kind: 'http' as const, item }))
+    ]
+    const byKey = new Map(incoming.map((row) => [row.key, row]))
+    const kept = dockOrderRef.current.filter((key) => byKey.has(key))
+    const added = incoming.map((row) => row.key).filter((key) => !kept.includes(key))
+    const keys = [...kept, ...added]
+    dockOrderRef.current = keys
+    return keys
+      .slice(0, slots)
+      .map((key) => byKey.get(key))
+      .filter((row): row is NonNullable<typeof row> => Boolean(row))
+  })()
   const activeCount = activeRegular.length + activeP2p.length
   const reviewCount =
     reviewRegular.length + dockP2p.filter((t) => t.state === 'quarantined').length
@@ -91,7 +108,7 @@ export default function DownloadsDock({
   const percent = overallPercent(activeRegular, activeP2p)
   const keys = activeKeys(dockRegular, dockP2p)
   const keysSignature = keys.join('|')
-  const hasVisible = p2pShown.length > 0 || regularShown.length > 0
+  const hasVisible = dockRows.length > 0
 
   useEffect(() => {
     setFooterDock(document.getElementById(FOOTER_DOCK_ID))
@@ -198,31 +215,32 @@ export default function DownloadsDock({
         </div>
       </div>
       <div className="downloads-dock-list">
-        {p2pShown.map((item) => (
-          <P2pTransferRow
-            key={`p2p-${item.id}`}
-            item={item}
-            compact
-            onPause={(id) => onPauseP2p?.(id)}
-            onResume={(id) => onResumeP2p?.(id)}
-            onStop={(id) => onStopP2p?.(id)}
-            onOpenDownloads={onOpenPage}
-          />
-        ))}
-        {regularShown.map((item) => (
-          <DownloadRow
-            key={item.id}
-            item={item}
-            compact
-            onCancel={onCancel}
-            onPause={onPause}
-            onResume={onResume}
-            onRemove={onRemove}
-            onShowInFolder={onShowInFolder}
-            onOpenFile={onOpenFile}
-            onOpenDownloads={onOpenPage}
-          />
-        ))}
+        {dockRows.map((row) =>
+          row.kind === 'p2p' ? (
+            <P2pTransferRow
+              key={`p2p-${row.item.id}`}
+              item={row.item}
+              compact
+              onPause={(id) => onPauseP2p?.(id)}
+              onResume={(id) => onResumeP2p?.(id)}
+              onStop={(id) => onStopP2p?.(id)}
+              onOpenDownloads={onOpenPage}
+            />
+          ) : (
+            <DownloadRow
+              key={row.item.id}
+              item={row.item}
+              compact
+              onCancel={onCancel}
+              onPause={onPause}
+              onResume={onResume}
+              onRemove={onRemove}
+              onShowInFolder={onShowInFolder}
+              onOpenFile={onOpenFile}
+              onOpenDownloads={onOpenPage}
+            />
+          )
+        )}
       </div>
     </aside>
   )

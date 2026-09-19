@@ -1,4 +1,9 @@
 {
+  "compilerOptions": {
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
   "files": [],
   "references": [
     { "path": "./tsconfig.node.json" },

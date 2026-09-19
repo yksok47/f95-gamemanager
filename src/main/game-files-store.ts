@@ -10,7 +10,7 @@ import {
   isInstallableLibraryPackage,
   isRenpyUncensorPackage
 } from '@shared/types'
-import { folderBytes } from './disk-usage'
+import { folderBytes, mapLimit } from './disk-usage'
 import { extractArchive } from './extract'
 import { isArchivePath, sanitizeSegment } from './fs-utils'
 import {
@@ -430,8 +430,23 @@ async function writeStore(files: StoredGameFile[]): Promise<void> {
   await writeFile(file, JSON.stringify({ files }, null, 2), 'utf8')
 }
 
+let broadcastTimer: ReturnType<typeof setTimeout> | null = null
+
 function broadcast(): void {
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer)
+    broadcastTimer = null
+  }
   sendToRenderer('library:changed', (loaded ?? []).map(present))
+}
+
+/** Coalesce install-progress IPC so extract ticks do not stall the renderer. */
+function scheduleBroadcast(): void {
+  if (broadcastTimer) return
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null
+    sendToRenderer('library:changed', (loaded ?? []).map(present))
+  }, 200)
 }
 
 async function hydrateLaunchInfo(files: StoredGameFile[]): Promise<boolean> {
@@ -514,14 +529,16 @@ export async function gameDiskUsage(threadId: number): Promise<{ archiveBytes: n
   const files = await listGameFiles(threadId)
   const archiveBytes = files.reduce((sum, file) => sum + (file.hasArchive ? file.size || 0 : 0), 0)
   const seen = new Set<string>()
-  let installBytes = 0
+  const installPaths: string[] = []
   for (const file of files) {
     if (!file.isInstalled || !file.installPath) continue
     const key = resolve(file.installPath).toLowerCase()
     if (seen.has(key)) continue
     seen.add(key)
-    installBytes += folderBytes(file.installPath)
+    installPaths.push(file.installPath)
   }
+  const sizes = await mapLimit(installPaths, 4, (installPath) => folderBytes(installPath))
+  const installBytes = sizes.reduce((sum, bytes) => sum + bytes, 0)
   return { archiveBytes, installBytes }
 }
 
@@ -661,7 +678,7 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     }
     await extractArchive(file.archivePath, dest, (percent) => {
       installing.set(id, { percent })
-      broadcast()
+      scheduleBroadcast()
     })
     file.installPath = dest
     file.installedAt = Date.now()
@@ -792,7 +809,7 @@ export async function installUncensorPatch(
       meta,
       (percent) => {
         installing.set(patchId, { percent })
-        broadcast()
+        scheduleBroadcast()
       }
     )
 

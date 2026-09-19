@@ -14,11 +14,13 @@ import { gameHasFavoriteTag } from '../lib/favorites'
 import { useCatalogPrefixes } from '../lib/catalog-prefixes'
 import {
   groupLibraryGames,
+  mergeDownloadingLibraryGames,
   summarizeLibrary,
   useLibraryFiles,
   usePlaySessions,
   type LibraryGame
 } from '../lib/library'
+import { usePendingDownloads } from '../lib/download-progress'
 
 type LibrarySort = 'title' | 'played' | 'added' | 'rating' | 'likes' | 'views'
 
@@ -86,6 +88,7 @@ export default function LibraryPage({
   const files = useLibraryFiles()
   const sessions = usePlaySessions()
   const prefixCatalog = useCatalogPrefixes()
+  const pendingDownloads = usePendingDownloads()
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('played')
   const [descending, setDescending] = useState(true)
@@ -97,7 +100,10 @@ export default function LibraryPage({
     [subscriptions]
   )
   const libraryByThread = useMemo(() => summarizeLibrary(files), [files])
-  const games = useMemo(() => groupLibraryGames(files, subscriptions), [files, subscriptions])
+  const games = useMemo(
+    () => mergeDownloadingLibraryGames(groupLibraryGames(files, subscriptions), pendingDownloads, subscriptions),
+    [files, subscriptions, pendingDownloads]
+  )
   const needle = query.trim().toLowerCase()
   const playingByThread = useMemo(() => {
     const ids = new Set<number>()

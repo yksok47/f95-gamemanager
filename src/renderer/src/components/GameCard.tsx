@@ -28,6 +28,7 @@ import {
 import EngineBadge from "./EngineBadge";
 import FollowButton from "./FollowButton";
 import { favoriteTagsOnGame, hatedTagsOnGame } from "../lib/favorites";
+import { useGameDownloadProgress } from "../lib/download-progress";
 import {
   enqueueLowPriorityScreens,
   trackCoverEnd,
@@ -126,9 +127,17 @@ function GameCard({
   const coverRef = useRef<HTMLDivElement>(null);
   const previewing = useRef(false);
   const coverRetrySeen = useRef(false);
+  const coverErrorTries = useRef(0);
   const rarity = game.rarity ?? "regular";
   const shownFavorites = favoriteTagsOnGame(game.tags, favoriteTags);
   const shownHated = hatedTagsOnGame(game.tags, hatedTags);
+  const download = useGameDownloadProgress(game.threadId);
+  const coverProgress =
+    library?.installPercent != null
+      ? { percent: library.installPercent, action: "Installing" as const }
+      : download
+        ? { percent: download.percent, action: "Downloading" as const }
+        : null;
   const engine = cardEngine(game, library, prefixCatalog);
   const likes = saneLikeCount(game.likes);
   const views = saneViewCount(game.views);
@@ -151,6 +160,7 @@ function GameCard({
   const status = gameStatusFlags(game.prefixes, prefixCatalog);
 
   useEffect(() => {
+    coverErrorTries.current = 0;
     setBroken(!game.coverUrl);
   }, [game.coverUrl]);
 
@@ -162,6 +172,7 @@ function GameCard({
       coverRetrySeen.current = true;
       return;
     }
+    coverErrorTries.current = 0;
     setBroken(!game.coverUrl);
     setLoadNonce((n) => n + 1);
   }, [coverRetryKey, game.coverUrl]);
@@ -301,6 +312,11 @@ function GameCard({
             }}
             onError={() => {
               releaseCoverTrack.current?.();
+              if (coverErrorTries.current < 1) {
+                coverErrorTries.current += 1;
+                setLoadNonce((n) => n + 1);
+                return;
+              }
               setBroken(true);
             }}
           />
@@ -325,6 +341,12 @@ function GameCard({
               </div>
             ) : null}
           </div>
+        ) : null}
+        {coverProgress && previewIndex == null ? (
+          <CoverDownloadProgress
+            percent={coverProgress.percent}
+            action={coverProgress.action}
+          />
         ) : null}
         <div className="cover-tl">
           {updates.updateAvailable ? (
@@ -679,3 +701,42 @@ function RosterIcon({ inRoster }: { inRoster: boolean }): JSX.Element {
 }
 
 export default memo(GameCard);
+
+function CoverDownloadProgress({
+  percent,
+  action = "Downloading",
+}: {
+  percent: number | null;
+  action?: "Downloading" | "Installing";
+}): JSX.Element {
+  const label = percent == null ? action : `${action} ${percent}%`;
+  const ringStyle =
+    percent == null
+      ? undefined
+      : {
+          background: `conic-gradient(var(--accent) ${percent}%, rgba(255, 255, 255, 0.16) 0)`,
+        };
+  return (
+    <div
+      className="cover-download-progress"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent ?? undefined}
+    >
+      <span
+        className={
+          percent == null
+            ? "cover-download-ring is-unknown"
+            : "cover-download-ring"
+        }
+        style={ringStyle}
+      >
+        <span className="cover-download-ring-inner">
+          {percent == null ? "…" : `${percent}%`}
+        </span>
+      </span>
+    </div>
+  );
+}

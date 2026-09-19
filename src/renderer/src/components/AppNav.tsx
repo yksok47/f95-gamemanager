@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import appIcon from '../assets/icon.png'
 import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
-import { DownloadIcon, FullscreenIcon, SettingsIcon, StorageIcon, UploadIcon } from './ToolbarIcons'
+import { DownloadIcon, FullscreenIcon, RefreshIcon, SettingsIcon, StorageIcon, UploadIcon } from './ToolbarIcons'
 
 export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'storage' | 'downloads' | 'uploads' | 'settings'
 
@@ -19,6 +19,7 @@ type AppNavProps = {
   showUploads?: boolean
   appUpdateAvailable?: boolean
   appUpdateVersion?: string | null
+  storageScanning?: boolean
   onViewChange: (view: AppView) => void
   onLogout: () => void
 }
@@ -51,6 +52,7 @@ export default function AppNav({
   showUploads = false,
   appUpdateAvailable = false,
   appUpdateVersion = null,
+  storageScanning = false,
   onViewChange,
   onLogout
 }: AppNavProps): JSX.Element {
@@ -109,11 +111,17 @@ export default function AppNav({
         <button
           className={view === 'storage' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
           type="button"
-          title="Storage"
-          aria-label="Storage"
+          title={storageScanning ? 'Storage — scanning disk usage' : 'Storage'}
+          aria-label={storageScanning ? 'Storage, scanning disk usage' : 'Storage'}
+          aria-busy={storageScanning || undefined}
           onClick={() => onViewChange('storage')}
         >
           <StorageIcon />
+          {storageScanning ? (
+            <span className="icon-btn-badge icon-btn-badge-scan" aria-hidden="true">
+              <RefreshIcon spinning />
+            </span>
+          ) : null}
         </button>
         <button
           className={view === 'downloads' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}

@@ -1,8 +1,18 @@
 import { resolve } from 'path'
-import type { GameLibraryFile, LibraryStorageGame, LibraryStorageItem, LibraryStorageStats } from '@shared/types'
-import { fileBytes, folderBytes } from './disk-usage'
+import type {
+  GameLibraryFile,
+  LibraryStorageGame,
+  LibraryStorageItem,
+  LibraryStorageScan,
+  LibraryStorageStats
+} from '@shared/types'
+import { fileBytes, folderBytes, mapLimit } from './disk-usage'
 import { listGameFiles } from './game-files-store'
 import { clearGameSaves, collectSaveItems } from './save-folders'
+import { sendToRenderer } from './windows'
+
+const INSTALL_CONCURRENCY = 4
+const ARCHIVE_CONCURRENCY = 8
 
 function firstText(...values: Array<string | null | undefined>): string {
   for (const value of values) {
@@ -19,7 +29,107 @@ function engineOf(files: GameLibraryFile[]): string {
   return files.map((file) => file.engine).find(Boolean) || ''
 }
 
-export async function libraryStorageStats(): Promise<LibraryStorageStats> {
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message
+  return 'Could not measure disk usage.'
+}
+
+const scan: LibraryStorageScan = {
+  scanning: false,
+  scannedAt: null,
+  error: null,
+  stats: null
+}
+
+export function getLibraryStorageScan(): LibraryStorageScan {
+  return {
+    scanning: scan.scanning,
+    scannedAt: scan.scannedAt,
+    error: scan.error,
+    stats: scan.stats
+  }
+}
+
+function broadcastStorageScan(): void {
+  sendToRenderer('library:storage-scan', getLibraryStorageScan())
+}
+
+let chain: Promise<void> = Promise.resolve()
+let latest: Promise<LibraryStorageStats> | null = null
+let pendingCount = 0
+
+async function runOneScan(): Promise<LibraryStorageStats> {
+  scan.scanning = true
+  scan.error = null
+  broadcastStorageScan()
+  try {
+    const stats = await computeLibraryStorageStats()
+    scan.stats = stats
+    scan.scannedAt = Date.now()
+    scan.error = null
+    return stats
+  } catch (error) {
+    scan.error = errorMessage(error)
+    throw error
+  } finally {
+    pendingCount = Math.max(0, pendingCount - 1)
+    scan.scanning = pendingCount > 0
+    broadcastStorageScan()
+  }
+}
+
+function enqueueLibraryStorageScan(): Promise<LibraryStorageStats> {
+  pendingCount += 1
+  scan.scanning = true
+  scan.error = null
+  broadcastStorageScan()
+  const next = chain.then(runOneScan, runOneScan)
+  chain = next.then(
+    () => undefined,
+    () => undefined
+  )
+  latest = next
+  return next
+}
+
+export function requestLibraryStorageStats(options?: { force?: boolean }): Promise<LibraryStorageStats> {
+  const force = Boolean(options?.force)
+  if (!force && scan.stats) return Promise.resolve(scan.stats)
+  if (!force && latest && pendingCount > 0) return latest
+  return enqueueLibraryStorageScan()
+}
+
+async function measureLibraryFiles(files: GameLibraryFile[]): Promise<{
+  archiveBytesById: Map<string, number>
+  installSeen: Map<string, number>
+}> {
+  const archives = files.filter((file) => file.hasArchive && file.archivePath)
+  const archiveBytesById = new Map<string, number>()
+  const installSeen = new Map<string, number>()
+  const installJobs: Array<{ key: string; path: string }> = []
+  const installQueued = new Set<string>()
+
+  for (const file of files) {
+    if (!file.isInstalled || !file.installPath) continue
+    const key = resolve(file.installPath).toLowerCase()
+    if (installQueued.has(key)) continue
+    installQueued.add(key)
+    installJobs.push({ key, path: file.installPath })
+  }
+
+  await Promise.all([
+    mapLimit(archives, ARCHIVE_CONCURRENCY, async (file) => {
+      archiveBytesById.set(file.id, (await fileBytes(file.archivePath as string)) || file.size || 0)
+    }),
+    mapLimit(installJobs, INSTALL_CONCURRENCY, async (job) => {
+      installSeen.set(job.key, await folderBytes(job.path))
+    })
+  ])
+
+  return { archiveBytesById, installSeen }
+}
+
+async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
   const files = await listGameFiles()
   const byThread = new Map<number, GameLibraryFile[]>()
   for (const file of files) {
@@ -29,13 +139,15 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
     else byThread.set(file.threadId, [file])
   }
 
+  const saveItemsPromise = collectSaveItems(files)
+  const { archiveBytesById, installSeen } = await measureLibraryFiles(files)
+  const saveItems = await saveItemsPromise
+
   const items: LibraryStorageItem[] = []
   const games: LibraryStorageGame[] = []
-  const installSeen = new Map<string, number>()
 
   for (const file of files) {
     if (file.hasArchive && file.archivePath) {
-      const bytes = fileBytes(file.archivePath) || file.size || 0
       items.push({
         id: `archive:${file.id}`,
         kind: 'archive',
@@ -46,7 +158,7 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
         filename: file.filename,
         coverUrl: file.coverUrl ?? null,
         engine: file.engine || '',
-        bytes,
+        bytes: archiveBytesById.get(file.id) || file.size || 0,
         fileId: file.id,
         hasArchive: true,
         isInstalled: file.isInstalled
@@ -54,11 +166,6 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
     }
     if (file.isInstalled && file.installPath) {
       const key = resolve(file.installPath).toLowerCase()
-      let bytes = installSeen.get(key)
-      if (bytes == null) {
-        bytes = folderBytes(file.installPath)
-        installSeen.set(key, bytes)
-      }
       items.push({
         id: `install:${file.id}`,
         kind: 'install',
@@ -69,7 +176,7 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
         filename: file.filename,
         coverUrl: file.coverUrl ?? null,
         engine: file.engine || '',
-        bytes,
+        bytes: installSeen.get(key) || 0,
         fileId: file.id,
         hasArchive: file.hasArchive,
         isInstalled: true
@@ -77,7 +184,6 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
     }
   }
 
-  const saveItems = await collectSaveItems(files)
   items.push(...saveItems)
 
   const savesByThread = new Map<number, LibraryStorageItem[]>()
@@ -168,6 +274,10 @@ export async function libraryStorageStats(): Promise<LibraryStorageStats> {
     games,
     items
   }
+}
+
+export function libraryStorageStats(): Promise<LibraryStorageStats> {
+  return requestLibraryStorageStats({ force: false })
 }
 
 export { clearGameSaves }

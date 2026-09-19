@@ -196,19 +196,15 @@ export async function readSaveScreenshot(
   }
 }
 
-export function registerSaveThumbScheme(): void {
-  protocol.registerSchemesAsPrivileged([
-    {
-      scheme: 'save-thumb',
-      privileges: {
-        standard: true,
-        secure: true,
-        supportFetchAPI: true,
-        corsEnabled: true,
-        stream: true
-      }
-    }
-  ])
+export const SAVE_THUMB_SCHEME = {
+  scheme: 'save-thumb',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true
+  }
 }
 
 export function registerSaveThumbProtocol(): void {

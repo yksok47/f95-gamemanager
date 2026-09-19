@@ -97,20 +97,19 @@ function toRecord(entry: TrackedDownload): DownloadRecord {
     gameThreadId: entry.context?.threadId,
     gameTitle: entry.context?.title,
     gameVersion: entry.context?.version,
+    gameCreator: entry.context?.creator,
+    gameCoverUrl: entry.context?.coverUrl,
+    gameEngine: entry.context?.engine,
     hash: entry.hash,
     libraryStatus: entry.libraryStatus,
     packageHint: entry.packageHint || entry.context?.packageHint
   }
 }
 
-function downloadRecency(item: DownloadRecord): number {
-  return item.finishedAt ?? item.updatedAt ?? item.startedAt
-}
-
 function listRecords(): DownloadRecord[] {
   return [...tracked.values()]
     .map(toRecord)
-    .sort((a, b) => downloadRecency(b) - downloadRecency(a) || b.startedAt - a.startedAt)
+    .sort((a, b) => b.startedAt - a.startedAt || a.id.localeCompare(b.id))
 }
 
 function historyFingerprint(items: DownloadRecord[]): string {
@@ -176,6 +175,9 @@ function recordToTracked(row: DownloadRecord): TrackedDownload {
             threadId: row.gameThreadId,
             title: row.gameTitle || row.filename,
             version: row.gameVersion || '',
+            creator: row.gameCreator,
+            coverUrl: row.gameCoverUrl,
+            engine: row.gameEngine,
             packageHint: row.packageHint
           }
         : undefined

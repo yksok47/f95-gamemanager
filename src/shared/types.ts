@@ -125,9 +125,9 @@ export type AppSettings = {
    * P2P swarm / tracker still work when p2pEnabled.
    */
   metadataApiEnabled: boolean
-  /** Metadata REST base (no trailing slash). Prefer https:// — client trusts resources/certs/metadata-ca.crt */
+  /** Metadata REST base (no trailing slash). Hardcoded; override via METADATA_BASE_URL. */
   metadataBaseUrl: string
-  /** WebSocket tracker (wss:// preferred; ws:// for local plain). Peer list + ICE signaling. */
+  /** WebSocket tracker (wss:// preferred). Hardcoded; override via TRACKER_WEBRTC_URL. */
   trackerWebRtcUrl: string
   /** P2P upload cap in KB/s. 0 = unlimited. */
   p2pUploadLimitKBps: number
@@ -179,6 +179,9 @@ export type DownloadRecord = {
   gameThreadId?: number
   gameTitle?: string
   gameVersion?: string
+  gameCreator?: string
+  gameCoverUrl?: string | null
+  gameEngine?: string
   hash?: string
   libraryStatus?: DownloadLibraryStatus
   /** From the F95 download link that started this transfer — used when metadata API has nothing. */
@@ -313,6 +316,13 @@ export type LibraryStorageStats = {
   totalBytes: number
   games: LibraryStorageGame[]
   items: LibraryStorageItem[]
+}
+
+export type LibraryStorageScan = {
+  scanning: boolean
+  scannedAt: number | null
+  error: string | null
+  stats: LibraryStorageStats | null
 }
 
 export type PlaySessionStatus = {

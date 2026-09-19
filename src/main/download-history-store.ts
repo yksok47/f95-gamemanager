@@ -79,6 +79,9 @@ export function normalizeDownloadHistory(value: unknown): DownloadHistoryStore {
       gameThreadId: asNumber(e.gameThreadId),
       gameTitle: asString(e.gameTitle),
       gameVersion: asString(e.gameVersion),
+      gameCreator: asString(e.gameCreator),
+      gameCoverUrl: asString(e.gameCoverUrl) ?? (e.gameCoverUrl === null ? null : undefined),
+      gameEngine: asString(e.gameEngine),
       hash: asString(e.hash),
       libraryStatus,
       packageHint: asPackageHint(e.packageHint)

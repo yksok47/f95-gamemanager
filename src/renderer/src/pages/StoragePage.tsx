@@ -10,6 +10,7 @@ import { RefreshIcon } from '../components/ToolbarIcons'
 import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught } from '../components/ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
+import { useStorageScan } from '../lib/storage-scan'
 
 export type StorageOpenTab = 'files' | 'saves'
 
@@ -28,22 +29,10 @@ type StoragePageProps = {
 
 type ListTab = 'games' | 'archives' | 'installs' | 'saves'
 
-const KIND_META: Record<
-  LibraryStorageKind,
-  { label: string; color: string }
-> = {
+const KIND_META: Record<LibraryStorageKind, { label: string; color: string }> = {
   archive: { label: 'Archives', color: '#f0b429' },
   install: { label: 'Installed', color: '#6ea8fe' },
   saves: { label: 'Saves', color: '#63e6be' }
-}
-
-const EMPTY_STATS: LibraryStorageStats = {
-  archiveBytes: 0,
-  installBytes: 0,
-  saveBytes: 0,
-  totalBytes: 0,
-  games: [],
-  items: []
 }
 
 function matchesQuery(haystack: string, query: string): boolean {
@@ -155,45 +144,17 @@ function DonutChart({ stats }: { stats: LibraryStorageStats }): JSX.Element {
 }
 
 export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
-  const [stats, setStats] = useState<LibraryStorageStats>(EMPTY_STATS)
-  const [busy, setBusy] = useState(true)
+  const { stats, scanning, hasScan, ensure, refresh } = useStorageScan()
   const [acting, setActing] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<ListTab>('games')
   const [menuFor, setMenuFor] = useState<number | null>(null)
   const [identifyTarget, setIdentifyTarget] = useState<SaveFolderIdentifyTarget | null>(null)
   const menuAnchor = useRef<HTMLButtonElement | null>(null)
-  const loadGen = useRef(0)
-
-  const load = useCallback(async (quiet = false): Promise<void> => {
-    const gen = ++loadGen.current
-    if (!quiet) setBusy(true)
-    try {
-      const next = await window.api.library.storageStats()
-      if (gen !== loadGen.current) return
-      setStats(next)
-    } catch (err) {
-      if (gen !== loadGen.current) return
-      notifyCaught(err, 'Could not measure disk usage.')
-    } finally {
-      if (gen === loadGen.current) setBusy(false)
-    }
-  }, [])
 
   useEffect(() => {
-    void load()
-    let timer: number | null = null
-    const stop = window.api.library.onChange(() => {
-      if (timer) window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        void load(true)
-      }, 400)
-    })
-    return () => {
-      stop()
-      if (timer) window.clearTimeout(timer)
-    }
-  }, [load])
+    void ensure()
+  }, [ensure])
 
   const needle = query.trim().toLowerCase()
   const games = useMemo(
@@ -248,7 +209,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     setActing(id)
     try {
       await work()
-      await load(true)
+      await refresh()
     } catch (err) {
       notifyCaught(err, 'Could not free that space.')
     } finally {
@@ -335,7 +296,6 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     setActing(`identify:${item.id}`)
     try {
       const next = await window.api.library.identifySaveFolder(item.savePath)
-      setStats(next)
       const row = next.items.find((entry) => entry.id === item.id)
       if (row && row.identifyFailed && !row.identified) {
         openIdentifyPicker({ ...item, ...row, savePath: row.savePath || item.savePath })
@@ -351,8 +311,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     if (!identifyTarget) return
     setActing(`identify:${identifyTarget.id}`)
     try {
-      const next = await window.api.library.assignSaveFolder(identifyTarget.savePath, game)
-      setStats(next)
+      await window.api.library.assignSaveFolder(identifyTarget.savePath, game)
       setIdentifyTarget(null)
     } catch (err) {
       notifyCaught(err, 'Could not assign that game.')
@@ -452,7 +411,11 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     <div className="storage-page">
       <FooterPortal>
         <span className="muted pager-label">
-          {busy ? 'Measuring…' : `${formatBytes(stats.totalBytes)} across ${stats.games.length} games`}
+          {scanning
+            ? hasScan
+              ? `Measuring… · ${formatBytes(stats.totalBytes)} across ${stats.games.length} games`
+              : 'Measuring…'
+            : `${formatBytes(stats.totalBytes)} across ${stats.games.length} games`}
         </span>
       </FooterPortal>
 
@@ -479,10 +442,10 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
               type="button"
               title="Refresh"
               aria-label="Refresh storage"
-              disabled={busy}
-              onClick={() => void load()}
+              disabled={scanning}
+              onClick={() => void refresh()}
             >
-              <RefreshIcon spinning={busy} />
+              <RefreshIcon spinning={scanning} />
             </button>
           </div>
         </div>
@@ -546,7 +509,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
                 ))}
               </ol>
             ) : (
-              <p className="muted">{busy ? 'Scanning folders…' : 'Download or install a game to see usage here.'}</p>
+              <p className="muted">{scanning && !hasScan ? 'Scanning folders…' : 'Download or install a game to see usage here.'}</p>
             )}
           </div>
         </div>
@@ -659,14 +622,14 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
               })}
             </ul>
           ) : (
-            <p className="muted">{busy ? 'Scanning folders…' : 'No games match that filter.'}</p>
+            <p className="muted">{scanning && !hasScan ? 'Scanning folders…' : 'No games match that filter.'}</p>
           )
         ) : null}
 
         {tab === 'archives' ? (
           <StorageItemList
             items={archives}
-            empty={busy ? 'Scanning folders…' : 'No archives on disk.'}
+            empty={scanning && !hasScan ? 'Scanning folders…' : 'No archives on disk.'}
             actionLabel="Delete archive"
             busyId={acting}
             onOpen={(item) => openGame(item, 'files')}
@@ -677,7 +640,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         {tab === 'installs' ? (
           <StorageItemList
             items={installs}
-            empty={busy ? 'Scanning folders…' : 'No installed games on disk.'}
+            empty={scanning && !hasScan ? 'Scanning folders…' : 'No installed games on disk.'}
             actionLabel="Uninstall"
             busyId={acting}
             onOpen={(item) => openGame(item, 'files')}
@@ -688,7 +651,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         {tab === 'saves' ? (
           <StorageSavesList
             items={saves}
-            empty={busy ? 'Scanning folders…' : 'No save folders found.'}
+            empty={scanning && !hasScan ? 'Scanning folders…' : 'No save folders found.'}
             busyId={acting}
             onOpenGame={(item) => openGame(item, 'saves')}
             onOpenFolder={(item) => void openSaveFolder(item.savePath)}

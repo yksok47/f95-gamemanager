@@ -310,6 +310,21 @@ button {
   height: 11px;
 }
 
+.icon-btn-badge-scan {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+  padding: 0;
+}
+
+.icon-btn-badge-scan svg,
+.icon-btn .icon-btn-badge-scan svg {
+  width: 11px;
+  height: 11px;
+}
+
 .ghost-btn.icon-btn {
   position: relative;
   padding: 0;
@@ -676,6 +691,7 @@ button {
   position: absolute;
   top: 8px;
   right: 8px;
+  z-index: 5;
   display: inline-flex;
   align-items: center;
   border: 0;
@@ -1942,7 +1958,7 @@ button {
   position: absolute;
   left: 8px;
   bottom: 8px;
-  z-index: 1;
+  z-index: 5;
   display: flex;
   align-items: flex-end;
   gap: 6px;
@@ -2081,7 +2097,7 @@ button {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  z-index: 1;
+  z-index: 4;
   max-width: calc(100% - 120px);
   padding: 3px 8px;
   border-radius: 999px;
@@ -2100,7 +2116,7 @@ button {
   position: absolute;
   top: 8px;
   left: 8px;
-  z-index: 1;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2237,6 +2253,55 @@ button {
   display: block;
 }
 
+.cover-download-progress {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 10, 16, 0.46);
+  pointer-events: none;
+}
+
+.cover-download-ring {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 999px;
+  background: var(--border);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.38);
+}
+
+.cover-download-ring.is-unknown {
+  background: conic-gradient(var(--accent) 28%, rgba(255, 255, 255, 0.16) 0);
+  animation: cover-download-spin 0.9s linear infinite;
+}
+
+.cover-download-ring-inner {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.cover-download-ring.is-unknown .cover-download-ring-inner {
+  animation: cover-download-spin 0.9s linear infinite reverse;
+}
+
+@keyframes cover-download-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .cover-preview {
   position: absolute;
   inset: 0;
@@ -2285,6 +2350,7 @@ button {
 .game-card.is-previewing .follow-btn,
 .game-card.is-previewing .library-badge,
 .game-card.is-previewing .cover-bl,
+.game-card.is-previewing .cover-download-progress,
 .game-card.is-previewing .card-update-actions {
   visibility: hidden;
 }
@@ -3901,6 +3967,33 @@ body.is-details-modal-dragging .details-modal-shell * {
   font-size: 1.8rem;
   line-height: 1;
   cursor: pointer;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(18, 20, 26, 0.85);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lightbox-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.lightbox-close:hover,
+.lightbox-nav:hover {
+  background: rgba(28, 32, 42, 0.95);
 }
 
 .lightbox-prev {

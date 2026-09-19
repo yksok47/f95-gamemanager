@@ -23,6 +23,7 @@ export function getAppPaths(): {
   rosterFile: string
   downloadsDir: string
   libraryDir: string
+  imageCacheDir: string
 } {
   const userData = app.getPath('userData')
   return {
@@ -41,6 +42,7 @@ export function getAppPaths(): {
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),
     downloadsDir: join(userData, 'downloads'),
-    libraryDir: join(userData, 'library')
+    libraryDir: join(userData, 'library'),
+    imageCacheDir: join(userData, 'image-cache')
   }
 }

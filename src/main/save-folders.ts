@@ -2,7 +2,7 @@ import { basename, isAbsolute, join, resolve, sep } from 'path'
 import { engineKind } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import type { CatalogGame, GameLibraryFile, LibraryStorageItem, Subscription } from '@shared/types'
-import { folderBytes } from './disk-usage'
+import { folderBytes, mapLimit } from './disk-usage'
 import { fetchCatalog } from './f95/catalog'
 import { sanitizeCatalogQuery } from './f95/sanitize-query'
 import { fetchThreadDetails } from './f95/thread'
@@ -254,7 +254,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     }
   }
 
-  const diskFolders = listRenpySaveFolders().filter((folder) => folder.bytes > 0)
+  const diskFolders = (await listRenpySaveFolders()).filter((folder) => folder.bytes > 0)
   const foldersByKey = new Map(diskFolders.map((folder) => [saveFolderKey(folder.path), folder]))
   const foldersByName = new Map(diskFolders.map((folder) => [folder.name, folder]))
 
@@ -263,7 +263,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     if (!dir) continue
     const folderPath = resolveRenpyDirectory(dir)
     const disk = foldersByKey.get(saveFolderKey(folderPath))
-    const bytes = disk?.bytes || (pathExists(folderPath) ? folderBytes(folderPath) : 0)
+    const bytes = disk?.bytes || (pathExists(folderPath) ? await folderBytes(folderPath) : 0)
     if (bytes <= 0) continue
     claim(
       saveItem({
@@ -350,58 +350,70 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     )
   }
 
-  const rpgBackups = listRpgMakerBackupFolders()
+  const rpgBackups = await listRpgMakerBackupFolders()
   const rpgBackupByThread = new Map(rpgBackups.map((folder) => [folder.threadId, folder]))
 
-  for (const game of known.values()) {
-    if (claimedThreads.has(game.threadId)) continue
+  const remainingGames = [...known.values()].filter((game) => !claimedThreads.has(game.threadId))
+  const rpgBytesByThread = new Map<number, number>()
+  const inGameRenpyByThread = new Map<number, { path: string; bytes: number }>()
+  await mapLimit(remainingGames, 4, async (game) => {
     const kind = engineKind(game.engine)
     if (kind === 'rpgmaker' || (!game.engine && game.inLibrary)) {
-      const bytes = measureRpgMakerSaveBytes({
+      const bytes = await measureRpgMakerSaveBytes({
         installPath: game.file?.installPath,
         threadId: game.threadId
       })
       if (bytes > 0) {
-        const backup = rpgBackupByThread.get(game.threadId)
-        const gameSave = findRpgMakerGameSaveDir(game.file?.installPath)
-        const folderPath =
-          (backup?.path && pathExists(backup.path) && backup.path) ||
-          (gameSave && pathExists(gameSave) && gameSave) ||
-          backup?.path ||
-          join(rpgMakerSavesRoot(), String(game.threadId))
-        claim(
-          saveItem({
-            path: folderPath,
-            folderName: backup?.name || String(game.threadId),
-            bytes,
-            game,
-            identified: true,
-            identifyFailed: false,
-            engineHint: 'RPG Maker'
-          })
-        )
-        continue
+        rpgBytesByThread.set(game.threadId, bytes)
+        return
       }
     }
-    if (kind === 'rpgmaker') continue
+    if (kind === 'rpgmaker') return
     const dir = game.file?.renpySaveDirectory
     if (dir === null) {
       const savePath = inGameRenpySavePath(game.file?.installPath)
-      const bytes = savePath && pathExists(savePath) ? folderBytes(savePath) : 0
-      if (bytes > 0 && savePath) {
-        claim(
-          saveItem({
-            path: savePath,
-            folderName: 'game/saves',
-            bytes,
-            game,
-            identified: true,
-            identifyFailed: false,
-            engineHint: "Ren'Py"
-          })
-        )
-      }
+      const bytes = savePath && pathExists(savePath) ? await folderBytes(savePath) : 0
+      if (bytes > 0 && savePath) inGameRenpyByThread.set(game.threadId, { path: savePath, bytes })
     }
+  })
+
+  for (const game of remainingGames) {
+    if (claimedThreads.has(game.threadId)) continue
+    const rpgBytes = rpgBytesByThread.get(game.threadId)
+    if (rpgBytes) {
+      const backup = rpgBackupByThread.get(game.threadId)
+      const gameSave = findRpgMakerGameSaveDir(game.file?.installPath)
+      const folderPath =
+        (backup?.path && pathExists(backup.path) && backup.path) ||
+        (gameSave && pathExists(gameSave) && gameSave) ||
+        backup?.path ||
+        join(rpgMakerSavesRoot(), String(game.threadId))
+      claim(
+        saveItem({
+          path: folderPath,
+          folderName: backup?.name || String(game.threadId),
+          bytes: rpgBytes,
+          game,
+          identified: true,
+          identifyFailed: false,
+          engineHint: 'RPG Maker'
+        })
+      )
+      continue
+    }
+    const inGame = inGameRenpyByThread.get(game.threadId)
+    if (!inGame) continue
+    claim(
+      saveItem({
+        path: inGame.path,
+        folderName: 'game/saves',
+        bytes: inGame.bytes,
+        game,
+        identified: true,
+        identifyFailed: false,
+        engineHint: "Ren'Py"
+      })
+    )
   }
 
   for (const folder of rpgBackups) {

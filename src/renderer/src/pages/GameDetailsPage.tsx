@@ -77,7 +77,7 @@ import {
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
-import { PagerIcon, RefreshIcon } from '../components/ToolbarIcons'
+import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { usePlaySessions } from '../lib/library'
 
@@ -578,8 +578,10 @@ function GameDetailsPage({
 
     setFilesReady(false)
     void refreshFiles()
-    const stopLibrary = window.api.library.onChange(() => {
-      void refreshFiles()
+    const stopLibrary = window.api.library.onChange((items) => {
+      if (cancelled) return
+      setFiles(items.filter((item) => item.threadId === summary.threadId))
+      setFilesReady(true)
     })
     const stopDownloads = window.api.downloads.onChange((items) => {
       if (cancelled || modalDrag.current.active) return
@@ -1026,7 +1028,7 @@ function GameDetailsPage({
 
     const onPointerDown = (event: PointerEvent): void => {
       if (event.button !== 0) return
-      if ((event.target as HTMLElement | null)?.closest?.('.lightbox-nav')) return
+      if ((event.target as HTMLElement | null)?.closest?.('.lightbox-nav, .lightbox-close')) return
       swipe.active = true
       swipe.moved = false
       swipe.pointerId = event.pointerId
@@ -2499,6 +2501,17 @@ function GameDetailsPage({
       {lightbox != null && gallery[lightbox]
         ? createPortal(
             <div className="lightbox" onClick={() => setLightbox(null)} role="dialog" aria-modal="true">
+              <button
+                className="lightbox-close"
+                type="button"
+                aria-label="Close gallery"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setLightbox(null)
+                }}
+              >
+                <ClearIcon />
+              </button>
               <div className="lightbox-stage" ref={lightboxStageRef}>
                 <img
                   src={gallery[lightbox]}

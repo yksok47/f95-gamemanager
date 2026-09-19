@@ -75,7 +75,7 @@ import {
   showRenpySave
 } from './renpy/saves'
 import { getAppPaths } from './paths'
-import { clearGameSaves, libraryStorageStats } from './storage-stats'
+import { clearGameSaves, getLibraryStorageScan, requestLibraryStorageStats } from './storage-stats'
 import { assignSaveFolder, identifySaveFolder, openManagedSaveFolder } from './save-folders'
 import { getSettings, saveSettings } from './settings-store'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
@@ -588,13 +588,15 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('library:storageStats', async () => {
+  ipcMain.handle('library:storageStats', async (_event, force?: boolean) => {
     try {
-      return await libraryStorageStats()
+      return await requestLibraryStorageStats({ force: Boolean(force) })
     } catch (error) {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle('library:storageScan', () => getLibraryStorageScan())
 
   ipcMain.handle('library:clearSaves', async (_event, threadId: number, savePath?: string) => {
     try {
@@ -615,7 +617,7 @@ export function registerIpc(): void {
   ipcMain.handle('library:identifySaveFolder', async (_event, savePath: string) => {
     try {
       await identifySaveFolder(String(savePath || ''))
-      return await libraryStorageStats()
+      return await requestLibraryStorageStats({ force: true })
     } catch (error) {
       throw toIpcError(error)
     }
@@ -630,7 +632,7 @@ export function registerIpc(): void {
     ) => {
       try {
         await assignSaveFolder(String(savePath || ''), game || { threadId: 0, title: '' })
-        return await libraryStorageStats()
+        return await requestLibraryStorageStats({ force: true })
       } catch (error) {
         throw toIpcError(error)
       }

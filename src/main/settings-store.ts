@@ -41,12 +41,6 @@ function envOrDefault(key: keyof typeof P2P_ENV_DEFAULTS): string {
   return P2P_ENV_DEFAULTS[key]
 }
 
-function normalizeUrl(value: unknown, fallback: string): string {
-  if (typeof value !== 'string') return fallback
-  const trimmed = value.trim()
-  return trimmed || fallback
-}
-
 /** Upgrade known production metadata host from cleartext http → https. */
 function migrateMetadataHttps(url: string): string {
   try {
@@ -86,32 +80,6 @@ function migrateLegacyWebRtcPort(url: string): string {
     /* keep */
   }
   return migrateTrackerWss(url)
-}
-
-function httpAnnounceToWs(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) return ''
-  try {
-    const parsed = new URL(value.trim())
-    if (parsed.protocol === 'http:') parsed.protocol = 'ws:'
-    else if (parsed.protocol === 'https:') parsed.protocol = 'wss:'
-    else return ''
-    parsed.pathname = ''
-    parsed.search = ''
-    parsed.hash = ''
-    return migrateLegacyWebRtcPort(parsed.toString().replace(/\/$/, ''))
-  } catch {
-    return ''
-  }
-}
-
-function normalizeWebRtcUrl(value: unknown, fallback: string): string {
-  const raw = typeof value === 'string' ? value.trim() : undefined
-  const next = raw === undefined ? fallback.trim() : raw
-  if (!next) return fallback.trim()
-  if (next.startsWith('ws://') || next.startsWith('wss://')) {
-    return migrateLegacyWebRtcPort(next.replace(/\/$/, ''))
-  }
-  return fallback.trim()
 }
 
 function normalizeDir(value: unknown, fallback: string): string {
@@ -163,14 +131,22 @@ function readHatedTags(value: unknown): HatedTag[] {
   return tags.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function hardcodedMetadataUrl(): string {
+  return migrateMetadataHttps(envOrDefault('METADATA_BASE_URL'))
+}
+
+function hardcodedTrackerUrl(): string {
+  return migrateLegacyWebRtcPort(envOrDefault('TRACKER_WEBRTC_URL'))
+}
+
 function emptySettings(): AppSettings {
   return {
     favoriteTags: [],
     hatedTags: [],
     p2pEnabled: false,
     metadataApiEnabled: true,
-    metadataBaseUrl: envOrDefault('METADATA_BASE_URL'),
-    trackerWebRtcUrl: envOrDefault('TRACKER_WEBRTC_URL'),
+    metadataBaseUrl: hardcodedMetadataUrl(),
+    trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: 0,
     ...defaultFolders()
   }
@@ -190,14 +166,8 @@ function normalizeSettings(value: unknown): AppSettings {
     p2pEnabled: Boolean(raw.p2pEnabled),
     metadataApiEnabled:
       typeof raw.metadataApiEnabled === 'boolean' ? raw.metadataApiEnabled : true,
-    metadataBaseUrl: migrateMetadataHttps(
-      normalizeUrl(raw.metadataBaseUrl, envOrDefault('METADATA_BASE_URL'))
-    ),
-    trackerWebRtcUrl: normalizeWebRtcUrl(
-      raw.trackerWebRtcUrl ||
-        httpAnnounceToWs((raw as { trackerAnnounceUrl?: unknown }).trackerAnnounceUrl),
-      envOrDefault('TRACKER_WEBRTC_URL')
-    ),
+    metadataBaseUrl: hardcodedMetadataUrl(),
+    trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps)
   }
 }
@@ -245,7 +215,7 @@ export function getLibraryDirSync(): string {
 }
 
 export function getMetadataBaseUrlSync(): string {
-  return loaded?.metadataBaseUrl ?? envOrDefault('METADATA_BASE_URL')
+  return hardcodedMetadataUrl()
 }
 
 export function getMetadataApiEnabledSync(): boolean {
@@ -253,7 +223,7 @@ export function getMetadataApiEnabledSync(): boolean {
 }
 
 export function getTrackerWebRtcUrlSync(): string {
-  return loaded?.trackerWebRtcUrl ?? envOrDefault('TRACKER_WEBRTC_URL')
+  return hardcodedTrackerUrl()
 }
 
 export function getP2pUploadLimitKBpsSync(): number {

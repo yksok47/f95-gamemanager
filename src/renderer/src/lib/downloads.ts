@@ -114,3 +114,88 @@ export function downloadStatusLabel(status: DownloadStatus): string {
   if (status === 'cancelled') return 'Cancelled'
   return 'Interrupted'
 }
+
+export type ThreadDownloadProgress = {
+  threadId: number
+  title: string
+  version: string
+  creator: string
+  coverUrl: string | null
+  engine: string
+  percent: number | null
+  startedAt: number
+}
+
+function p2pPercent(item: P2pTransferProgress): number {
+  return Math.max(0, Math.min(100, Math.round((item.progress || 0) * 100)))
+}
+
+function mergeThreadDownload(
+  existing: ThreadDownloadProgress | undefined,
+  next: ThreadDownloadProgress
+): ThreadDownloadProgress {
+  if (!existing) return next
+  const percents = [existing.percent, next.percent].filter((value): value is number => value != null)
+  return {
+    threadId: next.threadId,
+    title: existing.title.trim() || next.title,
+    version: existing.version || next.version,
+    creator: existing.creator || next.creator,
+    coverUrl: existing.coverUrl || next.coverUrl,
+    engine: existing.engine || next.engine,
+    percent: percents.length
+      ? Math.round(percents.reduce((sum, value) => sum + value, 0) / percents.length)
+      : null,
+    startedAt: Math.min(existing.startedAt, next.startedAt)
+  }
+}
+
+/** In-flight HTTP/P2P downloads keyed by F95 thread, including hashing/review until they join the library. */
+export function collectThreadDownloads(
+  downloads: DownloadRecord[],
+  p2pTransfers: P2pTransferProgress[] = [],
+  sharedContentHashes?: ReadonlySet<string>
+): Map<number, ThreadDownloadProgress> {
+  const byThread = new Map<number, ThreadDownloadProgress>()
+  const now = Date.now()
+
+  for (const item of downloads) {
+    if (!isDockDownload(item)) continue
+    const threadId = item.gameThreadId
+    if (threadId == null || !Number.isFinite(threadId)) continue
+    byThread.set(
+      threadId,
+      mergeThreadDownload(byThread.get(threadId), {
+        threadId,
+        title: item.gameTitle?.trim() || item.filename,
+        version: item.gameVersion || '',
+        creator: item.gameCreator || '',
+        coverUrl: item.gameCoverUrl || null,
+        engine: item.gameEngine || '',
+        percent: downloadPercent(item),
+        startedAt: item.startedAt
+      })
+    )
+  }
+
+  for (const item of p2pTransfers) {
+    if (!isDockP2pDownload(item, sharedContentHashes)) continue
+    const threadId = item.f95ThreadId
+    if (threadId == null || !Number.isFinite(threadId)) continue
+    byThread.set(
+      threadId,
+      mergeThreadDownload(byThread.get(threadId), {
+        threadId,
+        title: item.gameName?.trim() || item.normalizedName || 'Download',
+        version: item.gameVersion || '',
+        creator: '',
+        coverUrl: null,
+        engine: '',
+        percent: p2pPercent(item),
+        startedAt: now
+      })
+    )
+  }
+
+  return byThread
+}

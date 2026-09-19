@@ -7,7 +7,7 @@ import P2pTransferRow from "../components/P2pTransferRow";
 import { isActiveP2pDownload } from "../lib/downloads";
 
 function downloadRecency(item: DownloadRecord): number {
-  return item.finishedAt ?? item.updatedAt ?? item.startedAt;
+  return item.startedAt;
 }
 
 /** `add:1757…:abc` / `seed:…` ids embed a start timestamp. */
@@ -86,7 +86,7 @@ export default function DownloadsPage({
         next.push({ kind: "p2p", at: p2pRecency(item), item });
       }
     }
-    return next.sort((a, b) => b.at - a.at);
+    return next.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id));
   }, [items, p2pEnabled, p2pTransfers, p2pSharedHashes]);
   const totalCount = rows.length;
 

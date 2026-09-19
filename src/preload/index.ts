@@ -11,6 +11,7 @@ import type {
   GameFileContext,
   GameLibraryFile,
   GameRarity,
+  LibraryStorageScan,
   LibraryStorageStats,
   ImportResult,
   LoginPayload,
@@ -172,7 +173,16 @@ const api = {
       ipcRenderer.invoke('library:list', threadId),
     diskUsage: (threadId: number): Promise<{ archiveBytes: number; installBytes: number }> =>
       ipcRenderer.invoke('library:diskUsage', threadId),
-    storageStats: (): Promise<LibraryStorageStats> => ipcRenderer.invoke('library:storageStats'),
+    storageStats: (force?: boolean): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:storageStats', Boolean(force)),
+    storageScan: (): Promise<LibraryStorageScan> => ipcRenderer.invoke('library:storageScan'),
+    onStorageScan: (listener: (scan: LibraryStorageScan) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: LibraryStorageScan): void => listener(next)
+      ipcRenderer.on('library:storage-scan', wrapped)
+      return () => {
+        ipcRenderer.removeListener('library:storage-scan', wrapped)
+      }
+    },
     clearSaves: (threadId: number, savePath?: string): Promise<void> =>
       ipcRenderer.invoke('library:clearSaves', threadId, savePath),
     openSaveFolder: (savePath: string): Promise<void> =>

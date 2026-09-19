@@ -10,7 +10,7 @@ import {
   rememberIdentifiedSaveFolders
 } from '../save-folders-store'
 import { findRenpyGameRoot } from '../launch'
-import { folderBytes } from '../disk-usage'
+import { folderBytes, mapLimit } from '../disk-usage'
 import { listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
 import { findNamedFiles, gameDirFromRoot, scanScripts } from './scan'
 import { EMPTY_OPTIONS, readRenpyOptions } from './options'
@@ -63,15 +63,16 @@ export type RenpyDiskSaveFolder = {
   bytes: number
 }
 
-export function listRenpySaveFolders(): RenpyDiskSaveFolder[] {
+export async function listRenpySaveFolders(): Promise<RenpyDiskSaveFolder[]> {
   const root = renpySavesRoot()
   if (!pathExists(root)) return []
-  return listDirents(root)
-    .filter((entry) => entry.isDirectory() && entry.name !== '.' && entry.name !== '..')
-    .map((entry) => {
-      const folderPath = join(root, entry.name)
-      return { name: entry.name, path: folderPath, bytes: folderBytes(folderPath) }
-    })
+  const dirs = listDirents(root).filter(
+    (entry) => entry.isDirectory() && entry.name !== '.' && entry.name !== '..'
+  )
+  return mapLimit(dirs, 4, async (entry) => {
+    const folderPath = join(root, entry.name)
+    return { name: entry.name, path: folderPath, bytes: await folderBytes(folderPath) }
+  })
 }
 
 function listRenpySaveFolderNames(): string[] {
@@ -498,7 +499,7 @@ export async function getRenpyInfo(
     saveDirectory: saveDirectory ?? null,
     savePath,
     savePathExists: Boolean(savePath && pathExists(savePath)),
-    saveFolderBytes: savePath && pathExists(savePath) ? folderBytes(savePath) : 0,
+    saveFolderBytes: savePath && pathExists(savePath) ? await folderBytes(savePath) : 0,
     optionsFound: Boolean(options),
     optionsGlobal: await isRenpyOptionsGlobalEnabled(),
     tools,
@@ -701,7 +702,7 @@ export async function measureRenpySaveBytes(fileId: string, title = ''): Promise
     if (saveDirectory === undefined) return 0
     const savePath = resolveSavePath(lookup.gameRoot, saveDirectory)
     if (!savePath || !pathExists(savePath)) return 0
-    return folderBytes(savePath)
+    return await folderBytes(savePath)
   } catch {
     return 0
   }

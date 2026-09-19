@@ -26,8 +26,8 @@ function isWsTracker(url: string): boolean {
 }
 
 /**
- * Tracker compose URLs.
- * Prefer Settings (user-editable) when loaded; else process.env; else production stubs.
+ * Tracker / metadata URLs.
+ * Hardcoded in P2P_ENV_DEFAULTS (override only via process.env).
  */
 export function getP2pEnv(): {
   metadataBaseUrl: string

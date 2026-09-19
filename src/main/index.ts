@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, protocol } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { flushDownloadHistory, registerDownloadHandler } from "./downloads";
@@ -6,15 +6,21 @@ import { adoptRunningLibrarySessions } from "./game-files-store";
 import { registerIpc } from "./ipc";
 import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url";
 import { flushPlaySessions } from "./play-sessions";
-import { registerSaveThumbProtocol, registerSaveThumbScheme } from "./renpy/save-meta";
+import { registerSaveThumbProtocol, SAVE_THUMB_SCHEME } from "./renpy/save-meta";
 import { getSettings } from "./settings-store";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
 import { cleanupStaleAppUpdates, initAppUpdateStatus, startAppUpdateService } from "./app-update";
 import { loadSession, persistSessionNow } from "./session-store";
 import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
+import {
+  clearF95ImageCache,
+  F95_IMG_SCHEME,
+  initF95ImageCache,
+  registerF95ImageCache
+} from "./f95/image-cache";
 import { appIcon } from "./app-icon";
 
-registerSaveThumbScheme();
+protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME]);
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -63,7 +69,9 @@ app.whenReady().then(async () => {
 
   attachGuestWindowOpenHandler();
   await loadSession();
+  await initF95ImageCache();
   registerF95CdnRequestHeaders();
+  registerF95ImageCache();
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
@@ -108,5 +116,7 @@ app.on("before-quit", (event) => {
     .catch((error) => console.warn("Could not save playtime on quit", error))
     .then(() => destroyWebTorrent())
     .catch((error) => console.warn("[p2p] destroy on quit failed", error))
+    .then(() => clearF95ImageCache())
+    .catch((error) => console.warn("[image-cache] clear on quit failed", error))
     .finally(() => app.exit(0));
 });
