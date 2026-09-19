@@ -10,6 +10,7 @@ import type {
   GameFileContext,
   PackageTagHint
 } from '@shared/types'
+import { isGuestContents, shouldBlockDownload } from './adblock'
 import { getDownloadContext } from './download-context'
 import {
   isFinishedDownloadStatus,
@@ -591,7 +592,24 @@ export function registerDownloadHandler(): void {
   void restoreDownloadHistory().catch((error) => {
     console.warn('Could not restore download history', error)
   })
-  session.defaultSession.on('will-download', (_event, item, webContents) => {
+  session.defaultSession.on('will-download', (event, item, webContents) => {
+    if (isGuestContents(webContents)) {
+      const pageUrl = webContents.isDestroyed() ? '' : webContents.getURL()
+      if (
+        shouldBlockDownload({
+          url: item.getURL(),
+          pageUrl,
+          filename: item.getFilename(),
+          mimeType: item.getMimeType(),
+          urlChain: item.getURLChain()
+        })
+      ) {
+        console.warn('[adblock] blocked download', item.getURL())
+        event.preventDefault()
+        return
+      }
+    }
+
     const dir = getUntrustedDownloadsDirSync()
     try {
       mkdirSync(dir, { recursive: true })

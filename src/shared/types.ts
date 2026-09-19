@@ -343,6 +343,7 @@ export type RenpyToolId =
   | 'transitions'
   | 'after-choices'
   | 'fullscreen'
+  | 'save-naming'
 
 export type RenpySaveKind = 'slot' | 'auto' | 'quick' | 'persistent' | 'other'
 

@@ -30,9 +30,10 @@
     "rebuild:native": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "7zip-bin": "^5.2.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "7zip-bin": "^5.2.0",
+    "@ghostery/adblocker": "^2.18.2",
     "cheerio": "^1.2.0",
     "node-7z": "^3.0.0",
     "node-datachannel": "^0.33.4",

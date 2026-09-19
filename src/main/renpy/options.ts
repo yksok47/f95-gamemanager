@@ -15,7 +15,8 @@ export const EMPTY_OPTIONS: Record<RenpyToolId, boolean> = {
   rollback: true,
   transitions: false,
   'after-choices': false,
-  fullscreen: false
+  fullscreen: false,
+  'save-naming': false
 }
 
 export const OPTION_IDS: RenpyToolId[] = [
@@ -25,7 +26,8 @@ export const OPTION_IDS: RenpyToolId[] = [
   'rollback',
   'transitions',
   'after-choices',
-  'fullscreen'
+  'fullscreen',
+  'save-naming'
 ]
 
 export type OptionValues = Record<RenpyToolId, boolean>
@@ -154,6 +156,12 @@ function parseSource(source: string): Partial<OptionValues> {
   )
   if (fullscreen != null) next.fullscreen = fullscreen
 
+  const saveNaming = parseBool(
+    lastMatch(source, /(?:store\.)?_f95gm_save_naming\b\s*=\s*(True|False|true|false)/)
+  )
+  if (saveNaming != null) next['save-naming'] = saveNaming
+  else if (/_f95gm_FileSave_named|_f95gm_ask_save_name/.test(source)) next['save-naming'] = true
+
   const quick = parseQuick(source)
   if (quick != null) next.quick = quick
   return next
@@ -210,7 +218,76 @@ function configBlock(id: RenpyToolId, enabled: boolean): string | null {
     except:
         pass`
   }
+  if (id === 'save-naming') return saveNamingBlock(enabled)
   return null
+}
+
+function saveNamingBlock(enabled: boolean): string {
+  const wrap = enabled
+    ? `
+    def _f95gm_fill_save_name(d):
+        try:
+            name = d.get('_save_name') or ''
+        except:
+            name = ''
+        if not name:
+            try:
+                import datetime
+                d['_save_name'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+            except:
+                pass
+    try:
+        config.save_json_callbacks.append(_f95gm_fill_save_name)
+    except:
+        pass
+    def _f95gm_ask_save_name():
+        try:
+            current = store.save_name or ''
+        except:
+            current = ''
+        try:
+            name = renpy.invoke_in_new_context(renpy.input, 'Save name:', default=current, length=40)
+            if name is not None:
+                store.save_name = name.strip()
+        except:
+            pass
+    try:
+        _f95gm_FileSave_call = FileSave.__call__
+        def _f95gm_FileSave_named(self):
+            try:
+                if not _f95gm_save_naming_native[0]:
+                    cycle = getattr(self, 'cycle', False)
+                    confirm = getattr(self, 'confirm', True)
+                    page = getattr(self, 'page', None)
+                    if (not confirm) and (not cycle) and page not in ('auto', 'quick') and self.get_sensitive():
+                        _f95gm_ask_save_name()
+            except:
+                pass
+            return _f95gm_FileSave_call(self)
+        FileSave.__call__ = _f95gm_FileSave_named
+    except:
+        pass`
+    : ''
+  return `    _f95gm_save_naming = ${pyBool(enabled)}
+    _f95gm_save_naming_native = [False]
+    def _f95gm_apply_save_naming(*args, **kwargs):
+        try:
+            p = persistent
+            for _k in ('savename', 'saveName', 'save_naming', 'save_name_prompt'):
+                try:
+                    _v = getattr(p, _k, None)
+                except:
+                    _v = None
+                if type(_v) is bool:
+                    setattr(p, _k, _f95gm_save_naming)
+                    _f95gm_save_naming_native[0] = True
+        except:
+            pass
+    _f95gm_apply_save_naming()
+    try:
+        config.start_callbacks.append(_f95gm_apply_save_naming)
+    except:
+        pass${wrap}`
 }
 
 function preferenceLines(id: RenpyToolId, enabled: boolean): string[] {
@@ -402,6 +479,12 @@ function parseSavedPreferences(data: Buffer): Partial<OptionValues> {
     }
     const fullscreen = lastKeyedScalar(payload, 'fullscreen')
     if (fullscreen?.bool != null) next.fullscreen = fullscreen.bool
+    const saveNaming =
+      lastKeyedScalar(payload, 'savename') ||
+      lastKeyedScalar(payload, 'saveName') ||
+      lastKeyedScalar(payload, 'save_naming') ||
+      lastKeyedScalar(payload, 'save_name_prompt')
+    if (saveNaming?.bool != null) next['save-naming'] = saveNaming.bool
   }
   return next
 }

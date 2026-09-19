@@ -1,7 +1,13 @@
 import { app, BrowserWindow } from 'electron'
 import type { GameFileContext } from '@shared/types'
-import { clearDownloadContext, getDownloadContext, setDownloadContext } from './download-context'
+import {
+  registerGuestContents,
+  shouldBlockDownload,
+  shouldBlockPopup,
+  unregisterGuestContents
+} from './adblock'
 import { appIcon } from './app-icon'
+import { clearDownloadContext, getDownloadContext, setDownloadContext } from './download-context'
 import { isUsableWindow } from './windows'
 
 type GuestInfo = {
@@ -28,6 +34,11 @@ function parseHttpUrl(url: string): URL | null {
 
 function isDirectFileUrl(url: URL): boolean {
   return /\.(zip|7z|rar|exe)(\?|$)/i.test(url.pathname)
+}
+
+function filenameFromUrl(url: URL): string {
+  const name = url.pathname.split('/').pop()
+  return name ? decodeURIComponent(name) : ''
 }
 
 function downloadInContents(
@@ -73,6 +84,7 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
   })
 
   const contentsId = win.webContents.id
+  registerGuestContents(contentsId)
 
   win.webContents.on('will-navigate', (event, url) => {
     if (!parseHttpUrl(url)) event.preventDefault()
@@ -97,6 +109,7 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
   })
 
   win.on('closed', () => {
+    unregisterGuestContents(contentsId)
     guests.delete(win)
     for (const info of guests.values()) {
       if (info.opener === win) info.opener = null
@@ -241,8 +254,25 @@ export function attachGuestWindowOpenHandler(): void {
 
       const fromAppRenderer = contents.id === mainContentsId
       const context = getDownloadContext(contents)
+      const pageUrl = contents.getURL()
+      const fromGuest = Boolean(opener)
+
       if (isDirectFileUrl(parsed)) {
+        if (
+          fromGuest &&
+          shouldBlockDownload({
+            url: parsed.href,
+            pageUrl,
+            filename: filenameFromUrl(parsed)
+          })
+        ) {
+          return { action: 'deny' }
+        }
         downloadInContents(contents, parsed.href, context)
+        return { action: 'deny' }
+      }
+
+      if (fromGuest && shouldBlockPopup(parsed.href, pageUrl)) {
         return { action: 'deny' }
       }
 

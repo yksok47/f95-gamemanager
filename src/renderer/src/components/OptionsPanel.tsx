@@ -11,6 +11,7 @@ const OPTIONS: Array<{ id: RenpyToolId; label: string; hint: string }> = [
   { id: 'fullscreen', label: 'Fullscreen', hint: 'Start the game in fullscreen mode' },
   { id: 'console', label: 'Developer console', hint: 'Shift+O console, Shift+D developer menu' },
   { id: 'quick', label: 'Quick save / load', hint: 'F5 save, F9 load' },
+  { id: 'save-naming', label: 'Save naming', hint: 'Ask for a name when saving to a slot' },
   { id: 'skip', label: 'Skip unseen text', hint: 'Tab and Ctrl skip everything' },
   { id: 'rollback', label: 'Rollback', hint: 'Scroll wheel and Page Up go back' },
   { id: 'transitions', label: 'Skip transitions', hint: 'Skip scene transitions while advancing' },

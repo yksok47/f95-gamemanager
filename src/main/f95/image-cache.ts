@@ -2,10 +2,10 @@ import { protocol, session } from 'electron'
 import { mkdir, readFile, rename, rm, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { getAppPaths } from '../paths'
-import { F95_CDN_FILTER } from './cdn-request-headers'
 import {
   f95ImgProtocolUrl,
   imageCacheFileName,
+  isF95CdnImageUrl,
   normalizeImageCacheUrl,
   originalUrlFromProtocolRequest,
   sniffImageMime
@@ -182,6 +182,17 @@ async function loadImage(url: string): Promise<CachedImage> {
   }
 }
 
+/** Shared with the guest adblock listener — Electron only keeps one onBeforeRequest handler. */
+export function maybeRedirectCdnImageRequest(details: {
+  method: string
+  resourceType: string
+  url: string
+}): string | undefined {
+  if (details.method !== 'GET' || details.resourceType !== 'image') return undefined
+  if (shouldBypassRedirect(details.url) || !isF95CdnImageUrl(details.url)) return undefined
+  return f95ImgProtocolUrl(details.url)
+}
+
 export function registerF95ImageCache(): void {
   if (registered) return
   registered = true
@@ -196,13 +207,5 @@ export function registerF95ImageCache(): void {
       console.warn('[image-cache] fetch failed', url, error)
       return new Response(null, { status: 502 })
     }
-  })
-
-  session.defaultSession.webRequest.onBeforeRequest(F95_CDN_FILTER, (details, callback) => {
-    if (details.method !== 'GET' || details.resourceType !== 'image' || shouldBypassRedirect(details.url)) {
-      callback({})
-      return
-    }
-    callback({ redirectURL: f95ImgProtocolUrl(details.url) })
   })
 }

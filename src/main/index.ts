@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { flushDownloadHistory, registerDownloadHandler } from "./downloads";
 import { adoptRunningLibrarySessions } from "./game-files-store";
 import { registerIpc } from "./ipc";
+import { initAdblock } from "./adblock";
 import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url";
 import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, SAVE_THUMB_SCHEME } from "./renpy/save-meta";
@@ -72,6 +73,7 @@ app.whenReady().then(async () => {
   await initF95ImageCache();
   registerF95CdnRequestHeaders();
   registerF95ImageCache();
+  initAdblock();
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
