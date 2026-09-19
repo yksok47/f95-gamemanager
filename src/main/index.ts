@@ -10,7 +10,14 @@ import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, SAVE_THUMB_SCHEME } from "./renpy/save-meta";
 import { getSettings } from "./settings-store";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
-import { cleanupStaleAppUpdates, initAppUpdateStatus, startAppUpdateService } from "./app-update";
+import {
+  cleanupStaleAppUpdates,
+  initAppUpdateStatus,
+  isApplyingAppUpdate,
+  resumeInterruptedAppUpdate,
+  setAppUpdateBeforeExitHook,
+  startAppUpdateService,
+} from "./app-update";
 import { loadSession, persistSessionNow } from "./session-store";
 import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
 import {
@@ -84,9 +91,27 @@ app.whenReady().then(async () => {
   }
   registerSaveThumbProtocol();
   initAppUpdateStatus();
+  setAppUpdateBeforeExitHook(async () => {
+    await persistSessionNow().catch((error) =>
+      console.warn("Could not persist session on quit", error)
+    );
+    await flushDownloadHistory().catch((error) =>
+      console.warn("Could not persist downloads on quit", error)
+    );
+    await flushPlaySessions().catch((error) =>
+      console.warn("Could not save playtime on quit", error)
+    );
+    await destroyWebTorrent().catch((error) =>
+      console.warn("[p2p] destroy on quit failed", error)
+    );
+    await clearF95ImageCache().catch((error) =>
+      console.warn("[image-cache] clear on quit failed", error)
+    );
+  });
   await cleanupStaleAppUpdates().catch((error) =>
     console.warn("[app-update] leftover cleanup failed", error)
   );
+  if (await resumeInterruptedAppUpdate()) return;
   createWindow();
   void startAppUpdateService();
   void adoptRunningLibrarySessions().catch((error) =>
@@ -107,6 +132,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (isApplyingAppUpdate()) return;
   if (persistingOnQuit || !app.isReady()) return;
   event.preventDefault();
   persistingOnQuit = true;

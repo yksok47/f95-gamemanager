@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'crypto'
-import { spawn } from 'child_process'
+import { execFile as execFileCb, spawn } from 'child_process'
 import { readdirSync } from 'fs'
 import {
   chmod,
@@ -15,6 +15,7 @@ import {
 } from 'fs/promises'
 import { tmpdir } from 'os'
 import { dirname, join, resolve } from 'path'
+import { promisify } from 'util'
 import { app, BrowserWindow, net } from 'electron'
 import {
   APP_EXECUTABLE_NAME,
@@ -36,26 +37,31 @@ import {
   type GithubRelease,
   type GithubReleaseAsset
 } from '@shared/app-update'
+import {
+  type PreparedApply,
+  unixApplyScript,
+  unixDetachedLaunchArgs,
+  windowsApplyCmdContents,
+  windowsApplyCommand,
+  windowsCmdStartArgs,
+  windowsShellExecuteCommand,
+  shouldResumePendingUpdate
+} from './app-update-apply'
 import { extractArchive } from './extract'
 import { getAppPaths } from './paths'
 import { pathExists, toFsPath } from './win-path'
 
+const execFile = promisify(execFileCb)
 const TEMP_PREFIX = 'f95-gamemanager-update-'
 const APPLY_PREFIX = 'f95-gamemanager-apply-update-'
 const API_BASE = `https://api.github.com/repos/${APP_UPDATE_GITHUB_OWNER}/${APP_UPDATE_GITHUB_REPO}`
+const HELPER_READY_TIMEOUT_MS = 15_000
+const BEFORE_EXIT_TIMEOUT_MS = 10_000
 
-type ApplyMode = 'nsis' | 'dir' | 'file'
+type BeforeExitHook = () => Promise<void>
 
-type PreparedApply = {
-  mode: ApplyMode
-  src: string
-  dst: string
-  exeName: string
-  tempRoot: string
-  oldDir: string
-  nextDir: string
-  elevate: boolean
-}
+let beforeExitHook: BeforeExitHook | null = null
+let applyingUpdate = false
 
 let status: AppUpdateStatus = emptyAppUpdateStatus('0.0.0', 'dev', false)
 let busy = false
@@ -247,313 +253,189 @@ async function copyOrRename(from: string, to: string): Promise<void> {
   }
 }
 
-function shQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms))
 }
 
-function psQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
-function windowsApplyCommand(config: PreparedApply & { pid: number; version: string; resultFile: string }): string {
-  return `
-$ErrorActionPreference = 'Stop'
-$pidToWait = ${config.pid}
-$src = ${psQuote(config.src)}
-$dst = ${psQuote(config.dst)}
-$exeName = ${psQuote(config.exeName)}
-$mode = ${psQuote(config.mode)}
-$tempRoot = ${psQuote(config.tempRoot)}
-$oldDir = ${psQuote(config.oldDir)}
-$nextDir = ${psQuote(config.nextDir)}
-$resultFile = ${psQuote(config.resultFile)}
-$version = ${psQuote(config.version)}
-$elevate = $${config.elevate ? 'true' : 'false'}
-
-function Write-Result($ok, $err) {
-  $okBit = if ($ok) { '1' } else { '0' }
-  $safeErr = [string]$err
-  $safeErr = $safeErr -replace '[\\r\\n]+', ' '
-  @(
-    "ok=$okBit"
-    "version=$version"
-    "error=$safeErr"
-  ) | Set-Content -LiteralPath $resultFile -Encoding UTF8
-}
-
-function Wait-AppExit {
-  for ($i = 0; $i -lt 120; $i++) {
-    if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { return $true }
-    Start-Sleep -Milliseconds 500
-  }
-  return $false
-}
-
-function Invoke-Retry([scriptblock]$action) {
-  $last = $null
-  for ($i = 0; $i -lt 30; $i++) {
-    try { & $action; return }
-    catch {
-      $last = $_
-      Start-Sleep -Seconds 1
-    }
-  }
-  throw $last
-}
-
-function Start-App($path, $workDir) {
-  Start-Process -FilePath $path -WorkingDirectory $workDir
-}
-
-try {
-  if (-not (Wait-AppExit)) { throw 'Timed out waiting for the app to close' }
-  Start-Sleep -Seconds 2
-
-  if ($mode -eq 'nsis') {
-    $argList = @('/S', '--updated')
-    if ($elevate) {
-      $p = Start-Process -FilePath $src -ArgumentList $argList -Verb RunAs -PassThru -Wait
-    } else {
-      $p = Start-Process -FilePath $src -ArgumentList $argList -PassThru -Wait
-    }
-    if ($null -ne $p.ExitCode -and $p.ExitCode -ne 0) { throw "Installer exited $($p.ExitCode)" }
-    $exe = Join-Path $dst $exeName
-    Start-App $exe $dst
-    Write-Result $true ''
-  }
-  elseif ($mode -eq 'file') {
-    Invoke-Retry {
-      if (Test-Path -LiteralPath $dst) {
-        Move-Item -LiteralPath $dst -Destination "$dst.old" -Force
-      }
-      Move-Item -LiteralPath $src -Destination $dst -Force
-    }
-    Remove-Item -LiteralPath "$dst.old" -Force -ErrorAction SilentlyContinue
-    Start-App $dst (Split-Path -Parent $dst)
-    Write-Result $true ''
-  }
-  else {
-    $newExe = Join-Path $src $exeName
-    if (-not (Test-Path -LiteralPath $newExe)) { throw 'The downloaded build is missing the app executable' }
-    if (Test-Path -LiteralPath $oldDir) {
-      Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    try {
-      Invoke-Retry { Rename-Item -LiteralPath $dst -NewName (Split-Path $oldDir -Leaf) }
-      try {
-        Invoke-Retry { Rename-Item -LiteralPath $src -NewName (Split-Path $dst -Leaf) }
-      } catch {
-        Rename-Item -LiteralPath $oldDir -NewName (Split-Path $dst -Leaf) -ErrorAction SilentlyContinue
-        throw
-      }
-    } catch {
-      $robocopy = Start-Process -FilePath 'robocopy.exe' -ArgumentList @($src, $dst, '/MIR', '/R:20', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') -Wait -PassThru
-      if ($robocopy.ExitCode -ge 8) { throw "File replace failed ($($robocopy.ExitCode))" }
-      if (Test-Path -LiteralPath $src) {
-        Remove-Item -LiteralPath $src -Recurse -Force -ErrorAction SilentlyContinue
-      }
-    }
-    Start-App (Join-Path $dst $exeName) $dst
-    if (Test-Path -LiteralPath $oldDir) {
-      Remove-Item -LiteralPath $oldDir -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    Write-Result $true ''
-  }
-} catch {
-  Write-Result $false $_.Exception.Message
+async function withTimeout(task: Promise<void>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    $fallback = if ($mode -eq 'file') { $dst } else { Join-Path $dst $exeName }
-    if (Test-Path -LiteralPath $fallback) { Start-App $fallback $(if ($mode -eq 'file') { Split-Path -Parent $dst } else { $dst }) }
-  } catch {}
-} finally {
-  if ($tempRoot -and (Test-Path -LiteralPath $tempRoot)) {
-    Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    await Promise.race([
+      task,
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), ms)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
   }
-  if ($nextDir -and $nextDir -ne $dst -and (Test-Path -LiteralPath $nextDir)) {
-    Remove-Item -LiteralPath $nextDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+async function waitForPath(target: string, timeoutMs: number): Promise<boolean> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (pathExists(target)) return true
+    await delay(100)
+  }
+  return pathExists(target)
+}
+
+function applyAttemptPath(): string {
+  return join(getAppPaths().userData, 'app-update-apply-attempt.txt')
+}
+
+function pendingNsisSetupPath(): string {
+  return join(getAppPaths().userData, 'pending-app-update-setup.exe')
+}
+
+async function readApplyAttemptMs(): Promise<number | null> {
+  try {
+    const raw = (await readFile(toFsPath(applyAttemptPath()), 'utf8')).trim()
+    const value = Number(raw)
+    return Number.isFinite(value) ? value : null
+  } catch {
+    return null
   }
 }
-`
+
+async function writeApplyAttempt(): Promise<void> {
+  const file = applyAttemptPath()
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(toFsPath(file), String(Date.now()), 'utf8')
 }
 
-function unixApplyScript(config: PreparedApply & { pid: number; version: string; resultFile: string }): string {
-  return `#!/bin/sh
-set -eu
-PID=${config.pid}
-SRC=${shQuote(config.src)}
-DST=${shQuote(config.dst)}
-EXE=${shQuote(config.exeName)}
-MODE=${shQuote(config.mode)}
-TEMP_ROOT=${shQuote(config.tempRoot)}
-OLD_DIR=${shQuote(config.oldDir)}
-NEXT_DIR=${shQuote(config.nextDir)}
-RESULT_FILE=${shQuote(config.resultFile)}
-VERSION=${shQuote(config.version)}
-
-write_result() {
-  ok="$1"
-  err="$2"
-  err=$(printf '%s' "$err" | tr '\\n\\r' '  ')
-  {
-    printf 'ok=%s\\n' "$ok"
-    printf 'version=%s\\n' "$VERSION"
-    printf 'error=%s\\n' "$err"
-  } > "$RESULT_FILE"
+export function setAppUpdateBeforeExitHook(hook: BeforeExitHook): void {
+  beforeExitHook = hook
 }
 
-wait_exit() {
-  i=0
-  while kill -0 "$PID" 2>/dev/null; do
-    i=$((i + 1))
-    if [ "$i" -gt 120 ]; then
-      return 1
-    fi
-    sleep 0.5
-  done
-  sleep 2
-  return 0
+export function isApplyingAppUpdate(): boolean {
+  return applyingUpdate
 }
 
-launch() {
-  target="$1"
-  workdir="$2"
-  if [ "$(uname -s)" = "Darwin" ] && [ -d "$target" ]; then
-    open "$target" >/dev/null 2>&1 || true
-    return
-  fi
-  if [ "$(uname -s)" = "Darwin" ] && [ -d "$workdir" ] && printf '%s' "$workdir" | grep -q '\\.app$'; then
-    open "$workdir" >/dev/null 2>&1 || true
-    return
-  fi
-  ( cd "$workdir" && nohup "$target" >/dev/null 2>&1 & )
+async function spawnDetached(command: string, args: string[], options: { cwd: string; windowsHide?: boolean }): Promise<void> {
+  await new Promise<void>((resolveSpawn, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: 'ignore',
+      cwd: options.cwd,
+      windowsHide: options.windowsHide
+    })
+    child.once('error', reject)
+    child.once('spawn', () => {
+      child.unref()
+      resolveSpawn()
+    })
+  })
 }
 
-retry_mv() {
-  from="$1"
-  to="$2"
-  i=0
-  while [ "$i" -lt 30 ]; do
-    if mv "$from" "$to"; then
-      return 0
-    fi
-    i=$((i + 1))
-    sleep 1
-  done
-  return 1
+async function launchWindowsApplyHelper(cmdPath: string, readyFile: string): Promise<void> {
+  const workDir = dirname(cmdPath)
+  try {
+    await execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', windowsShellExecuteCommand(cmdPath, workDir)],
+      { windowsHide: true, timeout: 20_000 }
+    )
+  } catch (error) {
+    console.warn('[app-update] ShellExecute helper launch failed, using cmd start', error)
+  }
+  if (await waitForPath(readyFile, 8_000)) return
+  await spawnDetached('cmd.exe', windowsCmdStartArgs(cmdPath), {
+    cwd: workDir,
+    windowsHide: false
+  })
 }
 
-mirror_dir() {
-  from="$1"
-  to="$2"
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete "$from"/ "$to"/
-    return
-  fi
-  cp -a "$from"/. "$to"/
-  # Remove files left behind by the previous version.
-  find "$to" -mindepth 1 | while IFS= read -r item; do
-    rel=\${item#"$to"/}
-    if [ ! -e "$from/$rel" ]; then
-      rm -rf "$item"
-    fi
-  done
-}
-
-if ! wait_exit; then
-  write_result 0 'Timed out waiting for the app to close'
-  exit 1
-fi
-
-set +e
-if [ "$MODE" = "file" ]; then
-  chmod +x "$SRC" 2>/dev/null || true
-  rm -f "$DST.old"
-  retry_mv "$DST" "$DST.old"
-  if retry_mv "$SRC" "$DST"; then
-    chmod +x "$DST" 2>/dev/null || true
-    rm -f "$DST.old"
-    launch "$DST" "$(dirname "$DST")"
-    write_result 1 ''
-  else
-    [ -e "$DST.old" ] && mv "$DST.old" "$DST"
-    write_result 0 'Could not replace the AppImage'
-    launch "$DST" "$(dirname "$DST")"
-  fi
-elif [ "$MODE" = "dir" ]; then
-  if [ ! -e "$SRC/$EXE" ] && [ ! -d "$SRC" ]; then
-    write_result 0 'The downloaded build is missing the app executable'
-    exit 1
-  fi
-  rm -rf "$OLD_DIR"
-  if retry_mv "$DST" "$OLD_DIR" && retry_mv "$SRC" "$DST"; then
-    rm -rf "$OLD_DIR"
-    if [ -d "$DST" ] && printf '%s' "$DST" | grep -q '\\.app$'; then
-      launch "$DST" "$DST"
-    else
-      chmod +x "$DST/$EXE" 2>/dev/null || true
-      launch "$DST/$EXE" "$DST"
-    fi
-    write_result 1 ''
-  else
-    [ -d "$OLD_DIR" ] && [ ! -e "$DST" ] && mv "$OLD_DIR" "$DST"
-    if [ -d "$SRC" ] && [ -d "$DST" ]; then
-      mirror_dir "$SRC" "$DST"
-      rm -rf "$SRC" "$OLD_DIR"
-      if [ -d "$DST" ] && printf '%s' "$DST" | grep -q '\\.app$'; then
-        launch "$DST" "$DST"
-      else
-        launch "$DST/$EXE" "$DST"
-      fi
-      write_result 1 ''
-    else
-      write_result 0 'Could not replace the previous app files'
-      if [ -d "$DST" ] && printf '%s' "$DST" | grep -q '\\.app$'; then
-        launch "$DST" "$DST"
-      else
-        launch "$DST/$EXE" "$DST"
-      fi
-    fi
-  fi
-fi
-set -e
-
-rm -rf "$TEMP_ROOT"
-if [ -n "$NEXT_DIR" ] && [ "$NEXT_DIR" != "$DST" ]; then
-  rm -rf "$NEXT_DIR"
-fi
-rm -f "$0"
-`
-}
-
-async function spawnApplyHelper(config: PreparedApply, version: string): Promise<void> {
+async function spawnApplyHelper(config: PreparedApply, version: string): Promise<string> {
   const resultFile = resultFilePath()
   await mkdir(dirname(resultFile), { recursive: true })
   await rmrf(resultFile)
-  const payload = { ...config, pid: process.pid, version, resultFile }
   const dir = join(app.getPath('temp'), `${APPLY_PREFIX}${process.pid}`)
   await mkdir(dir, { recursive: true })
+  const readyFile = join(dir, 'ready.txt')
+  await rmrf(readyFile)
+  const payload = { ...config, pid: process.pid, version, resultFile, readyFile }
 
   if (process.platform === 'win32') {
     const ps1 = join(dir, 'apply.ps1')
-    await writeFile(ps1, windowsApplyCommand(payload), 'utf8')
-    const child = spawn(
-      'powershell.exe',
-      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1],
-      { detached: true, stdio: 'ignore', windowsHide: true, cwd: app.getPath('temp') }
-    )
-    child.unref()
-    return
+    const cmd = join(dir, 'apply.cmd')
+    await writeFile(ps1, `\uFEFF${windowsApplyCommand(payload)}`, 'utf8')
+    await writeFile(cmd, windowsApplyCmdContents(), 'utf8')
+    await launchWindowsApplyHelper(cmd, readyFile)
+    return readyFile
   }
 
   const sh = join(dir, 'apply.sh')
   await writeFile(sh, unixApplyScript(payload), 'utf8')
   await chmod(sh, 0o755)
-  const child = spawn('/bin/sh', [sh], {
-    detached: true,
-    stdio: 'ignore',
-    cwd: app.getPath('temp')
-  })
-  child.unref()
+  const launch = unixDetachedLaunchArgs(sh)
+  await spawnDetached(launch.command, launch.args, { cwd: app.getPath('temp') })
+  return readyFile
+}
+
+async function runApplyAndExit(config: PreparedApply, version: string): Promise<void> {
+  applyingUpdate = true
+  await writeApplyAttempt()
+  if (beforeExitHook) {
+    await withTimeout(beforeExitHook(), BEFORE_EXIT_TIMEOUT_MS).catch((error) => {
+      console.warn('[app-update] pre-exit cleanup failed', error)
+    })
+  }
+  const readyFile = await spawnApplyHelper(config, version)
+  releaseAppDirLock()
+  if (!(await waitForPath(readyFile, HELPER_READY_TIMEOUT_MS))) {
+    applyingUpdate = false
+    throw new Error('The update helper did not start. The current app was left running.')
+  }
+  app.exit(0)
+}
+
+async function pendingPreparedApply(kind: AppInstallKind): Promise<PreparedApply | null> {
+  const exeName = executableName()
+  if (kind === 'dev') return null
+  if (kind === 'nsis') {
+    const src = pendingNsisSetupPath()
+    if (!pathExists(src)) return null
+    const dst = dirname(process.execPath)
+    return {
+      mode: 'nsis',
+      src,
+      dst,
+      exeName,
+      tempRoot: '',
+      oldDir: '',
+      nextDir: src,
+      elevate: pathIsProgramFiles(dst)
+    }
+  }
+  if (kind === 'appimage') {
+    const dst = process.env.APPIMAGE || appRootForKind(kind)
+    const next = `${dst}.new`
+    if (!pathExists(next)) return null
+    return {
+      mode: 'file',
+      src: next,
+      dst,
+      exeName,
+      tempRoot: '',
+      oldDir: `${dst}.old`,
+      nextDir: next,
+      elevate: false
+    }
+  }
+  const root = appRootForKind(kind)
+  const nextDir = `${root}.next`
+  if (!pathExists(join(nextDir, exeName))) return null
+  return {
+    mode: 'dir',
+    src: nextDir,
+    dst: root,
+    exeName,
+    tempRoot: '',
+    oldDir: `${root}.old`,
+    nextDir,
+    elevate: false
+  }
 }
 
 function releaseAppDirLock(): void {
@@ -594,8 +476,6 @@ export async function cleanupStaleAppUpdates(): Promise<void> {
   const kind = currentInstallKind()
   const root = appRootForKind(kind)
   await cleanupNamed(`${root}.old`)
-  await cleanupNamed(`${root}.next`)
-  await cleanupNamed(`${root}.new`)
   const temp = app.getPath('temp')
   try {
     const names = await readdir(temp)
@@ -606,6 +486,38 @@ export async function cleanupStaleAppUpdates(): Promise<void> {
     )
   } catch {
     /* ignore */
+  }
+}
+
+export async function resumeInterruptedAppUpdate(): Promise<boolean> {
+  if (!app.isPackaged || busy) return false
+  const pending = await pendingPreparedApply(currentInstallKind())
+  if (!pending) return false
+  const lastAttemptMs = await readApplyAttemptMs()
+  if (
+    !shouldResumePendingUpdate({
+      hasPending: true,
+      lastAttemptMs,
+      nowMs: Date.now()
+    })
+  ) {
+    return false
+  }
+  busy = true
+  setStatus({ phase: 'restarting', percent: 100, error: null })
+  try {
+    await runApplyAndExit(pending, status.latestVersion || app.getVersion())
+    return true
+  } catch (error) {
+    busy = false
+    applyingUpdate = false
+    setStatus({
+      phase: 'error',
+      available: true,
+      canInstall: true,
+      error: error instanceof Error ? error.message : String(error)
+    })
+    return false
   }
 }
 
@@ -675,15 +587,18 @@ async function preparePayload(kind: AppInstallKind, archivePath: string, tempRoo
   const root = appRootForKind(kind)
 
   if (kind === 'nsis') {
+    const pending = pendingNsisSetupPath()
+    await copyOrRename(archivePath, pending)
+    const dst = dirname(process.execPath)
     return {
       mode: 'nsis',
-      src: archivePath,
-      dst: dirname(process.execPath),
+      src: pending,
+      dst,
       exeName,
       tempRoot,
       oldDir: '',
-      nextDir: '',
-      elevate: pathIsProgramFiles(dirname(process.execPath))
+      nextDir: pending,
+      elevate: pathIsProgramFiles(dst)
     }
   }
 
@@ -748,62 +663,73 @@ export async function downloadAndInstallAppUpdate(): Promise<AppUpdateStatus> {
   if (!app.isPackaged) {
     return setStatus({ phase: 'error', error: 'Packaged builds can install updates. Dev mode is already running from source.' })
   }
-  if (!status.available || !lastAsset) {
-    const checked = await checkForAppUpdate()
-    if (!checked.available || !lastAsset) return checked
-  }
-  const asset = lastAsset
-  if (!asset) {
-    return setStatus({ phase: 'error', error: 'No update file is available for this system.' })
+  const kind = currentInstallKind()
+  const pending = await pendingPreparedApply(kind)
+  if (!pending) {
+    if (!status.available || !lastAsset) {
+      const checked = await checkForAppUpdate()
+      if (!checked.available || !lastAsset) return checked
+    }
+    if (!lastAsset) {
+      return setStatus({ phase: 'error', error: 'No update file is available for this system.' })
+    }
   }
 
   busy = true
-  const tempRoot = join(app.getPath('temp'), `${TEMP_PREFIX}${process.pid}-${Date.now()}`)
+  const tempRoot = pending ? '' : join(app.getPath('temp'), `${TEMP_PREFIX}${process.pid}-${Date.now()}`)
   try {
-    await mkdir(tempRoot, { recursive: true })
-    const dest = join(tempRoot, asset.name)
-    setStatus({
-      phase: 'downloading',
-      percent: 0,
-      bytesReceived: 0,
-      bytesTotal: asset.size,
-      error: null
-    })
-    const digest = await downloadAsset(asset.browser_download_url, dest, (received, total) => {
-      const bytesTotal = total || asset.size
-      const percent = bytesTotal > 0 ? Math.min(69, Math.round((received / bytesTotal) * 69)) : 0
-      if (percent === status.percent && received !== bytesTotal) return
+    let prepared = pending
+    if (!prepared) {
+      const asset = lastAsset
+      if (!asset) {
+        throw new Error('No update file is available for this system.')
+      }
+      await mkdir(tempRoot, { recursive: true })
+      const dest = join(tempRoot, asset.name)
       setStatus({
         phase: 'downloading',
-        bytesReceived: received,
-        bytesTotal,
-        percent
+        percent: 0,
+        bytesReceived: 0,
+        bytesTotal: asset.size,
+        error: null
       })
-    })
-    if (lastChecksum) {
-      let actual = digest
-      if (lastChecksum.algorithm === 'sha256') {
-        actual = createHash('sha256').update(await readFile(toFsPath(dest))).digest('hex')
+      const digest = await downloadAsset(asset.browser_download_url, dest, (received, total) => {
+        const bytesTotal = total || asset.size
+        const percent = bytesTotal > 0 ? Math.min(69, Math.round((received / bytesTotal) * 69)) : 0
+        if (percent === status.percent && received !== bytesTotal) return
+        setStatus({
+          phase: 'downloading',
+          bytesReceived: received,
+          bytesTotal,
+          percent
+        })
+      })
+      if (lastChecksum) {
+        let actual = digest
+        if (lastChecksum.algorithm === 'sha256') {
+          actual = createHash('sha256').update(await readFile(toFsPath(dest))).digest('hex')
+        }
+        if (!hashesMatch(lastChecksum.hash, actual)) {
+          throw new Error('The downloaded update failed checksum verification')
+        }
       }
-      if (!hashesMatch(lastChecksum.hash, actual)) {
-        throw new Error('The downloaded update failed checksum verification')
+      const size = (await stat(toFsPath(dest))).size
+      if (asset.size > 0 && size !== asset.size) {
+        throw new Error('The downloaded update is the wrong size')
       }
-    }
-    const size = (await stat(toFsPath(dest))).size
-    if (asset.size > 0 && size !== asset.size) {
-      throw new Error('The downloaded update is the wrong size')
-    }
 
-    setStatus({ phase: 'preparing', percent: 75 })
-    const prepared = await preparePayload(currentInstallKind(), dest, tempRoot)
+      setStatus({ phase: 'preparing', percent: 75 })
+      prepared = await preparePayload(kind, dest, tempRoot)
+    } else {
+      setStatus({ phase: 'preparing', percent: 90, error: null })
+    }
     setStatus({ phase: 'restarting', percent: 100 })
-    await spawnApplyHelper(prepared, status.latestVersion || app.getVersion())
-    releaseAppDirLock()
-    app.quit()
+    await runApplyAndExit(prepared, status.latestVersion || app.getVersion())
     return status
   } catch (error) {
-    await rmrf(tempRoot)
+    if (tempRoot) await rmrf(tempRoot)
     busy = false
+    applyingUpdate = false
     return setStatus({
       phase: 'error',
       error: error instanceof Error ? error.message : String(error)
@@ -819,7 +745,17 @@ export async function startAppUpdateService(): Promise<void> {
   resetStatus()
   await consumeUpdateResult()
   emitStatus()
-  void checkForAppUpdate().catch((error) => {
+  await checkForAppUpdate().catch((error) => {
     console.warn('[app-update] check failed', error)
   })
+  if (await pendingPreparedApply(currentInstallKind())) {
+    setStatus({
+      available: true,
+      phase: status.phase === 'error' ? 'error' : 'available',
+      error:
+        status.phase === 'error'
+          ? status.error || 'The last update downloaded but did not replace the app files. Click Update and restart to finish applying it.'
+          : null
+    })
+  }
 }
