@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { confirm } from './ConfirmDialog'
 import { notifyCaught } from './ErrorNotifications'
 import type { GameLibraryFile, RpgMakerInfo, RpgMakerSaveFile } from '@shared/types'
@@ -8,7 +8,8 @@ import { RPG_CLOUD_FOLDER, filesForSaveFolder, useCloudSavesForThread } from '..
 import { usePlaySessions } from '../lib/library'
 import GameCloudSaves, { GameCloudSaveActions } from './GameCloudSaves'
 import RpgMakerSaveEditorDialog from './RpgMakerSaveEditorDialog'
-import SavesPanelTabs, { type SavesPanelView } from './SavesPanelTabs'
+import SavesDeleteSelectedFab from './SavesDeleteSelectedFab'
+import SavesPanelTabs, { SavesActionButton, type SavesPanelView } from './SavesPanelTabs'
 
 type RpgMakerSavesPanelProps = {
   files: GameLibraryFile[]
@@ -35,6 +36,9 @@ export default function RpgMakerSavesPanel({
   const [editing, setEditing] = useState<RpgMakerSaveFile | null>(null)
   const [view, setView] = useState<SavesPanelView>('saves')
   const [location, setLocation] = useState<RpgSaveLocation | ''>('')
+  const [localBusy, setLocalBusy] = useState<'refresh' | 'delete' | null>(null)
+  const [fabHost, setFabHost] = useState<Element | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const sessions = usePlaySessions()
   const selectedFile = installed.find((file) => file.id === fileId) || installed[0] || files[0] || null
   const activeId = selectedFile?.id || ''
@@ -57,11 +61,16 @@ export default function RpgMakerSavesPanel({
     if (location && !locations.some((item) => item.id === location)) setLocation('')
   }, [location, locations])
 
+  useLayoutEffect(() => {
+    setFabHost(panelRef.current?.closest('.details-modal-card') ?? null)
+  }, [])
+
   useEffect(() => {
     if (selectedFile?.id && selectedFile.id !== fileId) setFileId(selectedFile.id)
   }, [selectedFile?.id, fileId])
 
-  async function load(): Promise<void> {
+  async function load(whichAction: 'refresh' | 'delete' | null = 'refresh'): Promise<void> {
+    if (whichAction) setLocalBusy(whichAction)
     setBusy(true)
     try {
       const next = await window.api.rpgmaker.info(activeId, threadId, title, which)
@@ -75,6 +84,7 @@ export default function RpgMakerSavesPanel({
       notifyCaught(err, 'Could not read RPG Maker saves.')
     } finally {
       setBusy(false)
+      setLocalBusy(null)
     }
   }
 
@@ -134,12 +144,13 @@ export default function RpgMakerSavesPanel({
       !(await confirm({
         title: 'Delete saves',
         message: `Delete all saves and save folders for ${title || 'this game'}? Empty folders are removed too. This cannot be undone.`,
-        confirmLabel: 'Delete saves',
+        confirmLabel: 'Delete',
         danger: true
       }))
     ) {
       return
     }
+    setLocalBusy('delete')
     setBusy(true)
     try {
       await window.api.library.clearSaves(threadId)
@@ -150,6 +161,7 @@ export default function RpgMakerSavesPanel({
       notifyCaught(err, 'Could not delete those saves.')
     } finally {
       setBusy(false)
+      setLocalBusy(null)
     }
   }
 
@@ -182,7 +194,7 @@ export default function RpgMakerSavesPanel({
   const canDeleteAll = Boolean(saves.length || info?.backupPathExists || info?.gameSavePathExists)
 
   return (
-    <div className="renpy-panel">
+    <div className="renpy-panel" ref={panelRef}>
       {info?.message && view === 'saves' ? <p className="muted">{info.message}</p> : null}
       {playing && view === 'saves' ? (
         <p className="muted">Game is running. New saves are copied to the backup folder while you play, then synced when it exits.</p>
@@ -205,33 +217,33 @@ export default function RpgMakerSavesPanel({
         view={view}
         onViewChange={setView}
         cloudEnabled={cloudEnabled}
-        actions={
+        localActions={
           <>
-            {selected.size > 0 ? (
-              <button
-                className="stop-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy}
-                onClick={() => void deleteSelected()}
-              >
-                Delete {selected.size}
-              </button>
-            ) : canDeleteAll ? (
-              <button
-                className="stop-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy}
+            <SavesActionButton
+              label="Refresh"
+              busyLabel="Refreshing"
+              title="Reload local saves"
+              busy={localBusy === 'refresh'}
+              disabled={busy}
+              onClick={() => void load('refresh')}
+            />
+            {canDeleteAll || localBusy === 'delete' ? (
+              <SavesActionButton
+                label="Delete"
+                busyLabel="Deleting"
                 title="Delete all saves and save folders, even if they have no save files"
+                danger
+                busy={localBusy === 'delete'}
+                disabled={busy}
                 onClick={() => void deleteAllSaves()}
-              >
-                Delete saves
-              </button>
+              />
             ) : null}
-            <button className="ghost-btn saves-toolbar-btn" type="button" disabled={busy} onClick={() => void load()}>
-              Refresh
-            </button>
-            <GameCloudSaveActions threadId={threadId} cloud={cloud} disabled={busy} />
           </>
+        }
+        cloudActions={
+          cloudEnabled && cloud.signedIn ? (
+            <GameCloudSaveActions threadId={threadId} cloud={cloud} disabled={busy} />
+          ) : null
         }
       />
 
@@ -405,9 +417,15 @@ export default function RpgMakerSavesPanel({
           title={title}
           save={editing}
           onClose={() => setEditing(null)}
-          onSaved={load}
+          onSaved={() => void load(null)}
         />
       ) : null}
+      <SavesDeleteSelectedFab
+        count={selected.size}
+        disabled={busy}
+        host={fabHost}
+        onDelete={() => void deleteSelected()}
+      />
     </div>
   )
 }

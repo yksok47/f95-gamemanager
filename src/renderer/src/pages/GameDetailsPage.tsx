@@ -1981,6 +1981,11 @@ function GameDetailsPage({
                     Play{latestInstalled.version ? ` ${latestInstalled.version}` : ''}
                   </button>
                 ) : null}
+                {latestInstalled && updates.updateAvailable ? (
+                  <button className="update-btn" type="button" onClick={openDownloadsTab}>
+                    Update{version ? ` to ${version}` : ''}
+                  </button>
+                ) : null}
                 {installingFile ? (
                   <button className="primary-btn" type="button" disabled>
                     Installing… {installingFile.installPercent}%
@@ -1992,11 +1997,6 @@ function GameDetailsPage({
                     onClick={() => void installFile(pendingInstall.id)}
                   >
                     Install{pendingInstall.version ? ` ${pendingInstall.version}` : ''}
-                  </button>
-                ) : updates.updateAvailable ? (
-                  <button className="update-btn" type="button" onClick={openDownloadsTab}>
-                    Update
-                    {version ? ` to ${version}` : ''}
                   </button>
                 ) : filesReady && !hasLocalCopy ? (
                   <button className="primary-btn" type="button" onClick={openDownloadsTab}>

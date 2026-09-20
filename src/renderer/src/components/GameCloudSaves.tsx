@@ -5,6 +5,7 @@ import { confirm } from './ConfirmDialog'
 import { notifyCaught } from './ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
 import { isPersistentSaveName, useCloudSavesForThread } from '../lib/cloud-saves'
+import { SavesActionButton } from './SavesPanelTabs'
 
 type CloudHook = ReturnType<typeof useCloudSavesForThread>
 
@@ -20,21 +21,21 @@ export function GameCloudSaveActions({
   disabled = false
 }: GameCloudSaveActionsProps): JSX.Element | null {
   const { files, busy, syncing, signedIn, enabled, reload } = cloud
-  const [acting, setActing] = useState(false)
+  const [acting, setActing] = useState<'sync' | 'remove' | null>(null)
   if (!threadId || !enabled || !signedIn) return null
 
   const visible = files.filter((file) => !isPersistentSaveName(file.name))
-  const busyNow = disabled || busy || syncing || acting
+  const locked = disabled || busy || Boolean(acting)
 
   async function syncThis(): Promise<void> {
-    setActing(true)
+    setActing('sync')
     try {
       await window.api.cloudSaves.syncThread(threadId)
       await reload()
     } catch (err) {
       notifyCaught(err, 'Could not sync this game’s cloud saves.')
     } finally {
-      setActing(false)
+      setActing(null)
     }
   }
 
@@ -57,48 +58,38 @@ export function GameCloudSaveActions({
     ) {
       return
     }
-    setActing(true)
+    setActing('remove')
     try {
       await window.api.cloudSaves.deleteGame(threadId)
       await reload()
     } catch (err) {
       notifyCaught(err, 'Could not remove those cloud saves.')
     } finally {
-      setActing(false)
+      setActing(null)
     }
   }
 
   return (
     <>
-      {visible.length ? (
-        <button
-          className="stop-btn saves-toolbar-btn"
-          type="button"
-          disabled={busyNow}
+      <SavesActionButton
+        label="Sync"
+        busyLabel="Syncing"
+        title={syncing ? 'Stop syncing this game' : 'Upload and download saves for this game'}
+        busy={syncing || acting === 'sync'}
+        disabled={locked && !syncing}
+        onClick={() => void (syncing ? stopSync() : syncThis())}
+      />
+      {visible.length || acting === 'remove' ? (
+        <SavesActionButton
+          label="Remove"
+          busyLabel="Removing"
+          title="Delete every cloud save for this game from Google Drive. Local files stay on disk."
+          danger
+          busy={acting === 'remove'}
+          disabled={locked || syncing}
           onClick={() => void removeCloud()}
-        >
-          Remove from cloud
-        </button>
+        />
       ) : null}
-      {syncing ? (
-        <button
-          className="stop-btn saves-toolbar-btn"
-          type="button"
-          disabled={acting}
-          onClick={() => void stopSync()}
-        >
-          Stop
-        </button>
-      ) : (
-        <button
-          className="ghost-btn saves-toolbar-btn"
-          type="button"
-          disabled={busyNow}
-          onClick={() => void syncThis()}
-        >
-          Sync this game
-        </button>
-      )}
     </>
   )
 }

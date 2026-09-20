@@ -7,6 +7,7 @@ import {
   type JSX,
   type PointerEvent as ReactPointerEvent
 } from 'react'
+import { createPortal } from 'react-dom'
 import { confirm } from './ConfirmDialog'
 import type { GameLibraryFile, RenpySaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
@@ -15,7 +16,8 @@ import { cloudFolderKey, filesForSaveFolder, isPersistentSaveName, useCloudSaves
 import { useRenpySession } from '../lib/renpy'
 import GameCloudSaves, { GameCloudSaveActions } from './GameCloudSaves'
 import RenpySaveEditorDialog from './RenpySaveEditorDialog'
-import SavesPanelTabs, { type SavesPanelView } from './SavesPanelTabs'
+import SavesDeleteSelectedFab from './SavesDeleteSelectedFab'
+import SavesPanelTabs, { SavesActionButton, type SavesPanelView } from './SavesPanelTabs'
 
 type RenpySavesPanelProps = {
   files: GameLibraryFile[]
@@ -33,9 +35,31 @@ type PageBoard = {
   slots: Array<{ slot: number; save: RenpySaveFile | null }>
 }
 
+type DragGhost =
+  | { kind: 'save'; save: RenpySaveFile; slot: number; width: number; height: number }
+  | { kind: 'page'; label: string }
+
 type DragSession =
-  | { phase: 'pending'; pointerId: number; x: number; y: number; item: DragItem; label: string }
-  | { phase: 'live'; pointerId: number; item: DragItem; label: string; x: number; y: number }
+  | {
+      phase: 'pending'
+      pointerId: number
+      x: number
+      y: number
+      item: DragItem
+      ghost: DragGhost
+      grabX: number
+      grabY: number
+    }
+  | {
+      phase: 'live'
+      pointerId: number
+      item: DragItem
+      ghost: DragGhost
+      x: number
+      y: number
+      grabX: number
+      grabY: number
+    }
 
 const DRAG_THRESHOLD = 8
 const AUTO_SLOT_COUNT = 10
@@ -198,15 +222,15 @@ function hitTarget(
   return { kind: 'page', page: pageEl.dataset.page }
 }
 
-function SaveThumb({ url }: { url?: string }): JSX.Element {
+function SaveThumb({ url, eager }: { url?: string; eager?: boolean }): JSX.Element {
   const ref = useRef<HTMLElement | null>(null)
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(Boolean(eager && url))
   const [broken, setBroken] = useState(false)
 
   useEffect(() => {
     setBroken(false)
-    setVisible(false)
-    if (!url) return
+    setVisible(Boolean(eager && url))
+    if (!url || eager) return
     const node = ref.current
     if (!node) return
     const root = node.closest('.details-modal')
@@ -220,7 +244,7 @@ function SaveThumb({ url }: { url?: string }): JSX.Element {
     )
     io.observe(node)
     return () => io.disconnect()
-  }, [url])
+  }, [eager, url])
 
   function bindRef(node: HTMLElement | null): void {
     ref.current = node
@@ -297,9 +321,11 @@ export default function RenpySavesPanel({
   const [slotsInput, setSlotsInput] = useState<number | null>(null)
   const [drag, setDrag] = useState<DragItem | null>(null)
   const [over, setOver] = useState<string | null>(null)
-  const [ghost, setGhost] = useState<string | null>(null)
+  const [ghost, setGhost] = useState<DragGhost | null>(null)
+  const [fabHost, setFabHost] = useState<Element | null>(null)
   const [editing, setEditing] = useState<RenpySaveFile | null>(null)
   const [view, setView] = useState<SavesPanelView>('saves')
+  const [localBusy, setLocalBusy] = useState<'refresh' | 'delete' | null>(null)
   const [pickedPath, setPickedPath] = useState('')
   const skipClick = useRef(false)
   const sessionRef = useRef<DragSession | null>(null)
@@ -389,6 +415,10 @@ export default function RenpySavesPanel({
   }
 
   useLayoutEffect(() => {
+    setFabHost(panelRef.current?.closest('.details-modal-card') ?? null)
+  }, [])
+
+  useLayoutEffect(() => {
     const top = lockScroll.current
     if (top == null) return
     const modal = panelRef.current?.closest('.details-modal')
@@ -421,6 +451,7 @@ export default function RenpySavesPanel({
     setGhost(null)
     setEditing(null)
     setPickedPath('')
+    setLocalBusy(null)
     sessionRef.current = null
     document.body.classList.remove('is-save-dragging')
   }, [activeId])
@@ -443,10 +474,10 @@ export default function RenpySavesPanel({
   }, [saves])
 
   useEffect(() => {
-    function placeGhost(x: number, y: number): void {
-      ghostPos.current = { x, y }
+    function placeGhost(x: number, y: number, grabX: number, grabY: number): void {
+      ghostPos.current = { x: x - grabX, y: y - grabY }
       const node = ghostRef.current
-      if (node) node.style.transform = `translate(${x + 12}px, ${y + 12}px)`
+      if (node) node.style.transform = `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)`
     }
 
     function overKey(x: number, y: number, item: DragItem): string | null {
@@ -483,22 +514,24 @@ export default function RenpySavesPanel({
           phase: 'live',
           pointerId: session.pointerId,
           item: session.item,
-          label: session.label,
+          ghost: session.ghost,
           x: event.clientX,
-          y: event.clientY
+          y: event.clientY,
+          grabX: session.grabX,
+          grabY: session.grabY
         }
         freezeModalScroll()
         document.body.classList.add('is-save-dragging')
-        placeGhost(event.clientX, event.clientY)
+        placeGhost(event.clientX, event.clientY, session.grabX, session.grabY)
         setDrag(session.item)
-        setGhost(session.label)
+        setGhost(session.ghost)
         setOver(overKey(event.clientX, event.clientY, session.item))
         return
       }
       if (event.cancelable) event.preventDefault()
       session.x = event.clientX
       session.y = event.clientY
-      placeGhost(event.clientX, event.clientY)
+      placeGhost(event.clientX, event.clientY, session.grabX, session.grabY)
       const next = overKey(event.clientX, event.clientY, session.item)
       setOver((current) => (current === next ? current : next))
     }
@@ -580,6 +613,17 @@ export default function RenpySavesPanel({
     setSelected(new Set())
   }
 
+  async function refreshSaves(): Promise<void> {
+    setLocalBusy('refresh')
+    try {
+      await withInfo(() =>
+        window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves')
+      )
+    } finally {
+      setLocalBusy(null)
+    }
+  }
+
   async function deleteSaveFolder(): Promise<void> {
     const name = currentPath ? folderName(currentPath) : ''
     if (
@@ -588,20 +632,25 @@ export default function RenpySavesPanel({
         message: name
           ? `Delete the save folder “${name}” and all files in it? Empty folders are removed too. This cannot be undone.`
           : `Delete all save folders for ${lookupTitle || 'this game'}? Empty folders are removed too. This cannot be undone.`,
-        confirmLabel: 'Delete saves',
+        confirmLabel: 'Delete',
         danger: true
       }))
     ) {
       return
     }
-    await withInfo(async () => {
-      await window.api.library.clearSaves(
-        lookupThreadId,
-        info?.savePathExists ? currentPath : undefined
-      )
-      return window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves')
-    })
-    setSelected(new Set())
+    setLocalBusy('delete')
+    try {
+      await withInfo(async () => {
+        await window.api.library.clearSaves(
+          lookupThreadId,
+          info?.savePathExists ? currentPath : undefined
+        )
+        return window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves')
+      })
+      setSelected(new Set())
+    } finally {
+      setLocalBusy(null)
+    }
   }
 
   async function switchSaveLocation(savePath: string): Promise<void> {
@@ -661,9 +710,13 @@ export default function RenpySavesPanel({
     setEditing(save)
   }
 
-  const selectedSave = selected.size === 1 ? saves.find((item) => selected.has(item.path)) ?? null : null
-
-  function beginDrag(event: ReactPointerEvent, item: DragItem, label: string): void {
+  function beginDrag(
+    event: ReactPointerEvent,
+    item: DragItem,
+    ghost: DragGhost,
+    grabX: number,
+    grabY: number
+  ): void {
     if (event.button !== 0 || busy || running) return
     if ((event.target as HTMLElement).closest('input, button, a, select')) return
     sessionRef.current = {
@@ -672,7 +725,9 @@ export default function RenpySavesPanel({
       x: event.clientX,
       y: event.clientY,
       item,
-      label
+      ghost,
+      grabX,
+      grabY
     }
   }
 
@@ -684,15 +739,41 @@ export default function RenpySavesPanel({
 
   return (
     <div className="renpy-panel" ref={panelRef}>
-      {ghost ? (
-        <div
-          ref={ghostRef}
-          className="save-drag-ghost"
-          style={{ transform: `translate(${ghostPos.current.x + 12}px, ${ghostPos.current.y + 12}px)` }}
-        >
-          {ghost}
-        </div>
-      ) : null}
+      {ghost
+        ? createPortal(
+            <div
+              ref={ghostRef}
+              className={ghost.kind === 'save' ? 'save-drag-ghost is-save' : 'save-drag-ghost is-page'}
+              style={{
+                transform: `translate(${ghostPos.current.x}px, ${ghostPos.current.y}px)`,
+                ...(ghost.kind === 'save'
+                  ? { width: ghost.width, height: ghost.height }
+                  : null)
+              }}
+            >
+              {ghost.kind === 'save' ? (
+                <article className="save-tile">
+                  <SaveThumb url={ghost.save.thumbnailUrl} eager />
+                  <div className="save-tile-overlay">
+                    <div className="save-tile-top">
+                      <span className="save-tile-slot">Slot {ghost.slot}</span>
+                    </div>
+                    <div className="save-tile-meta">
+                      {ghost.save.saveName ? <strong>{ghost.save.saveName}</strong> : null}
+                      {ghost.save.gameVersion ? <span>{ghost.save.gameVersion}</span> : null}
+                      {formatDateTime(ghost.save.savedAt || ghost.save.modifiedAt) ? (
+                        <span>{formatDateTime(ghost.save.savedAt || ghost.save.modifiedAt)}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                </article>
+              ) : (
+                ghost.label
+              )}
+            </div>,
+            document.body
+          )
+        : null}
       {installed.length > 1 ? (
         <label className="renpy-version">
           <span className="muted">Version</span>
@@ -712,64 +793,37 @@ export default function RenpySavesPanel({
         view={view}
         onViewChange={setView}
         cloudEnabled={cloud.enabled}
-        actions={
+        localActions={
           <>
-            {selectedSave ? (
-              <button
-                className="ghost-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy || running}
-                onClick={() => openEditor(selectedSave)}
-              >
-                Edit save
-              </button>
-            ) : null}
-            {selected.size > 0 ? (
-              <button
-                className="stop-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy || running}
-                onClick={() => void deleteSelected()}
-              >
-                Delete {selected.size}
-              </button>
-            ) : currentPath && info?.savePathExists ? (
-              <button
-                className="stop-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy || running}
-                title="Delete this save folder, even if it has no save files"
-                onClick={() => void deleteSaveFolder()}
-              >
-                Delete saves
-              </button>
-            ) : lookupThreadId ? (
-              <button
-                className="stop-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy || running}
-                title="Delete save folders for this game, even if they have no save files"
-                onClick={() => void deleteSaveFolder()}
-              >
-                Delete saves
-              </button>
-            ) : null}
-            <button
-              className="ghost-btn saves-toolbar-btn"
-              type="button"
+            <SavesActionButton
+              label="Refresh"
+              busyLabel="Refreshing"
+              title="Reload local saves"
+              busy={localBusy === 'refresh'}
               disabled={busy || running}
-              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves'))}
-            >
-              Refresh
-            </button>
-            {lookupThreadId ? (
-              <GameCloudSaveActions
-                threadId={lookupThreadId}
-                cloud={cloud}
+              onClick={() => void refreshSaves()}
+            />
+            {lookupThreadId || (currentPath && info?.savePathExists) || localBusy === 'delete' ? (
+              <SavesActionButton
+                label="Delete"
+                busyLabel="Deleting"
+                title={
+                  currentPath && info?.savePathExists
+                    ? 'Delete this save folder, even if it has no save files'
+                    : 'Delete save folders for this game, even if they have no save files'
+                }
+                danger
+                busy={localBusy === 'delete'}
                 disabled={busy || running}
+                onClick={() => void deleteSaveFolder()}
               />
             ) : null}
           </>
+        }
+        cloudActions={
+          lookupThreadId && cloud.enabled && cloud.signedIn ? (
+            <GameCloudSaveActions threadId={lookupThreadId} cloud={cloud} disabled={busy || running} />
+          ) : null
         }
       />
 
@@ -997,9 +1051,16 @@ export default function RenpySavesPanel({
                         className="save-page-handle"
                         title="Drag this page onto an empty page"
                         onMouseDown={keepScrollOnMouse}
-                        onPointerDown={(event) =>
-                          beginDrag(event, { kind: 'page', page: board.page }, board.label)
-                        }
+                        onPointerDown={(event) => {
+                          const rect = event.currentTarget.getBoundingClientRect()
+                          beginDrag(
+                            event,
+                            { kind: 'page', page: board.page },
+                            { kind: 'page', label: board.label },
+                            event.clientX - rect.left,
+                            event.clientY - rect.top
+                          )
+                        }}
                       >
                         Drag page
                       </span>
@@ -1071,10 +1132,19 @@ export default function RenpySavesPanel({
                           onMouseDown={keepScrollOnMouse}
                           onPointerDown={(event) => {
                             if (save.slot == null) return
+                            const rect = event.currentTarget.getBoundingClientRect()
                             beginDrag(
                               event,
                               { kind: 'save', path: save.path, page: save.page, slot: save.slot },
-                              saveTitle(save)
+                              {
+                                kind: 'save',
+                                save,
+                                slot: save.slot,
+                                width: rect.width,
+                                height: rect.height
+                              },
+                              event.clientX - rect.left,
+                              event.clientY - rect.top
                             )
                           }}
                           onClick={() => toggleSave(save.path)}
@@ -1227,6 +1297,12 @@ export default function RenpySavesPanel({
           }}
         />
       ) : null}
+      <SavesDeleteSelectedFab
+        count={selected.size}
+        disabled={busy || running}
+        host={fabHost}
+        onDelete={() => void deleteSelected()}
+      />
     </div>
   )
 }

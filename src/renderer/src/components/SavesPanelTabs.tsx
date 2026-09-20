@@ -6,14 +6,57 @@ type SavesPanelTabsProps = {
   view: SavesPanelView
   onViewChange: (view: SavesPanelView) => void
   cloudEnabled: boolean
-  actions?: ReactNode
+  localActions?: ReactNode
+  cloudActions?: ReactNode
+}
+
+export function SavesActionButton({
+  label,
+  busyLabel,
+  title,
+  danger = false,
+  busy = false,
+  disabled = false,
+  onClick
+}: {
+  label: string
+  busyLabel?: string
+  title?: string
+  danger?: boolean
+  busy?: boolean
+  disabled?: boolean
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <button
+      className={danger ? 'ghost-btn saves-toolbar-btn is-danger' : 'ghost-btn saves-toolbar-btn'}
+      type="button"
+      title={title}
+      aria-busy={busy || undefined}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {busy ? <span className="saves-toolbar-spinner" aria-hidden="true" /> : null}
+      {busy ? busyLabel || label : label}
+    </button>
+  )
+}
+
+function ActionGroup({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <div className="saves-action-group">
+      <span className="saves-action-group-label">{label}</span>
+      <div className="saves-action-group-btns">{children}</div>
+    </div>
+  )
 }
 
 export default function SavesPanelTabs({
   view,
   onViewChange,
   cloudEnabled,
-  actions
+  localActions,
+  cloudActions
 }: SavesPanelTabsProps): JSX.Element {
   return (
     <div className="saves-panel-head">
@@ -51,7 +94,12 @@ export default function SavesPanelTabs({
           Settings
         </button>
       </div>
-      {actions ? <div className="renpy-actions">{actions}</div> : null}
+      {localActions || cloudActions ? (
+        <div className="saves-action-groups">
+          {localActions ? <ActionGroup label="Local">{localActions}</ActionGroup> : null}
+          {cloudActions ? <ActionGroup label="Cloud">{cloudActions}</ActionGroup> : null}
+        </div>
+      ) : null}
     </div>
   )
 }
