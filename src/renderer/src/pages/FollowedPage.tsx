@@ -43,7 +43,7 @@ const SORTS: Array<{ value: FollowedSort; label: string }> = [
   { value: 'rarity', label: 'Rarity' }
 ]
 
-const EAGER_CARDS = 18
+const EAGER_CARDS = 12
 
 function updateTime(game: Subscription): number {
   return game.timestamp || game.addedAt || 0

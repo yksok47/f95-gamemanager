@@ -1,23 +1,21 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 
 function scrollRoot(): Element | null {
   const main = document.querySelector('.app-main')
   return main instanceof Element ? main : null
 }
 
-/** True once `ref` is in or near the app scrollport. Stays true after the first hit. */
+/** True when `ref` is in or near the app scrollport. Eager tiles stay mounted. */
 export function useNearViewport(
   ref: RefObject<Element | null>,
   options?: { eager?: boolean; rootMargin?: string }
 ): boolean {
   const eager = Boolean(options?.eager)
-  const rootMargin = options?.rootMargin ?? '1200px 0px'
-  const revealed = useRef(eager)
-  if (eager) revealed.current = true
+  const rootMargin = options?.rootMargin ?? '400px 0px'
   const [near, setNear] = useState(eager)
 
   useEffect(() => {
-    if (revealed.current) {
+    if (eager) {
       setNear(true)
       return
     }
@@ -26,10 +24,7 @@ export function useNearViewport(
     const root = scrollRoot()
     const io = new IntersectionObserver(
       (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return
-        revealed.current = true
-        setNear(true)
-        io.disconnect()
+        setNear(entries.some((entry) => entry.isIntersecting))
       },
       { root, rootMargin }
     )
@@ -37,5 +32,5 @@ export function useNearViewport(
     return () => io.disconnect()
   }, [eager, ref, rootMargin])
 
-  return revealed.current || near
+  return eager || near
 }

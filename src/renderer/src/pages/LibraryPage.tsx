@@ -55,7 +55,7 @@ const SORTS: Array<{ value: LibrarySort; label: string }> = [
   { value: 'views', label: 'Views' }
 ]
 
-const EAGER_CARDS = 18
+const EAGER_CARDS = 12
 
 type LibraryPageProps = {
   subscriptions: Subscription[]

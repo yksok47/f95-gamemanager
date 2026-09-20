@@ -64,8 +64,8 @@ const SORTS: Array<{ value: CatalogSort; label: string }> = [
   { value: 'title', label: 'Title' }
 ]
 
-/** Enough tiles to fill a wide catalog viewport; the rest wait until they scroll near. */
-const EAGER_CARDS = 40
+/** First viewport of tiles; the rest wait until they scroll near. */
+const EAGER_CARDS = 12
 
 function selectedIds(
   state: Record<number, FilterChipState>,

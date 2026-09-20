@@ -37,7 +37,7 @@ const SORTS: Array<{ value: RosterSort; label: string }> = [
   { value: 'views', label: 'Views' }
 ]
 
-const EAGER_CARDS = 18
+const EAGER_CARDS = 12
 
 type RosterPageProps = {
   games: RosterGame[]

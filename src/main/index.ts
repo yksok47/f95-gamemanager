@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol } from "electron";
+import { app, BrowserWindow, protocol, session } from "electron";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { flushDownloadHistory, registerDownloadHandler } from "./downloads";
@@ -31,6 +31,10 @@ import { appIcon } from "./app-icon";
 
 protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME]);
 
+// SpareRenderer parks a hidden Chromium process (~80–150MB) before any window exists.
+app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
+app.commandLine.appendSwitch("disk-cache-size", String(64 * 1024 * 1024));
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -47,6 +51,7 @@ function createWindow(): void {
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: false,
     },
   });
 
@@ -71,6 +76,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId("com.f95gamemanager.app");
+  session.defaultSession.setSpellCheckerEnabled(false);
 
   app.on("browser-window-created", (_, window) => {
     optimizer.watchWindowShortcuts(window);

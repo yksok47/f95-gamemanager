@@ -29,11 +29,6 @@ import EngineBadge from "./EngineBadge";
 import FollowButton from "./FollowButton";
 import { favoriteTagsOnGame, hatedTagsOnGame } from "../lib/favorites";
 import { useGameDownloadProgress } from "../lib/download-progress";
-import {
-  enqueueLowPriorityScreens,
-  trackCoverEnd,
-  trackCoverStart,
-} from "../lib/image-priority";
 import { saneLikeCount, saneViewCount } from "@shared/counts";
 import { formatCount, formatRating, ratingClass } from "../lib/format";
 import type { GameLibraryStatus } from "../lib/library";
@@ -203,28 +198,6 @@ function GameCard({
     game.coverUrl && loadNonce > 0
       ? `${game.coverUrl}${game.coverUrl.includes("?") ? "&" : "?"}_gm_retry=${loadNonce}`
       : game.coverUrl;
-  const showCover = Boolean(coverSrc && !broken);
-  const releaseCoverTrack = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    if (!showCover || !coverSrc) {
-      releaseCoverTrack.current = null;
-      return;
-    }
-    let open = true;
-    trackCoverStart();
-    const release = (): void => {
-      if (!open) return;
-      open = false;
-      trackCoverEnd();
-    };
-    releaseCoverTrack.current = release;
-    return () => {
-      release();
-      if (releaseCoverTrack.current === release)
-        releaseCoverTrack.current = null;
-    };
-  }, [showCover, coverSrc]);
 
   function previewFromX(clientX: number): number {
     const rect = coverRef.current?.getBoundingClientRect();
@@ -350,12 +323,7 @@ function GameCard({
             fetchPriority="high"
             decoding="async"
             draggable={false}
-            onLoad={() => {
-              releaseCoverTrack.current?.();
-              enqueueLowPriorityScreens(previews);
-            }}
             onError={() => {
-              releaseCoverTrack.current?.();
               if (coverErrorTries.current < 1) {
                 coverErrorTries.current += 1;
                 setLoadNonce((n) => n + 1);

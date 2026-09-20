@@ -16,6 +16,7 @@ const guestContentsIds = new Set<number>()
 
 let extraEngine: FiltersEngine | null = null
 let listsEngine: FiltersEngine | null = null
+let listsStarted = false
 let registered = false
 
 function cachePath(): string {
@@ -28,6 +29,7 @@ function engines(): AdblockEngine[] {
 
 export function registerGuestContents(id: number): void {
   guestContentsIds.add(id)
+  ensureAdblockEngines()
 }
 
 export function unregisterGuestContents(id: number): void {
@@ -182,10 +184,11 @@ function registerWebRequest(): void {
   })
 }
 
-/** Start extra rules immediately; EasyList loads from cache / network in the background. */
-export function initAdblock(): void {
-  extraEngine = FiltersEngine.parse(EXTRA_FILTERS)
-  registerWebRequest()
+/** Extra rules are tiny; EasyList is deserialized only when a guest browser window opens. */
+function ensureAdblockEngines(): void {
+  if (!extraEngine) extraEngine = FiltersEngine.parse(EXTRA_FILTERS)
+  if (listsStarted) return
+  listsStarted = true
   void readCachedLists()
     .then((cached) => {
       if (cached) listsEngine = cached
@@ -193,4 +196,9 @@ export function initAdblock(): void {
     .catch((error) => console.warn('[adblock] could not read cached lists', error))
     .then(() => refreshListsIfNeeded())
     .catch((error) => console.warn('[adblock] list refresh failed', error))
+}
+
+/** CDN image redirects only. Filter engines stay unloaded until a guest window needs them. */
+export function initAdblock(): void {
+  registerWebRequest()
 }
