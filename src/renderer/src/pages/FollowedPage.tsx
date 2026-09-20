@@ -8,20 +8,19 @@ import type {
   VersionPlayStatus
 } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
-import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
 import { formatRelativeTime, shouldListOnUpdatesPage, usableVersion } from '@shared/updates'
+import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
-import { FilingCabinetIcon, HideCompletedIcon, ImportIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
+import { FilingCabinetIcon, ImportIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import {
   archivedToolbarTitle,
-  completedToolbarTitle,
   favoriteToolbarTitle,
   hatedToolbarTitle,
   matchesTriState,
@@ -29,8 +28,7 @@ import {
   toolbarTriStateClass,
   type FilterChipState
 } from '../components/FilterChip'
-import { gameHasFavoriteTag } from '../lib/favorites'
-import { useCatalogPrefixes } from '../lib/catalog-prefixes'
+import { useAdvancedFilters } from '../lib/use-advanced-filters'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type FollowedSort = 'title' | 'date' | 'rating' | 'rarity' | 'likes' | 'views'
@@ -136,7 +134,8 @@ export default function FollowedPage({
 }: FollowedPageProps): JSX.Element {
   const libraryByThread = useLibraryByThread()
   const sessions = usePlaySessions()
-  const prefixCatalog = useCatalogPrefixes()
+  const advanced = useAdvancedFilters(favoriteTags, hatedTags)
+  const prefixCatalog = advanced.filters.prefixes
   const [busy, setBusy] = useState<'watched' | 'bookmarks' | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -144,10 +143,7 @@ export default function FollowedPage({
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
   const updatesOnly = mode === 'updates'
-  const [completedFilter, setCompletedFilter] = useState<FilterChipState>('off')
   const [archiveFilter, setArchiveFilter] = useState<FilterChipState>('exclude')
-  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
-  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
 
@@ -218,17 +214,8 @@ export default function FollowedPage({
     () =>
       games
         .filter((game) => matchesQuery(game, needle))
+        .filter((game) => advanced.matches(game))
         .filter((game) => {
-          if (
-            !matchesTriState(
-              isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog)),
-              completedFilter
-            )
-          ) {
-            return false
-          }
-          if (!matchesTriState(gameHasFavoriteTag(game.tags, favoriteTags), favoritesFilter)) return false
-          if (!matchesTriState(gameHasFavoriteTag(game.tags, hatedTags), hatedFilter)) return false
           if (hiddenThreadIds?.has(game.threadId) && updatesOnly) return false
           if (updatesOnly ? game.archived : !matchesTriState(Boolean(game.archived), archiveFilter)) {
             return false
@@ -243,15 +230,10 @@ export default function FollowedPage({
       sort,
       descending,
       updatesOnly,
-      completedFilter,
+      advanced.matches,
       archiveFilter,
-      favoritesFilter,
-      favoriteTags,
-      hatedFilter,
-      hatedTags,
       libraryByThread,
       rosterIds,
-      prefixCatalog,
       hiddenThreadIds
     ]
   )
@@ -378,16 +360,35 @@ export default function FollowedPage({
           }
         />
         <button
-          className={toolbarTriStateClass(completedFilter)}
+          className={toolbarTriStateClass(advanced.favoritesFilter)}
           type="button"
-          aria-pressed={completedFilter === 'include'}
-          title={completedToolbarTitle(completedFilter)}
-          aria-label="Filter completed, on hold, and abandoned titles"
-          onClick={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
-          onContextMenu={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
+          aria-pressed={advanced.favoritesFilter === 'include'}
+          disabled={!favoriteTags.length}
+          title={favoriteToolbarTitle(advanced.favoritesFilter, favoriteTags.length > 0)}
+          aria-label="Filter by favorite tags"
+          onClick={advanced.cycleFavoritesFilter}
+          onContextMenu={advanced.cycleFavoritesFilter}
         >
-          <HideCompletedIcon />
+          <ThumbUpIcon />
         </button>
+        <button
+          className={toolbarTriStateClass(advanced.hatedFilter)}
+          type="button"
+          aria-pressed={advanced.hatedFilter === 'include'}
+          disabled={!hatedTags.length}
+          title={hatedToolbarTitle(advanced.hatedFilter, hatedTags.length > 0)}
+          aria-label="Filter by hated tags"
+          onClick={advanced.cycleHatedFilter}
+          onContextMenu={advanced.cycleHatedFilter}
+        >
+          <ThumbDownIcon />
+        </button>
+        <FilterToolbarSplit
+          open={advanced.filtersOpen}
+          count={advanced.activeFilterCount}
+          onToggle={advanced.toggleFilters}
+          onClear={advanced.clearFilters}
+        />
         {updatesOnly ? null : (
           <button
             className={toolbarTriStateClass(archiveFilter)}
@@ -401,30 +402,6 @@ export default function FollowedPage({
             <FilingCabinetIcon />
           </button>
         )}
-        <button
-          className={toolbarTriStateClass(favoritesFilter)}
-          type="button"
-          aria-pressed={favoritesFilter === 'include'}
-          disabled={!favoriteTags.length}
-          title={favoriteToolbarTitle(favoritesFilter, favoriteTags.length > 0)}
-          aria-label="Filter by favorite tags"
-          onClick={(event) => onTriStateMouse(event, setFavoritesFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setFavoritesFilter)}
-        >
-          <ThumbUpIcon />
-        </button>
-        <button
-          className={toolbarTriStateClass(hatedFilter)}
-          type="button"
-          aria-pressed={hatedFilter === 'include'}
-          disabled={!hatedTags.length}
-          title={hatedToolbarTitle(hatedFilter, hatedTags.length > 0)}
-          aria-label="Filter by hated tags"
-          onClick={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
-          onContextMenu={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
-        >
-          <ThumbDownIcon />
-        </button>
         <div className="toolbar-actions">
           <button
             className={sync?.running ? 'ghost-btn icon-btn sync-btn is-running' : 'ghost-btn icon-btn sync-btn'}
@@ -497,9 +474,7 @@ export default function FollowedPage({
       <FooterPortal>
         <span className="muted pager-label">
           {needle ||
-          completedFilter !== 'off' ||
-          favoritesFilter !== 'off' ||
-          hatedFilter !== 'off' ||
+          advanced.activeFilterCount ||
           (!updatesOnly && archiveFilter !== 'exclude')
             ? `${visible.length}/${sourceCount}`
             : updatesOnly
@@ -515,6 +490,12 @@ export default function FollowedPage({
         ) : null}
       </FooterPortal>
 
+      <LocalAdvancedFilters
+        advanced={advanced}
+        favoriteTags={favoriteTags}
+        hatedTags={hatedTags}
+      />
+
       {message ? <p className="catalog-status muted">{message}</p> : null}
       {games.length === 0 ? (
         <div className="empty-state">
@@ -524,31 +505,21 @@ export default function FollowedPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {updatesOnly &&
-            !needle &&
-            favoritesFilter === 'off' &&
-            hatedFilter === 'off' &&
-            completedFilter === 'off'
+          {updatesOnly && !needle && advanced.activeFilterCount === 0
             ? 'No followed games have a newer version than the install or last play.'
             : !updatesOnly &&
                 archiveFilter === 'exclude' &&
                 !needle &&
-                favoritesFilter === 'off' &&
-                hatedFilter === 'off' &&
-                completedFilter === 'off' &&
+                advanced.activeFilterCount === 0 &&
                 games.some((game) => game.archived)
               ? 'Archived followed games are hidden.'
-              : completedFilter === 'include' && !needle
-                ? 'No followed games are completed, on hold, or abandoned.'
-                : completedFilter === 'exclude' && !needle
-                  ? 'No followed games remain after hiding completed, on hold, and abandoned titles.'
-                  : favoritesFilter === 'include' && !needle
+              : advanced.favoritesFilter === 'include' && !needle
               ? 'No followed games match your favorite tags.'
-              : favoritesFilter === 'exclude' && !needle
+              : advanced.favoritesFilter === 'exclude' && !needle
                 ? 'No followed games remain after hiding favorite tags.'
-                : hatedFilter === 'include' && !needle
+                : advanced.hatedFilter === 'include' && !needle
                   ? 'No followed games match your hated tags.'
-                  : hatedFilter === 'exclude' && !needle
+                  : advanced.hatedFilter === 'exclude' && !needle
                     ? 'No followed games remain after hiding hated tags.'
                     : 'No followed games match that filter.'}
         </div>

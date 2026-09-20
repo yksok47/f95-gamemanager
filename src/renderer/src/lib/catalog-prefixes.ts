@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { CatalogPrefix, CatalogTag } from '@shared/types'
+import type { CatalogFilters, CatalogPrefix, CatalogTag } from '@shared/types'
 import { decodeHtmlEntities } from '@shared/engines'
 import { FALLBACK_PREFIXES } from '@shared/prefixes'
 
@@ -37,20 +37,27 @@ async function loadFilters(): Promise<{ prefixes: CatalogPrefix[]; tags: Catalog
   return pending
 }
 
-export function useCatalogPrefixes(): CatalogPrefix[] {
-  const [prefixes, setPrefixes] = useState<CatalogPrefix[]>(cachedPrefixes ?? FALLBACK_PREFIXES)
+export function useCatalogFilters(): CatalogFilters {
+  const [filters, setFilters] = useState<CatalogFilters>({
+    prefixes: cachedPrefixes ?? FALLBACK_PREFIXES,
+    tags: cachedTags ?? []
+  })
 
   useEffect(() => {
     let cancelled = false
     void loadFilters().then((next) => {
-      if (!cancelled) setPrefixes(next.prefixes)
+      if (!cancelled) setFilters(next)
     })
     return () => {
       cancelled = true
     }
   }, [])
 
-  return prefixes
+  return filters
+}
+
+export function useCatalogPrefixes(): CatalogPrefix[] {
+  return useCatalogFilters().prefixes
 }
 
 export function useCatalogTags(): CatalogTag[] {

@@ -72,12 +72,6 @@ export function hatedToolbarTitle(state: FilterChipState, hasTags: boolean): str
   return 'Not filtering hated tags'
 }
 
-export function completedToolbarTitle(state: FilterChipState): string {
-  if (state === 'include') return 'Showing only completed, on hold, and abandoned titles'
-  if (state === 'exclude') return 'Hiding completed, on hold, and abandoned titles'
-  return 'Showing completed, on hold, and abandoned titles'
-}
-
 export function archivedToolbarTitle(state: FilterChipState): string {
   if (state === 'include') return 'Showing only archived games'
   if (state === 'exclude') return 'Hiding archived games'

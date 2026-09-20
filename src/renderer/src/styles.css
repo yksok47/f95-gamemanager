@@ -1287,7 +1287,7 @@ input[type='search']::-webkit-search-results-decoration {
 .filter-overlay {
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 40;
   height: 0;
 }
 

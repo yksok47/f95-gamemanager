@@ -21,6 +21,7 @@ import {
   type ChipCycleDirection,
   type FilterChipState
 } from '../components/FilterChip'
+import { FilterOverlay, FilterToolbarSplit } from '../components/AdvancedFilterUi'
 import FilterShelf from '../components/FilterShelf'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
@@ -31,7 +32,7 @@ import CatalogPageTurn, {
   type PageTurnDirection
 } from '../components/CatalogPageTurn'
 import { selectTagsForQuery } from '../lib/favorites'
-import { ClearIcon, FilterIcon, PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
+import { PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
@@ -194,15 +195,6 @@ export default function CatalogPage({
     })
     setTagType('or')
   }, [hatedFilter, hatedIds, appliedHatedIds])
-
-  useEffect(() => {
-    if (!filtersOpen) return
-    function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setFiltersOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [filtersOpen])
 
   function sessionForThread(threadId: number) {
     return sessions.find((session) => session.threadId === threadId) ?? null
@@ -554,40 +546,12 @@ export default function CatalogPage({
         >
           <ThumbDownIcon />
         </button>
-        <div
-          className={[
-            'filter-split',
-            filtersOpen ? 'is-open' : '',
-            activeFilterCount ? 'is-split' : ''
-          ]
-            .filter(Boolean)
-            .join(' ')}
-        >
-          <button
-            className={filtersOpen ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
-            type="button"
-            aria-pressed={filtersOpen}
-            title={activeFilterCount ? `Filters (${activeFilterCount})` : 'Filters'}
-            aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : 'Filters'}
-            onClick={() => setFiltersOpen((open) => !open)}
-          >
-            <FilterIcon />
-          </button>
-          {activeFilterCount ? (
-            <button
-              className="ghost-btn icon-btn filter-split-clear"
-              type="button"
-              title="Clear filters"
-              aria-label="Clear filters"
-              onClick={clearFilters}
-            >
-              <span className="filter-split-count">{activeFilterCount}</span>
-              <span className="filter-split-x">
-                <ClearIcon />
-              </span>
-            </button>
-          ) : null}
-        </div>
+        <FilterToolbarSplit
+          open={filtersOpen}
+          count={activeFilterCount}
+          onToggle={() => setFiltersOpen((open) => !open)}
+          onClear={clearFilters}
+        />
         <div className="toolbar-actions">
           <button
             className="ghost-btn icon-btn"
@@ -657,37 +621,29 @@ export default function CatalogPage({
         </div>
       </FooterPortal>
 
-      {filtersOpen ? (
-        <div className="filter-overlay">
-          <button
-            className="filter-backdrop"
-            type="button"
-            aria-label="Close filters"
-            onClick={() => setFiltersOpen(false)}
-          />
-          <FilterShelf
-            filters={filters}
-            prefixState={prefixState}
-            tagState={tagState}
-            tagType={tagType}
-            tagQuery={tagQuery}
-            creatorInput={creatorInput}
-            favoriteTags={favoriteTags}
-            hatedTags={hatedTags}
-            favoriteFilter={favoritesFilter}
-            hatedFilter={hatedFilter}
-            lockedFavoriteIds={lockedFavoriteIds}
-            lockedHatedIds={lockedHatedIds}
-            includeLimitReached={includeLimitReached}
-            excludeLimitReached={excludeLimitReached}
-            onTogglePrefix={togglePrefix}
-            onToggleTag={toggleTag}
-            onTagType={setTagType}
-            onTagQuery={setTagQuery}
-            onCreatorInput={setCreatorInput}
-          />
-        </div>
-      ) : null}
+      <FilterOverlay open={filtersOpen} onClose={() => setFiltersOpen(false)}>
+        <FilterShelf
+          filters={filters}
+          prefixState={prefixState}
+          tagState={tagState}
+          tagType={tagType}
+          tagQuery={tagQuery}
+          creatorInput={creatorInput}
+          favoriteTags={favoriteTags}
+          hatedTags={hatedTags}
+          favoriteFilter={favoritesFilter}
+          hatedFilter={hatedFilter}
+          lockedFavoriteIds={lockedFavoriteIds}
+          lockedHatedIds={lockedHatedIds}
+          includeLimitReached={includeLimitReached}
+          excludeLimitReached={excludeLimitReached}
+          onTogglePrefix={togglePrefix}
+          onToggleTag={toggleTag}
+          onTagType={setTagType}
+          onTagQuery={setTagQuery}
+          onCreatorInput={setCreatorInput}
+        />
+      </FilterOverlay>
 
       {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
 

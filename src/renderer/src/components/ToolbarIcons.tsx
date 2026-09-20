@@ -74,21 +74,6 @@ export function ThumbDownIcon(): JSX.Element {
   )
 }
 
-export function HideCompletedIcon(): JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M2.35 8.2 6.2 12 13.6 3.85"
-      />
-    </svg>
-  )
-}
-
 export function ArchiveIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

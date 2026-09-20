@@ -7,27 +7,22 @@ import type {
   RosterGame,
   Subscription
 } from '@shared/types'
-import { gameStatusFlags, isInactiveStatus } from '@shared/prefixes'
+import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
 import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
-import { HideCompletedIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
+import { ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught } from '../components/ErrorNotifications'
 import {
-  completedToolbarTitle,
   favoriteToolbarTitle,
   hatedToolbarTitle,
-  matchesTriState,
-  onTriStateMouse,
-  toolbarTriStateClass,
-  type FilterChipState
+  toolbarTriStateClass
 } from '../components/FilterChip'
 import { toCatalogGame } from '../lib/catalog-game'
-import { gameHasFavoriteTag } from '../lib/favorites'
-import { useCatalogPrefixes } from '../lib/catalog-prefixes'
+import { useAdvancedFilters } from '../lib/use-advanced-filters'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type RosterSort = 'added' | 'title' | 'date' | 'rating' | 'likes' | 'views'
@@ -125,13 +120,11 @@ export default function RosterPage({
 }: RosterPageProps): JSX.Element {
   const libraryByThread = useLibraryByThread()
   const sessions = usePlaySessions()
-  const prefixCatalog = useCatalogPrefixes()
+  const advanced = useAdvancedFilters(favoriteTags, hatedTags)
+  const prefixCatalog = advanced.filters.prefixes
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<RosterSort>('added')
   const [descending, setDescending] = useState(true)
-  const [completedFilter, setCompletedFilter] = useState<FilterChipState>('off')
-  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
-  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
   const followedById = useMemo(
     () => new Map(subscriptions.map((game) => [game.threadId, game])),
     [subscriptions]
@@ -154,32 +147,9 @@ export default function RosterPage({
     () =>
       presented
         .filter((game) => matchesQuery(game, needle))
-        .filter((game) => {
-          if (
-            !matchesTriState(
-              isInactiveStatus(gameStatusFlags(game.prefixes, prefixCatalog)),
-              completedFilter
-            )
-          ) {
-            return false
-          }
-          if (!matchesTriState(gameHasFavoriteTag(game.tags, favoriteTags), favoritesFilter)) return false
-          if (!matchesTriState(gameHasFavoriteTag(game.tags, hatedTags), hatedFilter)) return false
-          return true
-        })
+        .filter((game) => advanced.matches(game))
         .sort((a, b) => compareGames(a, b, sort, descending)),
-    [
-      presented,
-      needle,
-      sort,
-      descending,
-      completedFilter,
-      favoritesFilter,
-      favoriteTags,
-      hatedFilter,
-      hatedTags,
-      prefixCatalog
-    ]
+    [presented, needle, sort, descending, advanced.matches]
   )
 
   async function playThread(game: RosterGame): Promise<void> {
@@ -256,48 +226,49 @@ export default function RosterPage({
           }
         />
         <button
-          className={toolbarTriStateClass(completedFilter)}
+          className={toolbarTriStateClass(advanced.favoritesFilter)}
           type="button"
-          aria-pressed={completedFilter === 'include'}
-          title={completedToolbarTitle(completedFilter)}
-          aria-label="Filter completed, on hold, and abandoned titles"
-          onClick={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
-          onContextMenu={(event) => onTriStateMouse(event, setCompletedFilter, 'reverse')}
-        >
-          <HideCompletedIcon />
-        </button>
-        <button
-          className={toolbarTriStateClass(favoritesFilter)}
-          type="button"
-          aria-pressed={favoritesFilter === 'include'}
+          aria-pressed={advanced.favoritesFilter === 'include'}
           disabled={!favoriteTags.length}
-          title={favoriteToolbarTitle(favoritesFilter, favoriteTags.length > 0)}
+          title={favoriteToolbarTitle(advanced.favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={(event) => onTriStateMouse(event, setFavoritesFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setFavoritesFilter)}
+          onClick={advanced.cycleFavoritesFilter}
+          onContextMenu={advanced.cycleFavoritesFilter}
         >
           <ThumbUpIcon />
         </button>
         <button
-          className={toolbarTriStateClass(hatedFilter)}
+          className={toolbarTriStateClass(advanced.hatedFilter)}
           type="button"
-          aria-pressed={hatedFilter === 'include'}
+          aria-pressed={advanced.hatedFilter === 'include'}
           disabled={!hatedTags.length}
-          title={hatedToolbarTitle(hatedFilter, hatedTags.length > 0)}
+          title={hatedToolbarTitle(advanced.hatedFilter, hatedTags.length > 0)}
           aria-label="Filter by hated tags"
-          onClick={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
-          onContextMenu={(event) => onTriStateMouse(event, setHatedFilter, 'reverse')}
+          onClick={advanced.cycleHatedFilter}
+          onContextMenu={advanced.cycleHatedFilter}
         >
           <ThumbDownIcon />
         </button>
+        <FilterToolbarSplit
+          open={advanced.filtersOpen}
+          count={advanced.activeFilterCount}
+          onToggle={advanced.toggleFilters}
+          onClear={advanced.clearFilters}
+        />
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle || completedFilter !== 'off' || favoritesFilter !== 'off' || hatedFilter !== 'off'
+          {needle || advanced.activeFilterCount
             ? `${visible.length}/${games.length}`
             : `${games.length} on roster`}
         </span>
       </FooterPortal>
+
+      <LocalAdvancedFilters
+        advanced={advanced}
+        favoriteTags={favoriteTags}
+        hatedTags={hatedTags}
+      />
 
       {games.length === 0 ? (
         <div className="empty-state">
@@ -306,17 +277,13 @@ export default function RosterPage({
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">
-          {completedFilter === 'include' && !needle
-            ? 'No roster games are completed, on hold, or abandoned.'
-            : completedFilter === 'exclude' && !needle
-              ? 'No roster games remain after hiding completed, on hold, and abandoned titles.'
-              : favoritesFilter === 'include' && !needle
+          {advanced.favoritesFilter === 'include' && !needle
             ? 'No roster games match your favorite tags.'
-            : favoritesFilter === 'exclude' && !needle
+            : advanced.favoritesFilter === 'exclude' && !needle
               ? 'No roster games remain after hiding favorite tags.'
-              : hatedFilter === 'include' && !needle
+              : advanced.hatedFilter === 'include' && !needle
                 ? 'No roster games match your hated tags.'
-                : hatedFilter === 'exclude' && !needle
+                : advanced.hatedFilter === 'exclude' && !needle
                   ? 'No roster games remain after hiding hated tags.'
                   : 'No roster games match that filter.'}
         </div>
