@@ -1,4 +1,5 @@
 import { createHash } from 'crypto'
+import { parseQuickFilters } from '@shared/quick-filters'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
   DEFAULT_CATALOG_PAGE_SIZE,
@@ -35,6 +36,7 @@ export type SyncedSettingKey =
   | 'catalogPageSize'
   | 'cloudSaveKeepCount'
   | 'cloudSaveIncludeAutoQuick'
+  | 'quickFilters'
 
 export const SYNCED_SETTING_KEYS: SyncedSettingKey[] = [
   'favoriteTags',
@@ -44,7 +46,8 @@ export const SYNCED_SETTING_KEYS: SyncedSettingKey[] = [
   'p2pUploadLimitKBps',
   'catalogPageSize',
   'cloudSaveKeepCount',
-  'cloudSaveIncludeAutoQuick'
+  'cloudSaveIncludeAutoQuick',
+  'quickFilters'
 ]
 
 export type SyncedSettings = Pick<AppSettings, SyncedSettingKey>
@@ -194,7 +197,8 @@ export function emptySyncedSettings(): SyncedSettings {
     p2pUploadLimitKBps: 0,
     catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
-    cloudSaveIncludeAutoQuick: true
+    cloudSaveIncludeAutoQuick: true,
+    quickFilters: []
   }
 }
 
@@ -213,7 +217,8 @@ export function pickPortableSettings(settings: AppSettings): SyncedSettings {
     cloudSaveIncludeAutoQuick:
       typeof settings.cloudSaveIncludeAutoQuick === 'boolean'
         ? settings.cloudSaveIncludeAutoQuick
-        : true
+        : true,
+    quickFilters: parseQuickFilters(settings.quickFilters)
   }
 }
 
@@ -238,6 +243,7 @@ function normalizeSettings(value: unknown): SyncedSettings {
     trackerWebRtcUrl: '',
     cloudSavesEnabled: false,
     cloudUserDataEnabled: false,
+    quickFilters: [],
     ...raw
   } as AppSettings)
 }

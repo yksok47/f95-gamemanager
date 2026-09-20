@@ -1,7 +1,7 @@
 import { useEffect, type JSX, type MouseEvent, type ReactNode } from 'react'
 import type { FavoriteTag, HatedTag } from '@shared/types'
 import type { AdvancedFilters } from '../lib/use-advanced-filters'
-import { isMiddleClick } from './FilterChip'
+import { isMiddleClick, triStateMouseProps } from './FilterChip'
 import FilterShelf from './FilterShelf'
 import { FilterIcon } from './ToolbarIcons'
 
@@ -68,15 +68,44 @@ export function FilterOverlay({
 
   if (!open) return null
 
+  function closeFromMouse(event: MouseEvent): void {
+    event.preventDefault()
+    onClose()
+  }
+
+  function isFilterControl(target: EventTarget | null): boolean {
+    return (
+      target instanceof Element &&
+      Boolean(target.closest('button, input, textarea, select, a, .chip, .quick-filter-chip'))
+    )
+  }
+
+  function closeFromDrawerBackground(event: MouseEvent): void {
+    if (isFilterControl(event.target)) return
+    closeFromMouse(event)
+  }
+
   return (
     <div className="filter-overlay">
       <button
         className="filter-backdrop"
         type="button"
         aria-label="Close filters"
-        onClick={onClose}
+        {...triStateMouseProps(closeFromMouse)}
       />
-      {children}
+      <div
+        onMouseDown={(event) => {
+          if (isFilterControl(event.target)) return
+          if (isMiddleClick(event)) event.preventDefault()
+        }}
+        onContextMenu={closeFromDrawerBackground}
+        onAuxClick={(event) => {
+          if (!isMiddleClick(event)) return
+          closeFromDrawerBackground(event)
+        }}
+      >
+        {children}
+      </div>
     </div>
   )
 }

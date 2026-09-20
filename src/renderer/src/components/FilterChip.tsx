@@ -1,7 +1,9 @@
 import type { JSX, MouseEvent } from 'react'
-import type { TagTier } from '@shared/types'
+import { engineKind, normalizeEngine } from '@shared/engines'
+import type { FilterChipState, TagTier } from '@shared/types'
+import { EngineMark } from './EngineBadge'
 
-export type FilterChipState = 'off' | 'include' | 'exclude'
+export type { FilterChipState }
 export type ChipCycleDirection = 'forward' | 'reverse' | 'reset'
 
 type FilterChipProps = {
@@ -9,6 +11,7 @@ type FilterChipProps = {
   state: FilterChipState
   onCycle: (direction: ChipCycleDirection) => void
   tone?: TagTier | 'hate'
+  appearance?: 'default' | 'engine'
   locked?: boolean
   lockedTitle?: string
 }
@@ -111,13 +114,25 @@ export default function FilterChip({
   state,
   onCycle,
   tone,
+  appearance = 'default',
   locked = false,
   lockedTitle = 'Locked by tag list'
 }: FilterChipProps): JSX.Element {
+  const engine = appearance === 'engine'
+  const kind = engine ? engineKind(label) : null
+  const text = kind ? normalizeEngine(label) || label : label
+  const signed = state === 'exclude' ? `− ${text}` : state === 'include' ? `+ ${text}` : text
+
   return (
     <button
       type="button"
-      className={['chip', `chip-${state}`, tone ? `chip-${tone}` : '', locked ? 'chip-locked' : '']
+      className={[
+        'chip',
+        `chip-${state}`,
+        tone ? `chip-${tone}` : '',
+        locked ? 'chip-locked' : '',
+        kind ? `engine-badge engine-badge-${kind}` : ''
+      ]
         .filter(Boolean)
         .join(' ')}
       {...(locked
@@ -134,7 +149,14 @@ export default function FilterChip({
           : 'Left-click include, again exclude. Right-click reverses. Middle-click resets.'
       }
     >
-      {state === 'exclude' ? `− ${label}` : state === 'include' ? `+ ${label}` : label}
+      {kind ? (
+        <>
+          <EngineMark kind={kind} />
+          <span>{signed}</span>
+        </>
+      ) : (
+        signed
+      )}
     </button>
   )
 }

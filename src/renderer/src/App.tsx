@@ -165,7 +165,8 @@ export default function App(): JSX.Element {
     cloudSavesEnabled: false,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
     cloudSaveIncludeAutoQuick: true,
-    cloudUserDataEnabled: false
+    cloudUserDataEnabled: false,
+    quickFilters: []
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)

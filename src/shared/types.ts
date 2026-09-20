@@ -7,6 +7,22 @@ export type AuthSession = {
 export type CatalogSort = 'date' | 'likes' | 'views' | 'title' | 'rating'
 export type CatalogCategory = 'games' | 'comics' | 'animations' | 'assets'
 export type MatchMode = 'or' | 'and'
+export type FilterChipState = 'off' | 'include' | 'exclude'
+
+export type QuickFilterSnapshot = {
+  prefixState: Record<number, FilterChipState>
+  tagState: Record<number, FilterChipState>
+  tagType: MatchMode
+  creator: string
+  favoritesFilter: FilterChipState
+  hatedFilter: FilterChipState
+}
+
+export type QuickFilter = {
+  id: string
+  name: string
+  snapshot: QuickFilterSnapshot
+}
 
 export type CatalogQuery = {
   page?: number
@@ -221,6 +237,8 @@ export type AppSettings = {
    * preferences through Google Drive when signed in. Paths and installed files stay local.
    */
   cloudUserDataEnabled: boolean
+  /** Named catalog filter shortcuts. Synced with portable user data. */
+  quickFilters: QuickFilter[]
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

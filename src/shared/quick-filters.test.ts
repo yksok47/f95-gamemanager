@@ -4,7 +4,7 @@ import {
   emptyQuickFilterSnapshot,
   parseQuickFilters,
   snapshotsEqual
-} from '@shared/quick-filters'
+} from './quick-filters'
 
 describe('parseQuickFilters', () => {
   test('keeps valid named snapshots and drops junk', () => {

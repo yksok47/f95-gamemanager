@@ -1,5 +1,6 @@
 ﻿import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join } from 'path'
+import { parseQuickFilters } from '@shared/quick-filters'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
   DEFAULT_CATALOG_PAGE_SIZE,
@@ -173,6 +174,7 @@ function emptySettings(): AppSettings {
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
     cloudSaveIncludeAutoQuick: true,
     cloudUserDataEnabled: false,
+    quickFilters: [],
     ...defaultFolders()
   }
 }
@@ -205,7 +207,8 @@ function normalizeSettings(value: unknown): AppSettings {
     cloudSaveKeepCount: normalizeCloudSaveKeepCount(raw.cloudSaveKeepCount),
     cloudSaveIncludeAutoQuick:
       typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true,
-    cloudUserDataEnabled: Boolean(raw.cloudUserDataEnabled)
+    cloudUserDataEnabled: Boolean(raw.cloudUserDataEnabled),
+    quickFilters: parseQuickFilters(raw.quickFilters)
   }
 }
 

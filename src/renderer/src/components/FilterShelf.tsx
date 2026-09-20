@@ -214,6 +214,7 @@ export default function FilterShelf({
               <FilterChip
                 key={prefix.id}
                 label={decodeHtmlEntities(prefix.name)}
+                appearance="engine"
                 state={prefixState[prefix.id] ?? 'off'}
                 onCycle={(direction) => onTogglePrefix(prefix.id, direction)}
               />

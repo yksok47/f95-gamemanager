@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { emptyQuickFilterSnapshot } from '@shared/quick-filters'
 import { mergeUserData, needsApply, needsUpload } from './merge'
 import {
   emptyPayload,
@@ -142,6 +143,29 @@ describe('mergeUserData', () => {
     const merged = mergeUserData(local, remote)
     expect(merged.settings.favoriteTags).toEqual([{ id: 1, name: 'NTR', tier: 'gold' }])
     expect(merged.settings.catalogPageSize).toBe(90)
+  })
+
+  test('later quick filters replace earlier ones without wiping other settings', () => {
+    const local = payload({
+      settings: {
+        ...emptySyncedSettings(),
+        favoriteTags: [{ id: 1, name: 'NTR', tier: 'gold' }],
+        quickFilters: [{ id: 'a', name: 'Old', snapshot: emptyQuickFilterSnapshot() }]
+      },
+      settingsTimes: { favoriteTags: 100, quickFilters: 50 }
+    })
+    const remote = payload({
+      settings: {
+        ...emptySyncedSettings(),
+        quickFilters: [{ id: 'b', name: 'New', snapshot: emptyQuickFilterSnapshot() }]
+      },
+      settingsTimes: { quickFilters: 200 }
+    })
+    const merged = mergeUserData(local, remote)
+    expect(merged.settings.favoriteTags).toEqual([{ id: 1, name: 'NTR', tier: 'gold' }])
+    expect(merged.settings.quickFilters).toEqual([
+      { id: 'b', name: 'New', snapshot: emptyQuickFilterSnapshot() }
+    ])
   })
 
   test('roster membership uses the same tombstone rule', () => {

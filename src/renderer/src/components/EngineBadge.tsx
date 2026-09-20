@@ -5,7 +5,7 @@ type EngineBadgeProps = {
   name: string
 }
 
-function EngineMark({ kind }: { kind: EngineKind }): JSX.Element {
+export function EngineMark({ kind }: { kind: EngineKind }): JSX.Element {
   switch (kind) {
     case 'renpy':
       return (
