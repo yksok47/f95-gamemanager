@@ -251,7 +251,7 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
     const threadSaves = savesByThread.get(threadId) || []
     const saveBytes = threadSaves.reduce((sum, item) => sum + item.bytes, 0)
     const totalBytes = archiveBytes + installBytes + saveBytes
-    if (totalBytes <= 0) continue
+    if (totalBytes <= 0 && !threadSaves.length) continue
     seenGameThreads.add(threadId)
     games.push({
       threadId,
@@ -274,7 +274,7 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
     if (seenGameThreads.has(threadId)) continue
     const sample = threadSaves[0]
     const saveBytes = threadSaves.reduce((sum, item) => sum + item.bytes, 0)
-    if (saveBytes <= 0) continue
+    if (!threadSaves.length) continue
     games.push({
       threadId,
       title: sample.title,

@@ -35,7 +35,7 @@ import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload, collectThreadDownloads } from './lib/downloads'
 import { DownloadProgressProvider } from './lib/download-progress'
-import { useLibraryByThread, type LibraryGame } from './lib/library'
+import { hasLibraryCopy, useLibraryByThread, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
@@ -196,11 +196,14 @@ export default function App(): JSX.Element {
     [downloads, p2pEnabled, p2pTransfers, p2pSharedHashes]
   )
   const libraryCount = useMemo(() => {
-    let extra = 0
-    for (const threadId of pendingDownloads.keys()) {
-      if (!libraryByThread.has(threadId)) extra += 1
+    let count = 0
+    for (const status of libraryByThread.values()) {
+      if (hasLibraryCopy(status)) count += 1
     }
-    return libraryByThread.size + extra
+    for (const threadId of pendingDownloads.keys()) {
+      if (!hasLibraryCopy(libraryByThread.get(threadId))) count += 1
+    }
+    return count
   }, [libraryByThread, pendingDownloads])
   const rosterIds = useMemo(() => new Set(roster.map((game) => game.threadId)), [roster])
   const updatesCount = useMemo(
@@ -224,6 +227,10 @@ export default function App(): JSX.Element {
 
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
+    [subscriptions]
+  )
+  const archivedIds = useMemo(
+    () => new Set(subscriptions.filter((game) => game.archived).map((game) => game.threadId)),
     [subscriptions]
   )
   const followedPlayById = useMemo(() => {
@@ -606,6 +613,7 @@ export default function App(): JSX.Element {
       {view === 'catalog' ? (
         <CatalogPage
           followedIds={followedIds}
+          archivedIds={archivedIds}
           followedPlayById={followedPlayById}
           rarityById={rarityById}
           favoriteTags={favoriteTags}

@@ -100,6 +100,18 @@ export function ArchiveIcon(): JSX.Element {
   )
 }
 
+export function FilingCabinetIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M2.7 1.05h10.6v12.7H2.7zm1.45 1.5h7.7v4.4h-7.7zm0 5.55h7.7v4.4h-7.7zM5.35 3.15h5.3v1.25h-5.3zm1.4 1.7h2.5v.85h-2.5zm-1.4 5.55h5.3v1.25h-5.3zm1.4 1.7h2.5v.85h-2.5zM3.15 13.75h2.35v1.2H3.15zm7.35 0h2.35v1.2h-2.35z"
+      />
+    </svg>
+  )
+}
+
 export function ImportIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

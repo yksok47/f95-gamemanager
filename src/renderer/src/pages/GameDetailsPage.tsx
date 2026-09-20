@@ -52,6 +52,7 @@ import {
   versionPlayStatsFromFiles
 } from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
+import LibraryPresenceIcons from '../components/LibraryPresenceIcons'
 import FollowButton from '../components/FollowButton'
 import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
@@ -75,11 +76,15 @@ import {
   transferMatchesLibraryFile
 } from '../lib/downloads'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
-import { gamesWithPatchInstalled, listUncensorPatchTargets } from '../lib/library'
+import {
+  gamesWithPatchInstalled,
+  listUncensorPatchTargets,
+  useIdentifiedSaveThreadIds,
+  usePlaySessions
+} from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
 import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
-import { usePlaySessions } from '../lib/library'
 
 type DetailsTab =
   | 'overview'
@@ -464,6 +469,7 @@ function GameDetailsPage({
   const [threadIdCopied, setThreadIdCopied] = useState(false)
   const [ignoreBusy, setIgnoreBusy] = useState(false)
   const [archiveBusy, setArchiveBusy] = useState(false)
+  const [removeAllBusy, setRemoveAllBusy] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -471,6 +477,7 @@ function GameDetailsPage({
   const [reviewsError, setReviewsError] = useState<string | null>(null)
   const [reviewsReload, setReviewsReload] = useState(0)
   const sessions = usePlaySessions()
+  const saveThreadIds = useIdentifiedSaveThreadIds()
   const [now, setNow] = useState(() => Date.now())
   const [versionsExpanded, setVersionsExpanded] = useState(false)
 
@@ -825,7 +832,7 @@ function GameDetailsPage({
       },
       { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
       { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
-      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker },
+      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker && !saveThreadIds.has(summary.threadId) },
       { id: 'userNotes', label: 'Notes' },
       { id: 'renpy', label: 'Renpy', hidden: !isRenpy }
     ]
@@ -840,7 +847,9 @@ function GameDetailsPage({
     files,
     isRenpy,
     isRpgMaker,
-    initialTab
+    initialTab,
+    saveThreadIds,
+    summary.threadId
   ])
 
   useEffect(() => {
@@ -1243,6 +1252,15 @@ function GameDetailsPage({
     () => files.some((file) => file.hasArchive || file.isInstalled),
     [files]
   )
+  const hasArchive = useMemo(
+    () =>
+      files.some(
+        (file) => file.hasArchive && isInstallableLibraryPackage(file.packageTags)
+      ),
+    [files]
+  )
+  const hasSaves = saveThreadIds.has(summary.threadId)
+  const canRemoveEverything = hasLocalCopy || hasSaves || files.length > 0
 
   const gameTransfers = useMemo(
     () =>
@@ -1481,6 +1499,28 @@ function GameDetailsPage({
       notifyCaught(err, next ? 'Could not archive this game.' : 'Could not unarchive this game.')
     } finally {
       setArchiveBusy(false)
+    }
+  }
+
+  async function removeEverything(): Promise<void> {
+    if (
+      !(await confirm({
+        title: 'Remove everything',
+        message: `Remove everything for ${title}? Archives, installed copies, and save folders (including empty save and backup folders) will be deleted. This cannot be undone.`,
+        confirmLabel: 'Remove everything',
+        danger: true
+      }))
+    ) {
+      return
+    }
+    setRemoveAllBusy(true)
+    try {
+      await window.api.library.removeLocalData(summary.threadId)
+      setFiles(await window.api.library.list(summary.threadId))
+    } catch (err) {
+      notifyCaught(err, 'Could not remove that game.')
+    } finally {
+      setRemoveAllBusy(false)
     }
   }
 
@@ -1780,11 +1820,18 @@ function GameDetailsPage({
                   </a>
                 </h1>
                 <span className="details-pill">{version || 'Unknown version'}</span>
-                {engine ? (
-                  <EngineBadge name={engine} />
-                ) : (
-                  <span className="details-pill">Unknown engine</span>
-                )}
+                <span className="details-engine-meta">
+                  {engine ? (
+                    <EngineBadge name={engine} />
+                  ) : (
+                    <span className="details-pill">Unknown engine</span>
+                  )}
+                  <LibraryPresenceIcons
+                    archived={Boolean(subscribed && summary.archived)}
+                    hasArchive={hasArchive}
+                    hasSaves={hasSaves}
+                  />
+                </span>
                 {status.completed ? (
                   <span className="cover-status-badge cover-status-completed" title="Completed">
                     Completed
@@ -1927,7 +1974,7 @@ function GameDetailsPage({
                   </button>
                 ) : null}
                 <MoreMenu
-                  disabled={ignoreBusy || archiveBusy}
+                  disabled={ignoreBusy || archiveBusy || removeAllBusy}
                   items={[
                     {
                       id: 'ignore',
@@ -1954,6 +2001,16 @@ function GameDetailsPage({
                                 : 'Archive',
                             disabled: archiveBusy,
                             onClick: () => void toggleArchived()
+                          }
+                        ]
+                      : []),
+                    ...(canRemoveEverything
+                      ? [
+                          {
+                            id: 'remove-everything',
+                            label: removeAllBusy ? 'Removing…' : 'Remove everything',
+                            disabled: removeAllBusy,
+                            onClick: () => void removeEverything()
                           }
                         ]
                       : [])

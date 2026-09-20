@@ -4,6 +4,13 @@ export function normalizeSaveKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 }
 
+/** Leaf folder name used for matching, ignoring a publisher parent like `PTGames/`. */
+export function saveFolderMatchName(folderName: string): string {
+  const trimmed = folderName.trim().replace(/[/\\]+$/, '')
+  const parts = trimmed.split(/[/\\]/).filter(Boolean)
+  return parts.at(-1) || trimmed
+}
+
 /** Split a title into tokens used for Ren'Py-style save-folder acronyms. */
 export function titleTokens(title: string): string[] {
   const cleaned = cleanThreadTitle(title) || title
@@ -63,13 +70,14 @@ function acronymBoundaryMatch(folderKey: string, acro: string): boolean {
 }
 
 export function scoreSaveFolder(folderName: string, title: string): number {
+  const matchName = saveFolderMatchName(folderName)
   const needle = normalizeSaveKey(cleanThreadTitle(title) || title)
   if (needle.length < 3) return 0
-  const key = normalizeSaveKey(folderName)
+  const key = normalizeSaveKey(matchName)
   if (!key) return 0
 
   let score = 0
-  const folderAcro = folderAcronymKey(folderName)
+  const folderAcro = folderAcronymKey(matchName)
 
   for (const acro of titleAcronyms(title)) {
     if (acro.length < 3) continue
@@ -195,7 +203,7 @@ export function matchSaveFoldersToGames<T extends { title: string; threadId: num
 
 /** Catalog search strings derived from a Ren'Py save-folder name. */
 export function folderSearchQueries(folderName: string): string[] {
-  const trimmed = folderName.trim()
+  const trimmed = saveFolderMatchName(folderName)
   if (!trimmed) return []
   const withoutStamp = trimmed.replace(/-\d{8,}$/, '')
   const spaced = withoutStamp.replace(/[_-]+/g, ' ')

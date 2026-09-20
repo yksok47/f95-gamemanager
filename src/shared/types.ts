@@ -81,10 +81,10 @@ export type LoginPayload = {
 }
 
 export type SubscriptionSource = 'manual' | 'watched' | 'bookmark'
-export type GameRarity = 'regular' | 'rare' | 'epic' | 'legendary'
+export type GameRarity = 'infamous' | 'regular' | 'rare' | 'epic' | 'legendary'
 export type TagTier = 'bronze' | 'silver' | 'gold'
 
-export const GAME_RARITIES: GameRarity[] = ['regular', 'rare', 'epic', 'legendary']
+export const GAME_RARITIES: GameRarity[] = ['infamous', 'regular', 'rare', 'epic', 'legendary']
 export const TAG_TIERS: TagTier[] = ['gold', 'silver', 'bronze']
 /** Max ranked tags allowed in one gold/silver/bronze group. */
 export const TAGS_PER_TIER_LIMIT = 10
@@ -100,10 +100,11 @@ export function isCatalogPageSize(value: unknown): value is CatalogPageSize {
 }
 
 export const RARITY_RANK: Record<GameRarity, number> = {
-  regular: 0,
-  rare: 1,
-  epic: 2,
-  legendary: 3
+  infamous: 0,
+  regular: 1,
+  rare: 2,
+  epic: 3,
+  legendary: 4
 }
 
 export const TAG_TIER_RANK: Record<TagTier, number> = {
@@ -500,6 +501,11 @@ export type RenpyLastRun = {
   failed: number
 }
 
+export type RenpySaveLocation = {
+  savePath: string
+  folderName: string
+}
+
 export type RenpyInfo = {
   fileId: string
   gameRoot: string | null
@@ -507,6 +513,8 @@ export type RenpyInfo = {
   savePath: string | null
   savePathExists: boolean
   saveFolderBytes: number
+  /** Identified / assigned save folders for this game, active path first. */
+  saveLocations: RenpySaveLocation[]
   optionsFound: boolean
   /** When true, option toggles follow the global Ren'Py prefs (per-game overrides locked). */
   optionsGlobal: boolean

@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { IdentifiedSaveFolder } from '@shared/types'
-import { mergeIdentifiedSaveFolder } from './save-folder-meta'
+import {
+  identifiedSaveFoldersForGame,
+  mergeIdentifiedSaveFolder,
+  pickIdentifiedSaveFolder,
+  renpySaveLocationOptions
+} from './save-folder-meta'
 
 function folder(
   partial: Partial<IdentifiedSaveFolder> & Pick<IdentifiedSaveFolder, 'title' | 'threadId' | 'savePath'>
@@ -35,5 +40,73 @@ describe('mergeIdentifiedSaveFolder', () => {
     expect(merged.tags).toEqual([8])
     expect(merged.rating).toBe(4.2)
     expect(merged.identifiedAt).toBe(9)
+  })
+})
+
+describe('identifiedSaveFoldersForGame', () => {
+  test('returns every folder for a thread, newest first', () => {
+    const older = folder({
+      title: 'Game',
+      threadId: 4,
+      savePath: 'C:\\saves\\old',
+      identifiedAt: 2
+    })
+    const newer = folder({
+      title: 'Game',
+      threadId: 4,
+      savePath: 'C:\\saves\\new',
+      identifiedAt: 9
+    })
+    const other = folder({ title: 'Other', threadId: 8, savePath: 'C:\\saves\\other', identifiedAt: 20 })
+    expect(identifiedSaveFoldersForGame([older, newer, other], 4).map((item) => item.savePath)).toEqual([
+      'C:\\saves\\new',
+      'C:\\saves\\old'
+    ])
+  })
+
+  test('pickIdentifiedSaveFolder uses the newest thread match', () => {
+    const folders = [
+      folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\old', identifiedAt: 2 }),
+      folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\new', identifiedAt: 9 })
+    ]
+    expect(pickIdentifiedSaveFolder(folders, 4)?.savePath).toBe('C:\\saves\\new')
+  })
+
+  test('does not pick an ambiguous title-only match', () => {
+    const folders = [
+      folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\a', identifiedAt: 2 }),
+      folder({ title: 'Game', threadId: 5, savePath: 'C:\\saves\\b', identifiedAt: 9 })
+    ]
+    expect(pickIdentifiedSaveFolder(folders, 0, 'Game')).toBeNull()
+    expect(identifiedSaveFoldersForGame(folders, 0, 'Game')).toHaveLength(2)
+  })
+})
+
+describe('renpySaveLocationOptions', () => {
+  test('puts the active path first and includes it when it is not identified yet', () => {
+    const identified = [
+      folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\old', folderName: 'old', identifiedAt: 2 }),
+      folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\new', folderName: 'new', identifiedAt: 9 })
+    ]
+    expect(renpySaveLocationOptions(identified, 'C:\\saves\\old').map((item) => item.folderName)).toEqual([
+      'old',
+      'new'
+    ])
+    expect(
+      renpySaveLocationOptions(identified, 'C:\\saves\\custom').map((item) => item.folderName)
+    ).toEqual(['custom', 'new', 'old'])
+  })
+
+  test('does not duplicate the active path when it is already identified', () => {
+    const identified = [
+      folder({
+        title: 'Game',
+        threadId: 4,
+        savePath: 'C:\\saves\\Game',
+        folderName: 'Game',
+        identifiedAt: 2
+      })
+    ]
+    expect(renpySaveLocationOptions(identified, 'C:\\saves\\game')).toHaveLength(1)
   })
 })

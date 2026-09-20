@@ -73,8 +73,10 @@ import {
   runRenpyAction,
   setAllRenpyToolsForFile,
   setRenpyOptionsGlobalForFile,
+  setRenpySaveLocation,
   setRenpyToolForFile,
-  showRenpySave
+  showRenpySave,
+  unlinkRenpySaveLocation
 } from './renpy/saves'
 import { getAppPaths } from './paths'
 import {
@@ -87,8 +89,10 @@ import {
   assignSaveFolder,
   identifySaveFolder,
   listSaveFolderPeek,
+  listPresentIdentifiedSaveFolders,
   listSaveOnlyItems,
-  openManagedSaveFolder
+  openManagedSaveFolder,
+  removeGameLocalData
 } from './save-folders'
 import {
   approvePendingImport,
@@ -657,9 +661,25 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('library:identifiedSaveFolders', async () => {
+    try {
+      return await listPresentIdentifiedSaveFolders()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('library:clearSaves', async (_event, threadId: number, savePath?: string) => {
     try {
       await clearGameSaves(Number(threadId) || 0, savePath ? String(savePath) : undefined)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:removeLocalData', async (_event, threadId: number) => {
+    try {
+      await removeGameLocalData(Number(threadId) || 0)
     } catch (error) {
       throw toIpcError(error)
     }
@@ -966,6 +986,38 @@ export function registerIpc(): void {
           String(id || ''),
           String(title || ''),
           BrowserWindow.fromWebContents(event.sender),
+          Number(threadId) || 0
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'renpy:setSaveDirectory',
+    async (_event, id: string, savePath: string, title?: string, threadId?: number) => {
+      try {
+        return await setRenpySaveLocation(
+          String(id || ''),
+          String(savePath || ''),
+          String(title || ''),
+          Number(threadId) || 0
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'renpy:unlinkSaveDirectory',
+    async (_event, id: string, savePath: string, title?: string, threadId?: number) => {
+      try {
+        return await unlinkRenpySaveLocation(
+          String(id || ''),
+          String(savePath || ''),
+          String(title || ''),
           Number(threadId) || 0
         )
       } catch (error) {

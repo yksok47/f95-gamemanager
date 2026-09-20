@@ -70,7 +70,7 @@ function rebuildGames(items: LibraryStorageItem[], previous: LibraryStorageGame[
     const threadSaves = savesByThread.get(game.threadId) || []
     const saveBytes = threadSaves.reduce((sum, item) => sum + item.bytes, 0)
     const totalBytes = game.archiveBytes + game.installBytes + saveBytes
-    if (totalBytes <= 0) continue
+    if (totalBytes <= 0 && !threadSaves.length) continue
     seen.add(game.threadId)
     const sample = threadSaves[0]
     games.push({
@@ -90,7 +90,7 @@ function rebuildGames(items: LibraryStorageItem[], previous: LibraryStorageGame[
     if (seen.has(threadId)) continue
     const sample = threadSaves[0]
     const saveBytes = threadSaves.reduce((sum, item) => sum + item.bytes, 0)
-    if (saveBytes <= 0) continue
+    if (!threadSaves.length) continue
     games.push({
       threadId,
       title: sample.title,

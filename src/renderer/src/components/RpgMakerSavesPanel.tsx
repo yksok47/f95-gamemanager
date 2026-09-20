@@ -103,6 +103,30 @@ export default function RpgMakerSavesPanel({
     }
   }
 
+  async function deleteAllSaves(): Promise<void> {
+    if (
+      !(await confirm({
+        title: 'Delete saves',
+        message: `Delete all saves and save folders for ${title || 'this game'}? Empty folders are removed too. This cannot be undone.`,
+        confirmLabel: 'Delete saves',
+        danger: true
+      }))
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      await window.api.library.clearSaves(threadId)
+      const next = await window.api.rpgmaker.info(activeId, threadId, title)
+      setInfo(next)
+      setSelected(new Set())
+    } catch (err) {
+      notifyCaught(err, 'Could not delete those saves.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function openFolder(which?: 'game' | 'backup'): void {
     void window.api.rpgmaker.openSaves(activeId, threadId, title, which).catch((err) => {
       notifyCaught(err, 'Could not open the save folder.')
@@ -130,6 +154,16 @@ export default function RpgMakerSavesPanel({
                 onClick={() => void deleteSelected()}
               >
                 Delete {selected.size}
+              </button>
+            ) : saves.length || info?.backupPathExists || info?.gameSavePathExists ? (
+              <button
+                className="stop-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy}
+                title="Delete all saves and save folders, even if they have no save files"
+                onClick={() => void deleteAllSaves()}
+              >
+                Delete saves
               </button>
             ) : null}
             <button className="ghost-btn saves-toolbar-btn" type="button" disabled={busy} onClick={() => void load()}>
@@ -190,13 +224,13 @@ export default function RpgMakerSavesPanel({
                 placeholder={busy && !info ? 'Reading…' : 'No backup folder yet'}
                 title={info?.backupPath || undefined}
               />
-              {info?.backupPath && (info.backupPathExists || saves.length) ? (
+              {info?.backupPath && info.backupPathExists ? (
                 <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
               ) : null}
               <button
                 className="ghost-btn saves-toolbar-btn"
                 type="button"
-                disabled={busy || !info?.backupPath}
+                disabled={busy || !info?.backupPathExists}
                 onClick={() => openFolder('backup')}
               >
                 Open

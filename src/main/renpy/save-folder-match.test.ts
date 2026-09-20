@@ -37,8 +37,10 @@ describe('matchRenpySaveFolder', () => {
     expect(scoreS2).toBeGreaterThan(scoreKingpin)
   })
 
-  test('returns null when ambiguous weak matches', () => {
-    expect(matchRenpySaveFolder('ZZ', ['AAA', 'BBB'])).toBeNull()
+  test('matches nested publisher/game save folders on the leaf name', () => {
+    expect(
+      matchRenpySaveFolder('Lunars Chosen Episode 2', ['PTGames/Lunars Chosen Episode 2'])
+    ).toBe('PTGames/Lunars Chosen Episode 2')
   })
 })
 
@@ -89,6 +91,12 @@ describe('matchSaveFoldersToGames', () => {
 describe('folderSearchQueries', () => {
   test('strips timestamps and splits camel case', () => {
     expect(folderSearchQueries('BeingADik-1749650324')).toContain('Being A Dik')
+  })
+
+  test('searches nested folders by the leaf name', () => {
+    expect(folderSearchQueries('PTGames/Lunars Chosen Episode 2')).toContain(
+      'Lunars Chosen Episode 2'
+    )
   })
 
   test('keeps acronym folders searchable', () => {

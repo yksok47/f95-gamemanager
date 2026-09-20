@@ -7,6 +7,7 @@ import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
 import {
   ArchiveIcon,
+  FilingCabinetIcon,
   FollowedIcon,
   HideCompletedIcon,
   InstallIcon,
@@ -18,6 +19,7 @@ import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught } from '../components/ErrorNotifications'
 import {
+  archivedToolbarTitle,
   completedToolbarTitle,
   favoriteToolbarTitle,
   hatedToolbarTitle,
@@ -37,6 +39,8 @@ import {
   useLibraryFiles,
   usePlaySessions,
   useIdentifiedSaveFolders,
+  useIdentifiedSaveThreadIds,
+  withSavePresence,
   libraryExclusiveKind,
   type LibraryGame
 } from '../lib/library'
@@ -125,15 +129,24 @@ export default function LibraryPage({
   const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
   const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
   const [followedFilter, setFollowedFilter] = useState<FilterChipState>('off')
+  const [archivedFilter, setArchivedFilter] = useState<FilterChipState>('exclude')
   const [savesFilter, setSavesFilter] = useState<FilterChipState>('exclude')
   const [archivesFilter, setArchivesFilter] = useState<FilterChipState>('off')
   const [installsFilter, setInstallsFilter] = useState<FilterChipState>('off')
   const saveOnlyItems = useIdentifiedSaveFolders()
+  const saveIds = useIdentifiedSaveThreadIds()
   const followedIds = useMemo(
     () => new Set(subscriptions.map((game) => game.threadId)),
     [subscriptions]
   )
-  const libraryByThread = useMemo(() => summarizeLibrary(files), [files])
+  const archivedIds = useMemo(
+    () => new Set(subscriptions.filter((game) => game.archived).map((game) => game.threadId)),
+    [subscriptions]
+  )
+  const libraryByThread = useMemo(
+    () => withSavePresence(summarizeLibrary(files), saveIds),
+    [files, saveIds]
+  )
   const installedGames = useMemo(
     () => mergeDownloadingLibraryGames(groupLibraryGames(files, subscriptions), pendingDownloads, subscriptions),
     [files, subscriptions, pendingDownloads]
@@ -175,6 +188,7 @@ export default function LibraryPage({
           if (!matchesTriState(gameHasFavoriteTag(game.tags, favoriteTags), favoritesFilter)) return false
           if (!matchesTriState(gameHasFavoriteTag(game.tags, hatedTags), hatedFilter)) return false
           if (!matchesTriState(followedIds.has(game.threadId), followedFilter)) return false
+          if (!matchesTriState(archivedIds.has(game.threadId), archivedFilter)) return false
           const exclusiveKind = libraryExclusiveKind(game, libraryByThread.get(game.threadId))
           if (!matchesTriState(exclusiveKind === 'saves', savesFilter)) return false
           if (!matchesTriState(exclusiveKind === 'archive', archivesFilter)) return false
@@ -194,6 +208,8 @@ export default function LibraryPage({
       hatedTags,
       followedIds,
       followedFilter,
+      archivedIds,
+      archivedFilter,
       prefixCatalog,
       libraryByThread,
       savesFilter,
@@ -326,6 +342,17 @@ export default function LibraryPage({
           <FollowedIcon />
         </button>
         <button
+          className={toolbarTriStateClass(archivedFilter)}
+          type="button"
+          aria-pressed={archivedFilter === 'include'}
+          title={archivedToolbarTitle(archivedFilter)}
+          aria-label="Filter archived games"
+          onClick={(event) => onTriStateMouse(event, setArchivedFilter)}
+          onContextMenu={(event) => onTriStateMouse(event, setArchivedFilter)}
+        >
+          <FilingCabinetIcon />
+        </button>
+        <button
           className={toolbarTriStateClass(savesFilter)}
           type="button"
           aria-pressed={savesFilter === 'include'}
@@ -378,6 +405,7 @@ export default function LibraryPage({
           favoritesFilter !== 'off' ||
           hatedFilter !== 'off' ||
           followedFilter !== 'off' ||
+          archivedFilter !== 'exclude' ||
           kindFiltersActive
             ? `${visible.length}/${games.length}`
             : `${visible.length} in library`}
@@ -404,6 +432,7 @@ export default function LibraryPage({
                     favoritesFilter === 'off' &&
                     hatedFilter === 'off' &&
                     followedFilter === 'off' &&
+                    archivedFilter === 'exclude' &&
                     completedFilter === 'off'
                   ? 'Exclusive save, archive, and install games are hidden.'
                   : completedFilter === 'include' && !needle
@@ -414,7 +443,18 @@ export default function LibraryPage({
                     ? 'No followed games are in the library.'
                     : followedFilter === 'exclude' && !needle
                       ? 'No unfollowed games are in the library.'
-                      : favoritesFilter === 'include' && !needle
+                      : archivedFilter === 'exclude' &&
+                          !needle &&
+                          completedFilter === 'off' &&
+                          favoritesFilter === 'off' &&
+                          hatedFilter === 'off' &&
+                          followedFilter === 'off' &&
+                          !kindFiltersActive &&
+                          archivedIds.size
+                        ? 'Archived followed games are hidden.'
+                        : archivedFilter === 'include' && !needle
+                          ? 'No archived games are in the library.'
+                          : favoritesFilter === 'include' && !needle
                         ? 'No library games match your favorite tags.'
                         : favoritesFilter === 'exclude' && !needle
                           ? 'No library games remain after hiding favorite tags.'
@@ -433,6 +473,7 @@ export default function LibraryPage({
                 <GameCard
                   game={{ ...game, rarity: rarityById.get(game.threadId) }}
                   subscribed={subscribed}
+                  archived={archivedIds.has(game.threadId)}
                   favoriteTags={favoriteTags}
                   hatedTags={hatedTags}
                   onToggle={() => void onToggleFollow(toCatalogGame(game))}

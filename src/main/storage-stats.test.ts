@@ -78,6 +78,31 @@ describe('patchLibraryStorageStatsForSaveFolder', () => {
     expect(next?.games).toEqual([])
   })
 
+  test('keeps a 0-byte identified save folder as a library game', () => {
+    const prev = stats([
+      saveItem({
+        bytes: 0,
+        identified: true,
+        threadId: 44,
+        title: 'Empty Folder Game'
+      })
+    ])
+    const next = patchLibraryStorageStatsForSaveFolder(prev, {
+      savePath: 'C:\\saves\\GAME-123',
+      identified: true,
+      threadId: 44,
+      title: 'Empty Folder Game'
+    })
+    expect(next?.games).toEqual([
+      expect.objectContaining({
+        threadId: 44,
+        title: 'Empty Folder Game',
+        saveBytes: 0,
+        totalBytes: 0
+      })
+    ])
+  })
+
   test('keeps both save folders when identifying a second folder for the same game', () => {
     const prev = stats([
       saveItem({

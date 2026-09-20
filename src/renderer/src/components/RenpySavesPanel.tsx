@@ -71,6 +71,25 @@ function lastNumberedPage(saves: RenpySaveFile[]): number {
   return last
 }
 
+function folderName(path: string): string {
+  return path.split(/[/\\]/).filter(Boolean).pop() || path
+}
+
+function sameSavePath(a: string, b: string): boolean {
+  return a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase()
+}
+
+function saveLocationLabel(
+  locations: Array<{ savePath: string; folderName: string }>,
+  item: { savePath: string; folderName: string }
+): string {
+  const name = item.folderName || folderName(item.savePath)
+  const clashes = locations.filter(
+    (entry) => (entry.folderName || folderName(entry.savePath)).toLowerCase() === name.toLowerCase()
+  )
+  return clashes.length > 1 ? item.savePath : name
+}
+
 function savesByPlace(saves: RenpySaveFile[]): Map<string, RenpySaveFile> {
   const map = new Map<string, RenpySaveFile>()
   for (const save of saves) {
@@ -230,9 +249,15 @@ export default function RenpySavesPanel({
   const slotsAtDefault = slotsPerPage === slotsMin
   const boards = useMemo(() => buildBoards(saves, slotsPerPage), [saves, slotsPerPage])
   const leftovers = useMemo(
-    () => saves.filter((save) => save.kind === 'persistent' || save.kind === 'other'),
+    () => saves.filter((save) => save.kind === 'other'),
     [saves]
   )
+  const locations = info?.saveLocations ?? []
+  const currentPath = info?.savePath || ''
+  const selectedLocation =
+    locations.find((item) => sameSavePath(item.savePath, currentPath))?.savePath || currentPath
+  const canAssign = Boolean(activeId || lookupTitle || lookupThreadId)
+  const showLocationSelect = locations.length > 1
 
   function allowSaveDrop(page: string, slot: number, item: DragItem | null): boolean {
     if (!item || item.kind !== 'save' || busy || running) return false
@@ -438,6 +463,68 @@ export default function RenpySavesPanel({
     setSelected(new Set())
   }
 
+  async function deleteSaveFolder(): Promise<void> {
+    const name = currentPath ? folderName(currentPath) : ''
+    if (
+      !(await confirm({
+        title: 'Delete saves',
+        message: name
+          ? `Delete the save folder “${name}” and all files in it? Empty folders are removed too. This cannot be undone.`
+          : `Delete all save folders for ${lookupTitle || 'this game'}? Empty folders are removed too. This cannot be undone.`,
+        confirmLabel: 'Delete saves',
+        danger: true
+      }))
+    ) {
+      return
+    }
+    await withInfo(async () => {
+      await window.api.library.clearSaves(
+        lookupThreadId,
+        info?.savePathExists ? currentPath : undefined
+      )
+      return window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId)
+    })
+    setSelected(new Set())
+  }
+
+  async function switchSaveLocation(savePath: string): Promise<void> {
+    if (!savePath || sameSavePath(savePath, currentPath)) return
+    await withInfo(() =>
+      window.api.renpy.setSaveDirectory(activeId, savePath, lookupTitle, lookupThreadId)
+    )
+  }
+
+  async function unlinkSaveLocation(): Promise<void> {
+    if (!currentPath) return
+    if (
+      !(await confirm({
+        title: 'Remove save location',
+        message: 'Stop using this folder for this game? Save files stay on disk.',
+        confirmLabel: 'Remove'
+      }))
+    ) {
+      return
+    }
+    await withInfo(() =>
+      window.api.renpy.unlinkSaveDirectory(activeId, currentPath, lookupTitle, lookupThreadId)
+    )
+  }
+
+  async function autoDetectSaveLocation(): Promise<void> {
+    if (locations.length > 1) {
+      if (
+        !(await confirm({
+          title: 'Auto-detect save folder',
+          message: 'This unlinks all save folders for this game and tries to detect the location again.',
+          confirmLabel: 'Auto-detect'
+        }))
+      ) {
+        return
+      }
+    }
+    await withInfo(() => window.api.renpy.clearSaveDirectory(activeId, lookupTitle, lookupThreadId))
+  }
+
   function toggleSave(path: string): void {
     if (skipClick.current) {
       skipClick.current = false
@@ -504,6 +591,26 @@ export default function RenpySavesPanel({
               >
                 Delete {selected.size}
               </button>
+            ) : currentPath && info?.savePathExists ? (
+              <button
+                className="stop-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running}
+                title="Delete this save folder, even if it has no save files"
+                onClick={() => void deleteSaveFolder()}
+              >
+                Delete saves
+              </button>
+            ) : lookupThreadId ? (
+              <button
+                className="stop-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running}
+                title="Delete save folders for this game, even if they have no save files"
+                onClick={() => void deleteSaveFolder()}
+              >
+                Delete saves
+              </button>
             ) : null}
             <button
               className="ghost-btn saves-toolbar-btn"
@@ -518,30 +625,55 @@ export default function RenpySavesPanel({
 
         <div className="saves-controls">
           <div className="folder-field saves-location-field">
-            <span className="filter-label">Save location</span>
+            <div className="saves-location-head">
+              <span className="filter-label">Save location</span>
+              {locations.length > 1 ? (
+                <span className="muted">{locations.length} folders</span>
+              ) : null}
+            </div>
             <div className="folder-path-row">
-              <input
-                className="folder-path"
-                readOnly
-                value={info?.savePath ?? ''}
-                placeholder={busy && !info ? 'Reading…' : 'Not set — browse to choose a folder'}
-                title={info?.savePath || undefined}
-              />
-              {info?.savePath && info.savePathExists ? (
+              {showLocationSelect ? (
+                <select
+                  className="folder-path toolbar-select"
+                  value={selectedLocation}
+                  disabled={busy || running}
+                  title={currentPath || undefined}
+                  onChange={(event) => void switchSaveLocation(event.target.value)}
+                >
+                  {locations.map((item) => (
+                    <option key={item.savePath} value={item.savePath} title={item.savePath}>
+                      {saveLocationLabel(locations, item)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="folder-path"
+                  readOnly
+                  value={currentPath}
+                  placeholder={busy && !info ? 'Reading…' : 'Not set — browse to choose a folder'}
+                  title={currentPath || undefined}
+                />
+              )}
+              {currentPath && info?.savePathExists ? (
                 <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
               ) : null}
               <button
                 className="ghost-btn saves-toolbar-btn"
                 type="button"
-                disabled={busy || running || !activeId}
-                onClick={() => void withInfo(() => window.api.renpy.chooseSaveDirectory(activeId, lookupTitle, lookupThreadId))}
+                disabled={busy || running || !canAssign}
+                onClick={() =>
+                  void withInfo(() =>
+                    window.api.renpy.chooseSaveDirectory(activeId, lookupTitle, lookupThreadId)
+                  )
+                }
               >
-                {info?.savePath ? 'Change' : 'Browse'}
+                {currentPath ? 'Add' : 'Browse'}
               </button>
               <button
                 className="ghost-btn saves-toolbar-btn"
                 type="button"
-                disabled={busy || running || !info?.savePath}
+                disabled={busy || running || !currentPath}
                 onClick={() =>
                   void window.api.renpy.openSaves(activeId, lookupTitle, lookupThreadId).catch((err) => {
                     setError(err instanceof Error ? err.message : 'Could not open the save folder.')
@@ -550,13 +682,24 @@ export default function RenpySavesPanel({
               >
                 Open
               </button>
-              {info?.savePath ? (
+              {currentPath ? (
                 <button
                   className="ghost-btn saves-toolbar-btn"
                   type="button"
-                  disabled={busy || running || !activeId}
-                  title="Clear the saved location and try auto-detection again"
-                  onClick={() => void withInfo(() => window.api.renpy.clearSaveDirectory(activeId, lookupTitle, lookupThreadId))}
+                  disabled={busy || running || !canAssign}
+                  title="Stop using this folder for this game. Save files stay on disk."
+                  onClick={() => void unlinkSaveLocation()}
+                >
+                  Remove
+                </button>
+              ) : null}
+              {currentPath ? (
+                <button
+                  className="ghost-btn saves-toolbar-btn"
+                  type="button"
+                  disabled={busy || running || !canAssign}
+                  title="Clear saved locations and try auto-detection again"
+                  onClick={() => void autoDetectSaveLocation()}
                 >
                   Auto-detect
                 </button>

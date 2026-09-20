@@ -39,6 +39,7 @@ import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type CatalogViewProps = {
   followedIds: Set<number>
+  archivedIds: Set<number>
   followedPlayById: Map<number, { lastPlayedVersion: string; playedVersions: VersionPlayStat[] }>
   rarityById: Map<number, GameRarity>
   favoriteTags: FavoriteTag[]
@@ -74,6 +75,7 @@ function selectedIds(
 
 export default function CatalogPage({
   followedIds,
+  archivedIds,
   followedPlayById,
   rarityById,
   favoriteTags,
@@ -403,6 +405,7 @@ export default function CatalogPage({
                   playedVersions: play?.playedVersions
                 }}
                 subscribed={followedIds.has(game.threadId)}
+                archived={archivedIds.has(game.threadId)}
                 favoriteTags={favoriteTags}
                 hatedTags={hatedTags}
                 onToggle={() => void onToggleFollow(game)}

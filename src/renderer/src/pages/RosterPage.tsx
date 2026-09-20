@@ -136,6 +136,10 @@ export default function RosterPage({
     () => new Map(subscriptions.map((game) => [game.threadId, game])),
     [subscriptions]
   )
+  const archivedIds = useMemo(
+    () => new Set(subscriptions.filter((game) => game.archived).map((game) => game.threadId)),
+    [subscriptions]
+  )
   const presented = useMemo(
     () => games.map((game) => overlayRosterGame(game, followedById.get(game.threadId))),
     [games, followedById]
@@ -325,6 +329,7 @@ export default function RosterPage({
                 <GameCard
                   game={{ ...game, rarity: rarityById.get(game.threadId) ?? game.rarity }}
                   subscribed={followedById.has(game.threadId)}
+                  archived={archivedIds.has(game.threadId)}
                   favoriteTags={favoriteTags}
                   hatedTags={hatedTags}
                   onToggle={() => void onToggleFollow(catalog)}

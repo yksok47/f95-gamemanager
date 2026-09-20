@@ -652,7 +652,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         onClick: () => void uninstallGame(game)
       })
     }
-    if (game.saveBytes > 0) {
+    if (game.saveBytes > 0 || game.savePath) {
       items.push({
         id: 'saves',
         label: `Delete saves (${formatBytes(game.saveBytes)})`,

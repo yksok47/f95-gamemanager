@@ -37,6 +37,7 @@ import {
 import { saneLikeCount, saneViewCount } from "@shared/counts";
 import { formatCount, formatRating, ratingClass } from "../lib/format";
 import type { GameLibraryStatus } from "../lib/library";
+import LibraryPresenceIcons from "./LibraryPresenceIcons";
 
 type GameCardProps = {
   game: Pick<
@@ -309,7 +310,7 @@ function GameCard({
     const target = event.target as HTMLElement;
     if (
       target.closest(
-        "button, select, a, label, .library-badge, .play-badge, .archive-badge, .cover-update-badge, .update-chip, .card-update-actions, .card-tile-action",
+        "button, select, a, label, .library-badge, .play-badge, .library-presence-badge, .archive-badge, .archived-thread-badge, .saves-badge, .cover-update-badge, .update-chip, .card-update-actions, .card-tile-action",
       )
     )
       return;
@@ -517,19 +518,15 @@ function GameCard({
           <h2 className="game-title">{game.title}</h2>
           {(game.version ||
             (subscribed && updates.unplayedUpdate) ||
-            library?.hasArchive) ? (
+            archived ||
+            library?.hasArchive ||
+            library?.hasSaves) ? (
             <div className="game-title-badges">
-              {library?.hasArchive ? (
-                <span className="archive-badge" title="Archive downloaded">
-                  <svg viewBox="0 0 16 16" aria-hidden="true">
-                    <path
-                      fill="currentColor"
-                      d="M3.2 2.4h9.6v2.4H3.2zm0 3.2h9.6v8H3.2zm3.2 2v1.2h3.2V7.6z"
-                    />
-                  </svg>
-                  <span className="sr-only">Archive downloaded</span>
-                </span>
-              ) : null}
+              <LibraryPresenceIcons
+                archived={archived}
+                hasArchive={library?.hasArchive}
+                hasSaves={library?.hasSaves}
+              />
               {game.version ? (
                 <span
                   className={

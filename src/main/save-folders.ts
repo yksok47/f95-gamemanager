@@ -15,7 +15,7 @@ import { uniqueScreenUrls, fetchCatalog } from './f95/catalog'
 import { lookupGame } from './f95/lookup'
 import { sanitizeCatalogQuery } from './f95/sanitize-query'
 import { fetchThreadDetails } from './f95/thread'
-import { listGameFiles, setRenpySaveDirectoryForThread } from './game-files-store'
+import { listGameFiles, removeGameVersion, setRenpySaveDirectoryForThread } from './game-files-store'
 import { findRenpyGameRoot } from './launch'
 import {
   folderSearchQueries,
@@ -37,13 +37,17 @@ import {
   findRpgMakerGameSaveDir,
   listRpgMakerBackupFolders,
   measureRpgMakerSaveBytes,
+  rpgMakerBackupDir,
   rpgMakerSavesRoot
 } from './rpgmaker/saves'
+import { wipeRpgMakerSaveDirs } from './rpgmaker/save-disk'
 import {
   listFailedSaveFolders,
   listIdentifiedSaveFolders,
   markSaveFolderIdentifyFailed,
   pruneMissingSaveFolders,
+  forgetIdentifiedSaveFolder,
+  forgetIdentifiedSaveFoldersForThread,
   rememberIdentifiedSaveFolders,
   saveFolderKey
 } from './save-folders-store'
@@ -121,7 +125,7 @@ export async function listSaveFolderPeek(savePath: string): Promise<SaveFolderPe
   const saves = await listRenpySaveFiles(folder)
   return saves
     .filter((save): save is typeof save & { thumbnailUrl: string } =>
-      Boolean(save.thumbnailUrl) && save.kind !== 'persistent'
+      Boolean(save.thumbnailUrl)
     )
     .map((save) => ({
       label: peekShotLabel(save),
@@ -365,7 +369,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   const remember: IdentifiedSaveFolder[] = []
 
   const claim = (item: LibraryStorageItem): void => {
-    if (!item.savePath || item.bytes <= 0) return
+    if (!item.savePath) return
     const key = saveFolderKey(item.savePath)
     if (claimedFolders.has(key)) return
     claimedFolders.add(key)
@@ -377,7 +381,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     }
   }
 
-  const diskFolders = (await listRenpySaveFolders()).filter((folder) => folder.bytes > 0)
+  const diskFolders = await listRenpySaveFolders()
   const foldersByKey = new Map(diskFolders.map((folder) => [saveFolderKey(folder.path), folder]))
   const foldersByName = new Map(diskFolders.map((folder) => [folder.name, folder]))
   const identifiedByPath = new Map(
@@ -492,7 +496,9 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
         installPath: game.file?.installPath,
         threadId: game.threadId
       })
-      if (bytes > 0) {
+      const backup = rpgBackupByThread.get(game.threadId)
+      const gameSave = findRpgMakerGameSaveDir(game.file?.installPath)
+      if (bytes > 0 || (backup && pathExists(backup.path)) || (gameSave && pathExists(gameSave))) {
         rpgBytesByThread.set(game.threadId, bytes)
         return
       }
@@ -502,14 +508,14 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     if (dir === null) {
       const savePath = inGameRenpySavePath(game.file?.installPath)
       const bytes = savePath && pathExists(savePath) ? await folderBytes(savePath) : 0
-      if (bytes > 0 && savePath) inGameRenpyByThread.set(game.threadId, { path: savePath, bytes })
+      if (savePath && pathExists(savePath)) inGameRenpyByThread.set(game.threadId, { path: savePath, bytes })
     }
   })
 
   for (const game of remainingGames) {
     if (claimedThreads.has(game.threadId)) continue
     const rpgBytes = rpgBytesByThread.get(game.threadId)
-    if (rpgBytes) {
+    if (rpgBytes != null) {
       const backup = rpgBackupByThread.get(game.threadId)
       const gameSave = findRpgMakerGameSaveDir(game.file?.installPath)
       const folderPath =
@@ -596,15 +602,30 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   return items.sort((a, b) => b.bytes - a.bytes || a.title.localeCompare(b.title))
 }
 
+function identifiedSaveFolderPresent(item: IdentifiedSaveFolder): boolean {
+  return Boolean(item.threadId && item.savePath && pathExists(item.savePath))
+}
+
+/** Identified save folders that still exist on disk. */
+export async function listPresentIdentifiedSaveFolders(): Promise<IdentifiedSaveFolder[]> {
+  const records: IdentifiedSaveFolder[] = []
+  for (const item of await listIdentifiedSaveFolders()) {
+    if (identifiedSaveFolderPresent(item)) records.push(item)
+  }
+  return records
+}
+
 /** Identified save folders whose games are not installed and have no archive. */
 export async function listSaveOnlyItems(): Promise<IdentifiedSaveFolder[]> {
   const files = await listGameFiles()
   const libraryThreads = new Set(
     files.filter((file) => file.hasArchive || file.isInstalled).map((file) => file.threadId)
   )
-  const records = (await listIdentifiedSaveFolders()).filter(
-    (item) => item.threadId > 0 && !libraryThreads.has(item.threadId) && pathExists(item.savePath)
-  )
+  const records: IdentifiedSaveFolder[] = []
+  for (const item of await listIdentifiedSaveFolders()) {
+    if (!item.threadId || libraryThreads.has(item.threadId)) continue
+    if (identifiedSaveFolderPresent(item)) records.push(item)
+  }
   void hydrateSparseIdentifiedSaveFolders(libraryThreads)
   return records
 }
@@ -841,12 +862,47 @@ export async function openManagedSaveFolder(savePath: string): Promise<void> {
   await openSaveFolderPath(folder)
 }
 
+async function clearRpgMakerSavesForGame(threadId: number, installPath?: string | null): Promise<void> {
+  const backup = rpgMakerBackupDir(threadId)
+  const gameSave = findRpgMakerGameSaveDir(installPath)
+  await clearRpgMakerSaveFiles({ threadId, installPath })
+  await forgetIdentifiedSaveFolder(backup)
+  if (gameSave) await forgetIdentifiedSaveFolder(gameSave)
+}
+
+async function forgetSaveFolderQuietly(savePath: string): Promise<void> {
+  try {
+    await forgetIdentifiedSaveFolder(savePath)
+  } catch {
+    // Identity is best-effort once the folder is gone.
+  }
+}
+
+async function wipeManagedSaveFolder(savePath: string): Promise<void> {
+  if (!savePath) return
+  if (!pathExists(savePath)) {
+    await forgetSaveFolderQuietly(savePath)
+    return
+  }
+  try {
+    const folder = assertManagedSavePath(savePath)
+    if (isInside(folder, rpgMakerSavesRoot())) {
+      await wipeRpgMakerSaveDirs(null, folder)
+      await forgetSaveFolderQuietly(folder)
+      return
+    }
+    await clearSaveFolderContents(folder)
+  } catch {
+    await forgetSaveFolderQuietly(savePath)
+  }
+}
+
 async function clearIdentifiedSaveFolders(threadId: number): Promise<boolean> {
   if (!threadId) return false
   let cleared = false
   for (const rec of await listIdentifiedSaveFolders()) {
-    if (rec.threadId !== threadId || !rec.savePath || !pathExists(rec.savePath)) continue
-    await clearSaveFolderContents(assertManagedSavePath(rec.savePath))
+    if (rec.threadId !== threadId || !rec.savePath) continue
+    await wipeManagedSaveFolder(rec.savePath)
     cleared = true
   }
   return cleared
@@ -855,70 +911,65 @@ async function clearIdentifiedSaveFolders(threadId: number): Promise<boolean> {
 export async function clearGameSaves(threadId: number, savePath?: string): Promise<void> {
   const path = typeof savePath === 'string' ? savePath.trim() : ''
   const files = threadId ? await listGameFiles(threadId) : []
-
-  if (files.length) {
-    const preferred = pickSaveFile(files)
-    const title = firstText(...files.map((file) => file.title))
-    const kind = engineKind(engineOf(files))
-    let attempted = false
-    let lastError: unknown
-    if (kind !== 'rpgmaker') {
-      attempted = true
-      try {
-        if (path && isInside(path, renpySavesRoot())) await clearSaveFolderContents(assertManagedSavePath(path))
-        else await clearRenpySaveFolder(preferred.id, title)
-      } catch (error) {
-        lastError = error
-      }
-    }
-    if (kind !== 'renpy') {
-      attempted = true
-      try {
-        await clearRpgMakerSaveFiles({
-          installPath: preferred.installPath,
-          threadId: preferred.threadId
-        })
-        lastError = undefined
-      } catch (error) {
-        lastError = error
-      }
-    }
-    if (!path && threadId) {
-      await clearIdentifiedSaveFolders(threadId)
-    }
-    if (!attempted) throw new Error('Save cleanup is not available for this engine.')
-    if (lastError) {
-      throw lastError instanceof Error ? lastError : new Error('Could not delete those saves.')
-    }
-    return
-  }
+  const preferred = files.length ? pickSaveFile(files) : null
+  const title = firstText(...files.map((file) => file.title))
+  const installPath = preferred?.installPath
 
   if (path) {
-    const folder = assertManagedSavePath(path)
-    if (isInside(folder, rpgMakerSavesRoot())) {
-      const name = basename(folder)
-      const id = threadId || (/^\d+$/.test(name) ? Number(name) : 0)
-      if (id) {
-        await clearRpgMakerSaveFiles({ threadId: id, installPath: null })
-        return
-      }
+    if (threadId && isInside(path, rpgMakerSavesRoot())) {
+      await clearRpgMakerSavesForGame(threadId, installPath)
+      await wipeManagedSaveFolder(path)
+      return
     }
-    await clearSaveFolderContents(folder)
+    await wipeManagedSaveFolder(path)
     return
   }
 
-  if (threadId) {
-    if (await clearIdentifiedSaveFolders(threadId)) return
+  if (!threadId) throw new Error('Could not find those saves.')
+
+  try {
+    await clearRpgMakerSavesForGame(threadId, installPath)
+  } catch {
+    // No RPG Maker save folders for this game is fine.
+  }
+
+  try {
+    if (preferred && engineKind(engineOf(files)) !== 'rpgmaker') {
+      await clearRenpySaveFolder(preferred.id, title)
+    }
+  } catch {
+    // Unknown or missing Ren'Py folder is fine; identified folders are wiped next.
+  }
+
+  if (!preferred) {
     const followed = (await listSubscriptions()).find((item: Subscription) => item.threadId === threadId)
     if (followed) {
       try {
         await clearRenpySaveFolder('', followed.title)
       } catch {
-        await clearRpgMakerSaveFiles({ threadId, installPath: null })
+        // Title-based lookup can fail when only an empty folder remains.
       }
-      return
     }
   }
 
-  throw new Error('Could not find those saves.')
+  await clearIdentifiedSaveFolders(threadId)
+  await forgetIdentifiedSaveFoldersForThread(threadId)
+}
+
+export async function removeGameLocalData(threadId: number): Promise<void> {
+  const id = Number(threadId)
+  if (!id) throw new Error('Missing game id.')
+  const files = await listGameFiles(id)
+  const errors: unknown[] = []
+  for (const file of files) {
+    try {
+      await removeGameVersion(file.id)
+    } catch (error) {
+      errors.push(error)
+    }
+  }
+  await clearGameSaves(id)
+  if (errors.length) {
+    throw errors[0] instanceof Error ? errors[0] : new Error('Could not remove that game.')
+  }
 }

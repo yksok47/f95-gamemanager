@@ -1,3 +1,4 @@
+import { basename, resolve } from 'path'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
 import type { IdentifiedSaveFolder } from '@shared/types'
 
@@ -33,4 +34,72 @@ export function mergeIdentifiedSaveFolder(
     updatedAt: next.updatedAt || prev.updatedAt,
     screens: next.screens?.length ? next.screens : prev.screens
   }
+}
+
+export function saveFolderKey(savePath: string): string {
+  return resolve(savePath).toLowerCase()
+}
+
+export function identifiedSaveFoldersForGame(
+  records: IdentifiedSaveFolder[],
+  threadId?: number,
+  title?: string
+): IdentifiedSaveFolder[] {
+  if (threadId) {
+    return records
+      .filter((item) => item.threadId === threadId)
+      .sort((a, b) => b.identifiedAt - a.identifiedAt)
+  }
+  const needle = (title || '').trim().toLowerCase()
+  if (!needle) return []
+  return records
+    .filter((item) => item.title.trim().toLowerCase() === needle)
+    .sort((a, b) => b.identifiedAt - a.identifiedAt)
+}
+
+export function pickIdentifiedSaveFolder(
+  records: IdentifiedSaveFolder[],
+  threadId?: number,
+  title?: string
+): IdentifiedSaveFolder | null {
+  const matches = identifiedSaveFoldersForGame(records, threadId, title)
+  if (threadId) return matches[0] ?? null
+  return matches.length === 1 ? matches[0] : null
+}
+
+export type RenpySaveLocationOption = {
+  savePath: string
+  folderName: string
+}
+
+export function renpySaveLocationOptions(
+  identified: IdentifiedSaveFolder[],
+  currentSavePath: string | null | undefined
+): RenpySaveLocationOption[] {
+  const byKey = new Map<string, { savePath: string; folderName: string; identifiedAt: number }>()
+  for (const item of identified) {
+    if (!item.savePath) continue
+    byKey.set(saveFolderKey(item.savePath), {
+      savePath: item.savePath,
+      folderName: item.folderName || basename(item.savePath),
+      identifiedAt: item.identifiedAt || 0
+    })
+  }
+  const current = (currentSavePath || '').trim()
+  const currentKey = current ? saveFolderKey(current) : ''
+  if (current && !byKey.has(currentKey)) {
+    byKey.set(currentKey, {
+      savePath: current,
+      folderName: basename(current),
+      identifiedAt: Number.MAX_SAFE_INTEGER
+    })
+  }
+  return [...byKey.values()]
+    .sort((a, b) => {
+      const aCur = saveFolderKey(a.savePath) === currentKey ? 1 : 0
+      const bCur = saveFolderKey(b.savePath) === currentKey ? 1 : 0
+      if (aCur !== bCur) return bCur - aCur
+      return b.identifiedAt - a.identifiedAt
+    })
+    .map(({ savePath, folderName }) => ({ savePath, folderName }))
 }

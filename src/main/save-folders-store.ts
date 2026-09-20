@@ -2,14 +2,22 @@
  * Remembered mappings from on-disk save folders to F95 threads.
  */
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { dirname, resolve } from 'path'
+import { dirname } from 'path'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
 import type { IdentifiedSaveFolder } from '@shared/types'
 import { rebasePath } from './install-layout'
 import { getAppPaths } from './paths'
-import { mergeIdentifiedSaveFolder } from './save-folder-meta'
+import {
+  mergeIdentifiedSaveFolder,
+  pickIdentifiedSaveFolder,
+  identifiedSaveFoldersForGame,
+  saveFolderKey
+} from './save-folder-meta'
 import { pathExists } from './win-path'
 import { sendToRenderer } from './windows'
+
+export { saveFolderKey, pickIdentifiedSaveFolder, identifiedSaveFoldersForGame }
+export { renpySaveLocationOptions } from './save-folder-meta'
 
 export type { IdentifiedSaveFolder }
 
@@ -27,10 +35,6 @@ export type SaveFoldersStore = {
 
 let cache: SaveFoldersStore | null = null
 let writeChain: Promise<void> = Promise.resolve()
-
-export function saveFolderKey(savePath: string): string {
-  return resolve(savePath).toLowerCase()
-}
 
 function empty(): SaveFoldersStore {
   return { version: 1, identified: {}, failed: {} }
@@ -176,21 +180,12 @@ export async function getIdentifiedSaveFolder(savePath: string): Promise<Identif
   return store.identified[saveFolderKey(savePath)] ?? null
 }
 
-export function pickIdentifiedSaveFolder(
-  records: IdentifiedSaveFolder[],
+export async function listIdentifiedSaveFoldersForGame(
   threadId?: number,
   title?: string
-): IdentifiedSaveFolder | null {
-  if (threadId) {
-    const matches = records.filter((item) => item.threadId === threadId)
-    if (matches.length) {
-      return matches.sort((a, b) => b.identifiedAt - a.identifiedAt)[0]
-    }
-  }
-  const needle = (title || '').trim().toLowerCase()
-  if (!needle) return null
-  const matches = records.filter((item) => item.title.trim().toLowerCase() === needle)
-  return matches.length === 1 ? matches[0] : null
+): Promise<IdentifiedSaveFolder[]> {
+  const store = await loadStore()
+  return identifiedSaveFoldersForGame(Object.values(store.identified), threadId, title)
 }
 
 export async function findIdentifiedSaveFolder(
@@ -246,6 +241,17 @@ export async function forgetIdentifiedSaveFoldersForThread(threadId: number): Pr
     changed = true
   }
   if (!changed) return
+  await queueWrite({ version: 1, identified, failed: store.failed })
+}
+
+export async function forgetIdentifiedSaveFolder(savePath: string): Promise<void> {
+  const path = savePath.trim()
+  if (!path) return
+  const store = await loadStore()
+  const key = saveFolderKey(path)
+  if (!store.identified[key]) return
+  const identified = { ...store.identified }
+  delete identified[key]
   await queueWrite({ version: 1, identified, failed: store.failed })
 }
 

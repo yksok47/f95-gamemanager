@@ -22,6 +22,7 @@ export type GameLibraryStatus = {
   installedVersion: string | null
   engine: string | null
   installPercent: number | null
+  hasSaves: boolean
 }
 
 export type LibraryGame = {
@@ -89,7 +90,8 @@ export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibr
       isInstalled: installed.length > 0,
       installedVersion: latest?.version || null,
       engine: items.find((file) => file.engine)?.engine || null,
-      installPercent: items.find((file) => file.installPercent != null)?.installPercent ?? null
+      installPercent: items.find((file) => file.installPercent != null)?.installPercent ?? null,
+      hasSaves: false
     }
     if (
       status.hasArchive ||
@@ -137,8 +139,85 @@ export function gamesWithPatchInstalled(
   )
 }
 
+const EMPTY_SAVE_STATUS: GameLibraryStatus = {
+  hasArchive: false,
+  isInstalled: false,
+  installedVersion: null,
+  engine: null,
+  installPercent: null,
+  hasSaves: true
+}
+
+export function saveThreadIds(folders: IdentifiedSaveFolder[]): Set<number> {
+  const ids = new Set<number>()
+  for (const item of folders) {
+    if (item.threadId > 0) ids.add(item.threadId)
+  }
+  return ids
+}
+
+/** Mark identified save folders on library rows, and add save-only stubs so tiles can show the icon. */
+export function withSavePresence(
+  library: Map<number, GameLibraryStatus>,
+  saveIds: Set<number>
+): Map<number, GameLibraryStatus> {
+  if (!saveIds.size) return library
+  const next = new Map<number, GameLibraryStatus>()
+  for (const [threadId, status] of library) {
+    const hasSaves = saveIds.has(threadId)
+    next.set(threadId, hasSaves === status.hasSaves ? status : { ...status, hasSaves })
+  }
+  for (const threadId of saveIds) {
+    if (next.has(threadId)) continue
+    next.set(threadId, { ...EMPTY_SAVE_STATUS })
+  }
+  return next
+}
+
+/** True when the game has an archive, install, or in-progress extract — not saves-only. */
+export function hasLibraryCopy(status?: GameLibraryStatus | null): boolean {
+  return Boolean(status && (status.hasArchive || status.isInstalled || status.installPercent != null))
+}
+
+export function useIdentifiedSaveThreadIds(): Set<number> {
+  const [ids, setIds] = useState<Set<number>>(() => new Set())
+
+  useEffect(() => {
+    let cancelled = false
+    let timer: number | null = null
+
+    function load(): void {
+      void window.api.library.identifiedSaveFolders().then((items) => {
+        if (!cancelled) setIds(saveThreadIds(items))
+      })
+    }
+
+    function schedule(): void {
+      if (timer) window.clearTimeout(timer)
+      timer = window.setTimeout(load, 200)
+    }
+
+    load()
+    const stopFolders = window.api.library.onSaveFoldersChange(() => {
+      schedule()
+    })
+    const stopLibrary = window.api.library.onChange(() => {
+      schedule()
+    })
+    return () => {
+      cancelled = true
+      if (timer) window.clearTimeout(timer)
+      stopFolders()
+      stopLibrary()
+    }
+  }, [])
+
+  return ids
+}
+
 export function useLibraryByThread(): Map<number, GameLibraryStatus> {
   const [files, setFiles] = useState<GameLibraryFile[]>([])
+  const saveIds = useIdentifiedSaveThreadIds()
 
   useEffect(() => {
     let cancelled = false
@@ -152,7 +231,7 @@ export function useLibraryByThread(): Map<number, GameLibraryStatus> {
     }
   }, [])
 
-  return useMemo(() => summarizeLibrary(files), [files])
+  return useMemo(() => withSavePresence(summarizeLibrary(files), saveIds), [files, saveIds])
 }
 
 export function useLibraryFiles(): GameLibraryFile[] {

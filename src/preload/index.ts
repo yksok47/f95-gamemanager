@@ -187,6 +187,8 @@ const api = {
       ipcRenderer.invoke('library:storageStats', Boolean(force)),
     storageScan: (): Promise<LibraryStorageScan> => ipcRenderer.invoke('library:storageScan'),
     saveOnlyItems: (): Promise<IdentifiedSaveFolder[]> => ipcRenderer.invoke('library:saveOnlyItems'),
+    identifiedSaveFolders: (): Promise<IdentifiedSaveFolder[]> =>
+      ipcRenderer.invoke('library:identifiedSaveFolders'),
     onSaveFoldersChange: (listener: (items: IdentifiedSaveFolder[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: IdentifiedSaveFolder[]): void => listener(items)
       ipcRenderer.on('library:save-folders-changed', wrapped)
@@ -203,6 +205,8 @@ const api = {
     },
     clearSaves: (threadId: number, savePath?: string): Promise<void> =>
       ipcRenderer.invoke('library:clearSaves', threadId, savePath),
+    removeLocalData: (threadId: number): Promise<void> =>
+      ipcRenderer.invoke('library:removeLocalData', threadId),
     openSaveFolder: (savePath: string): Promise<void> =>
       ipcRenderer.invoke('library:openSaveFolder', savePath),
     peekSaveFolder: (savePath: string): Promise<SaveFolderPeekShot[]> =>
@@ -318,6 +322,15 @@ const api = {
       ipcRenderer.invoke('renpy:openSaves', fileId, title, threadId),
     chooseSaveDirectory: (fileId: string, title = '', threadId = 0): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:chooseSaveDirectory', fileId, title, threadId),
+    setSaveDirectory: (fileId: string, savePath: string, title = '', threadId = 0): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:setSaveDirectory', fileId, savePath, title, threadId),
+    unlinkSaveDirectory: (
+      fileId: string,
+      savePath: string,
+      title = '',
+      threadId = 0
+    ): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:unlinkSaveDirectory', fileId, savePath, title, threadId),
     clearSaveDirectory: (fileId: string, title = '', threadId = 0): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:clearSaveDirectory', fileId, title, threadId),
     showSave: (fileId: string, savePath: string, title = ''): Promise<void> =>

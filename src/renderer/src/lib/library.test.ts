@@ -2,10 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import type { GameLibraryFile, IdentifiedSaveFolder, Subscription } from '@shared/types'
 import type { ThreadDownloadProgress } from './downloads'
 import {
+  hasLibraryCopy,
   libraryExclusiveKind,
   mergeDownloadingLibraryGames,
   saveOnlyLibraryGames,
+  saveThreadIds,
   summarizeLibrary,
+  withSavePresence,
   type LibraryGame
 } from './library'
 
@@ -143,6 +146,13 @@ describe('summarizeLibrary', () => {
     expect(status?.installedVersion).toBe('1.2')
     expect(status?.installPercent).toBeNull()
   })
+
+  test('defaults hasSaves to false until save folders are merged', () => {
+    const status = summarizeLibrary([
+      libraryFile({ id: 'a', threadId: 1, hasArchive: true })
+    ]).get(1)
+    expect(status?.hasSaves).toBe(false)
+  })
 })
 
 function identifiedFolder(
@@ -241,5 +251,30 @@ describe('libraryExclusiveKind', () => {
       })
     ).toBe(null)
     expect(libraryExclusiveKind(libraryGame({ threadId: 5, title: 'Downloading' }))).toBe(null)
+  })
+})
+
+describe('withSavePresence', () => {
+  test('marks existing library rows and adds save-only stubs', () => {
+    const library = summarizeLibrary([
+      libraryFile({ id: 'a', threadId: 1, hasArchive: true })
+    ])
+    const next = withSavePresence(library, new Set([1, 9]))
+    expect(next.get(1)?.hasSaves).toBe(true)
+    expect(next.get(1)?.hasArchive).toBe(true)
+    expect(next.get(9)?.hasSaves).toBe(true)
+    expect(next.get(9)?.hasArchive).toBe(false)
+    expect(hasLibraryCopy(next.get(9))).toBe(false)
+    expect(hasLibraryCopy(next.get(1))).toBe(true)
+  })
+
+  test('collects thread ids from identified folders', () => {
+    expect(
+      [...saveThreadIds([
+        identifiedFolder({ threadId: 4, title: 'A', savePath: 'C:\\saves\\a' }),
+        identifiedFolder({ threadId: 0, title: 'Skip', savePath: 'C:\\saves\\b' }),
+        identifiedFolder({ threadId: 4, title: 'A again', savePath: 'C:\\saves\\c' })
+      ])]
+    ).toEqual([4])
   })
 })

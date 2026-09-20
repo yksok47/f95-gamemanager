@@ -3,13 +3,18 @@ import { basename, dirname, join, resolve, sep } from 'path'
 import { app, shell } from 'electron'
 import { engineKind } from '@shared/engines'
 import type { RpgMakerInfo, RpgMakerSaveFile, RpgMakerSaveKind } from '@shared/types'
-import { folderBytes, mapLimit } from '../disk-usage'
+import { mapLimit } from '../disk-usage'
 import { getGameFile } from '../game-files-store'
 import { findRpgMakerWww, rpgMakerSaveDirFromWww } from '../launch'
 import { getPlaySession } from '../play-sessions'
 import { childPath, listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
+import {
+  isRpgMakerSaveName,
+  listRpgMakerSaveNames,
+  rpgMakerSaveFileBytes,
+  wipeRpgMakerSaveDirs
+} from './save-disk'
 
-const SAVE_FILE_RE = /\.(rpgsave|rmmzsave)$/i
 const MTIME_SKEW_MS = 1000
 const UNSTABLE_MS = 2000
 
@@ -34,13 +39,11 @@ export async function listRpgMakerBackupFolders(): Promise<RpgMakerDiskSaveFolde
   const dirs = listDirents(root).filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
   const folders = await mapLimit(dirs, 4, async (entry) => {
     const folderPath = join(root, entry.name)
-    const bytes = await folderBytes(folderPath)
-    if (bytes <= 0) return null
     return {
       threadId: Number(entry.name),
       name: entry.name,
       path: folderPath,
-      bytes
+      bytes: await rpgMakerSaveFileBytes(folderPath)
     }
   })
   return folders.filter((folder): folder is RpgMakerDiskSaveFolder => Boolean(folder))
@@ -64,7 +67,7 @@ export type RpgMakerSyncResult = {
 }
 
 function isSaveName(name: string): boolean {
-  return SAVE_FILE_RE.test(name)
+  return isRpgMakerSaveName(name)
 }
 
 function saveKind(name: string): RpgMakerSaveKind {
@@ -112,10 +115,7 @@ async function fileStat(filePath: string): Promise<{ size: number; mtimeMs: numb
 }
 
 function listSaveNames(dir: string): string[] {
-  if (!pathExists(dir)) return []
-  return listDirents(dir)
-    .filter((entry) => entry.isFile() && isSaveName(entry.name))
-    .map((entry) => entry.name)
+  return listRpgMakerSaveNames(dir)
 }
 
 async function copyPreserve(src: string, dest: string): Promise<void> {
@@ -166,20 +166,12 @@ export async function syncRpgMakerSaves(input: RpgMakerSyncInput): Promise<RpgMa
     copiedToBackup: 0
   }
   if (!threadId) return result
-  await mkdir(toFsPath(backupPath), { recursive: true })
-  await noteBackupTitle(backupPath, input.title)
-
+  // Backups are only created from an installed game that actually has save files.
   if (!gameSavePath) return result
-  if (mode === 'merge') {
-    await mkdir(toFsPath(gameSavePath), { recursive: true })
-    await mkdir(toFsPath(backupPath), { recursive: true })
-  } else if (!pathExists(gameSavePath)) {
-    return result
-  } else {
-    await mkdir(toFsPath(backupPath), { recursive: true })
-  }
+  if (mode !== 'merge' && !pathExists(gameSavePath)) return result
 
   const names = new Set([...listSaveNames(gameSavePath), ...listSaveNames(backupPath)])
+  if (!names.size) return result
   for (const name of names) {
     const gameFile = childPath(gameSavePath, name)
     const backupFile = childPath(backupPath, name)
@@ -217,6 +209,8 @@ export async function syncRpgMakerSaves(input: RpgMakerSyncInput): Promise<RpgMa
       console.warn('Could not sync RPG Maker save', name, error)
     }
   }
+  if (result.copiedToBackup) await noteBackupTitle(backupPath, input.title)
+  else if (pathExists(backupPath)) await noteBackupTitle(backupPath, input.title)
   return result
 }
 
@@ -308,7 +302,8 @@ export async function getRpgMakerInfo(input: {
   })
   const listFrom = sync.gameSavePath && pathExists(sync.gameSavePath) ? sync.gameSavePath : sync.backupPath
   const saves = await listSaves(listFrom)
-  const backupExists = pathExists(sync.backupPath) && listSaveNames(sync.backupPath).length > 0
+  const backupHasSaves = pathExists(sync.backupPath) && listSaveNames(sync.backupPath).length > 0
+  const backupExists = pathExists(sync.backupPath)
   const gameExists = Boolean(sync.gameSavePath && pathExists(sync.gameSavePath))
 
   return {
@@ -318,13 +313,13 @@ export async function getRpgMakerInfo(input: {
     gameSavePathExists: gameExists,
     backupPath: sync.backupPath,
     backupPathExists: backupExists,
-    saveFolderBytes: await folderBytes(listFrom),
+    saveFolderBytes: await rpgMakerSaveFileBytes(listFrom),
     copiedToGame: sync.copiedToGame,
     copiedToBackup: sync.copiedToBackup,
     saves,
     message: saveMessage({
       gameSavePath: sync.gameSavePath,
-      backupExists,
+      backupExists: backupHasSaves,
       saveCount: saves.length,
       copiedToGame: sync.copiedToGame,
       copiedToBackup: sync.copiedToBackup
@@ -401,7 +396,9 @@ export async function measureRpgMakerSaveBytes(input: {
   if (!threadId) return 0
   const backupPath = rpgMakerBackupDir(threadId)
   const gameSavePath = findRpgMakerGameSaveDir(input.installPath)
-  return (gameSavePath ? await folderBytes(gameSavePath) : 0) + (await folderBytes(backupPath))
+  return (
+    (await rpgMakerSaveFileBytes(gameSavePath)) + (await rpgMakerSaveFileBytes(backupPath))
+  )
 }
 
 export async function clearRpgMakerSaveFiles(input: {
@@ -410,13 +407,5 @@ export async function clearRpgMakerSaveFiles(input: {
 }): Promise<void> {
   const threadId = Number(input.threadId)
   if (!threadId) throw new Error('Missing game id.')
-  const dirs = [findRpgMakerGameSaveDir(input.installPath), rpgMakerBackupDir(threadId)].filter(
-    Boolean
-  ) as string[]
-  for (const dir of dirs) {
-    if (!pathExists(dir)) continue
-    for (const name of listSaveNames(dir)) {
-      await rm(toFsPath(childPath(dir, name)), { force: true })
-    }
-  }
+  await wipeRpgMakerSaveDirs(findRpgMakerGameSaveDir(input.installPath), rpgMakerBackupDir(threadId))
 }

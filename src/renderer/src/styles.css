@@ -343,9 +343,8 @@ input[type='search']::-webkit-search-results-decoration {
 
 .icon-btn-badge {
   position: absolute;
-  top: auto;
-  bottom: -8px;
-  right: -2px;
+  top: -8px;
+  right: -8px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -717,11 +716,20 @@ input[type='search']::-webkit-search-results-decoration {
   padding: 8px 12px;
 }
 
+.nav-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 .nav-btn-active,
 .ghost-btn.nav-btn-active {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.nav-btn.nav-btn-active:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .nav-btn-exclude,
@@ -1792,6 +1800,13 @@ input[type='search']::-webkit-search-results-decoration {
   border-color: #4a5470;
 }
 
+.game-card-infamous {
+  border-color: #e5484d;
+  box-shadow:
+    0 0 0 1px #e5484d,
+    0 12px 28px rgba(229, 72, 77, 0.3);
+}
+
 .game-card-rare {
   border-color: #3d8bfd;
   box-shadow:
@@ -1834,6 +1849,11 @@ input[type='search']::-webkit-search-results-decoration {
   border-radius: 8px;
   padding: 3px 6px;
   font: inherit;
+}
+
+.rarity-select-infamous {
+  border-color: #e5484d;
+  color: #ff7a7f;
 }
 
 .rarity-select-rare {
@@ -1882,6 +1902,12 @@ input[type='search']::-webkit-search-results-decoration {
 
 .rarity-slider:focus-within {
   outline: none;
+}
+
+.rarity-slider-infamous {
+  --rarity-accent: #ff6b6b;
+  color: #ffd6d6;
+  border-color: #e5484d;
 }
 
 .rarity-slider-regular {
@@ -1935,7 +1961,7 @@ input[type='search']::-webkit-search-results-decoration {
   bottom: 0;
   left: 0;
   width: calc(
-    var(--rarity-inset) + (100% - 2 * var(--rarity-inset)) * var(--rarity-step, 0) / var(--rarity-max, 3)
+    var(--rarity-inset) + (100% - 2 * var(--rarity-inset)) * var(--rarity-step, 0) / var(--rarity-max, 4)
   );
   background: color-mix(in srgb, var(--rarity-accent) 42%, transparent);
 }
@@ -1945,7 +1971,7 @@ input[type='search']::-webkit-search-results-decoration {
   top: 0;
   bottom: 0;
   left: calc(
-    var(--rarity-inset) + (100% - 2 * var(--rarity-inset)) * var(--rarity-step, 0) / var(--rarity-max, 3)
+    var(--rarity-inset) + (100% - 2 * var(--rarity-inset)) * var(--rarity-step, 0) / var(--rarity-max, 4)
   );
   z-index: 2;
   width: 2px;
@@ -2665,7 +2691,10 @@ input[type='search']::-webkit-search-results-decoration {
   gap: 6px;
 }
 
-.game-title-row .archive-badge {
+.library-presence-badge,
+.game-title-row .archive-badge,
+.game-title-row .archived-thread-badge,
+.game-title-row .saves-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2675,9 +2704,19 @@ input[type='search']::-webkit-search-results-decoration {
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 18%, #1b1f2a);
   color: var(--accent);
+  flex-shrink: 0;
 }
 
-.game-title-row .archive-badge svg {
+.library-presence-badge.archived-thread-badge,
+.game-title-row .archived-thread-badge {
+  background: color-mix(in srgb, #8b93a7 22%, #1b1f2a);
+  color: #c5cbd8;
+}
+
+.library-presence-badge svg,
+.game-title-row .archive-badge svg,
+.game-title-row .archived-thread-badge svg,
+.game-title-row .saves-badge svg {
   width: 11px;
   height: 11px;
   display: block;
@@ -2866,6 +2905,16 @@ input[type='search']::-webkit-search-results-decoration {
   border-radius: var(--details-radius);
   box-shadow: var(--shadow);
   pointer-events: auto;
+}
+
+.details-modal-frame-infamous .details-modal-card {
+  box-shadow:
+    0 0 0 1px #e5484d,
+    0 18px 40px rgba(229, 72, 77, 0.3);
+}
+
+.details-modal-frame-infamous .details-modal {
+  border-color: #e5484d;
 }
 
 .details-modal-frame-rare .details-modal-card {
@@ -3383,6 +3432,29 @@ input[type='search']::-webkit-search-results-decoration {
   position: static;
   max-width: min(240px, 100%);
   pointer-events: none;
+}
+
+.details-engine-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.details-title-row .library-presence-badge {
+  width: 22px;
+  height: 22px;
+  pointer-events: auto;
+  background: rgba(18, 20, 26, 0.72);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, rgba(255, 255, 255, 0.16));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.details-title-row .library-presence-badge svg {
+  width: 12px;
+  height: 12px;
 }
 
 .details-title-row .cover-status-badge {
@@ -4953,6 +5025,17 @@ body.is-details-modal-dragging .details-modal-shell * {
   min-width: 0;
   font-weight: 600;
   letter-spacing: 0.01em;
+}
+
+.saves-location-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.saves-controls .folder-path.toolbar-select {
+  cursor: pointer;
 }
 
 .saves-location-meta {

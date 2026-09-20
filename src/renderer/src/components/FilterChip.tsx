@@ -78,6 +78,12 @@ export function completedToolbarTitle(state: FilterChipState): string {
   return 'Showing completed, on hold, and abandoned titles'
 }
 
+export function archivedToolbarTitle(state: FilterChipState): string {
+  if (state === 'include') return 'Showing only archived games'
+  if (state === 'exclude') return 'Hiding archived games'
+  return 'Showing archived and unarchived games'
+}
+
 export default function FilterChip({
   label,
   state,

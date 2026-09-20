@@ -15,11 +15,12 @@ import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
-import { ArchiveIcon, HideCompletedIcon, ImportIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
+import { FilingCabinetIcon, HideCompletedIcon, ImportIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import {
+  archivedToolbarTitle,
   completedToolbarTitle,
   favoriteToolbarTitle,
   hatedToolbarTitle,
@@ -392,18 +393,12 @@ export default function FollowedPage({
             className={toolbarTriStateClass(archiveFilter)}
             type="button"
             aria-pressed={archiveFilter === 'include'}
-            title={
-              archiveFilter === 'include'
-                ? 'Showing only archived games'
-                : archiveFilter === 'exclude'
-                  ? 'Hiding archived games'
-                  : 'Showing archived and unarchived games'
-            }
+            title={archivedToolbarTitle(archiveFilter)}
             aria-label="Filter archived games"
             onClick={(event) => onTriStateMouse(event, setArchiveFilter)}
             onContextMenu={(event) => onTriStateMouse(event, setArchiveFilter)}
           >
-            <ArchiveIcon />
+            <FilingCabinetIcon />
           </button>
         )}
         <button
