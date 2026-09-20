@@ -12,6 +12,8 @@ import type {
   GameLibraryFile,
   GameRarity,
   IdentifiedSaveFolder,
+  RenpySaveEditPatch,
+  RenpySaveEditorData,
   LibraryStorageScan,
   LibraryStorageStats,
   LibraryImportCandidate,
@@ -21,6 +23,7 @@ import type {
   LoginPayload,
   PlaySessionStatus,
   RenpyInfo,
+  RenpyInfoScope,
   RenpyStatus,
   RenpyToolId,
   RpgMakerInfo,
@@ -308,8 +311,13 @@ const api = {
     }
   },
   renpy: {
-    info: (fileId: string, prepare = false, title = '', threadId = 0): Promise<RenpyInfo> =>
-      ipcRenderer.invoke('renpy:info', fileId, prepare, title, threadId),
+    info: (
+      fileId: string,
+      prepare = false,
+      title = '',
+      threadId = 0,
+      scope: RenpyInfoScope = 'full'
+    ): Promise<RenpyInfo> => ipcRenderer.invoke('renpy:info', fileId, prepare, title, threadId, scope),
     run: (fileId: string, action: UnRenAction): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:run', fileId, action),
     setTool: (fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> =>
@@ -335,6 +343,14 @@ const api = {
       ipcRenderer.invoke('renpy:clearSaveDirectory', fileId, title, threadId),
     showSave: (fileId: string, savePath: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('renpy:showSave', fileId, savePath, title),
+    readSaveEditor: (fileId: string, savePath: string, title = ''): Promise<RenpySaveEditorData> =>
+      ipcRenderer.invoke('renpy:readSaveEditor', fileId, savePath, title),
+    applySaveEditor: (
+      fileId: string,
+      savePath: string,
+      patches: RenpySaveEditPatch[],
+      title = ''
+    ): Promise<RenpyInfo> => ipcRenderer.invoke('renpy:applySaveEditor', fileId, savePath, patches, title),
     deleteSave: (fileId: string, savePath: string, title = ''): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:deleteSave', fileId, savePath, title),
     deleteSaves: (fileId: string, savePaths: string[], title = ''): Promise<RenpyInfo> =>

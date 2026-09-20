@@ -1,5 +1,7 @@
 import type { PlaySessionStatus } from '@shared/types'
+import { addFilePlaytime } from './game-files-store'
 import { killProcessesUnder, killProcessTree, pathIsInside, pidAlive, processesUnder } from './processes'
+import { syncRpgMakerSaves } from './rpgmaker/saves'
 import { addSubscriptionPlaytime } from './subscriptions-store'
 import { sendToRenderer } from './windows'
 
@@ -48,7 +50,6 @@ async function addPlaytime(
   deltaMs: number
 ): Promise<void> {
   if (deltaMs < 1000) return
-  const { addFilePlaytime } = await import('./game-files-store')
   await addFilePlaytime(fileId, deltaMs)
   await addSubscriptionPlaytime(threadId, deltaMs, version)
 }
@@ -56,7 +57,6 @@ async function addPlaytime(
 async function backupRpgMakerSaves(session: PlaySession, skipUnstable = false): Promise<void> {
   if (!session.backupSaves) return
   try {
-    const { syncRpgMakerSaves } = await import('./rpgmaker/saves')
     await syncRpgMakerSaves({
       installPath: session.installPath,
       threadId: session.threadId,

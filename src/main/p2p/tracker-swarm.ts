@@ -9,6 +9,7 @@ import { getP2pEnv } from './env'
 import { normalizeInfoHash } from '@shared/content-address'
 import type { PackageMetadata } from '@shared/p2p'
 import { hexInfoHashToBinary, scrapeCounts, toHexInfoHash } from './tracker-swarm-parse'
+import { getP2pHttpsAgent } from './p2p-tls'
 
 const TIMEOUT_MS = 2500
 
@@ -41,7 +42,6 @@ async function scrapeTracker(infoHashes: string[]): Promise<Map<string, number> 
   if (!binaryHashes.length) return null
 
   const WebSocket = await loadWs()
-  const { getP2pHttpsAgent } = await import('./p2p-tls')
   const socketOpts = url.startsWith('wss:') ? { agent: getP2pHttpsAgent() } : undefined
 
   return new Promise((resolve) => {

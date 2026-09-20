@@ -418,6 +418,7 @@ function GameDetailsPage({
   const [catalogBusy, setCatalogBusy] = useState(false)
   const catalogLookupGen = useRef(0)
   const [tab, setTab] = useState<DetailsTab>(initialTab ?? 'overview')
+  const [savesTabReady, setSavesTabReady] = useState(initialTab === 'saves')
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
@@ -851,6 +852,10 @@ function GameDetailsPage({
     saveThreadIds,
     summary.threadId
   ])
+
+  useEffect(() => {
+    if (tab === 'saves') setSavesTabReady(true)
+  }, [tab])
 
   useEffect(() => {
     if (!initialTab) return
@@ -2419,12 +2424,14 @@ function GameDetailsPage({
           )
         ) : null}
 
-        {tab === 'saves' ? (
-          saveKind === 'rpgmaker' ? (
-            <RpgMakerSavesPanel files={files} threadId={summary.threadId} title={title} />
-          ) : (
-            <RenpySavesPanel files={files} title={title} threadId={summary.threadId} />
-          )
+        {savesTabReady ? (
+          <div hidden={tab !== 'saves'}>
+            {saveKind === 'rpgmaker' ? (
+              <RpgMakerSavesPanel files={files} threadId={summary.threadId} title={title} />
+            ) : (
+              <RenpySavesPanel files={files} title={title} threadId={summary.threadId} />
+            )}
+          </div>
         ) : null}
         {tab === 'renpy' ? (
           <div className="renpy-tab">

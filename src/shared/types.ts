@@ -460,6 +460,33 @@ export type RenpySaveFile = {
   thumbnailUrl?: string
 }
 
+/** In-place pickle kinds from the Ren'Py save log (protocol 4/5). */
+export type RenpySaveEditKind = 'bool' | 'BININT1' | 'BININT2' | 'BININT'
+
+export type RenpySaveEditVar = {
+  name: string
+  displayName: string
+  type: string
+  value: boolean | number | string | null
+  pos: number
+  editable: boolean
+  kind: RenpySaveEditKind | null
+  min?: number
+  max?: number
+}
+
+export type RenpySaveEditPatch = {
+  pos: number
+  kind: RenpySaveEditKind
+  value: boolean | number
+}
+
+export type RenpySaveEditorData = {
+  path: string
+  name: string
+  variables: RenpySaveEditVar[]
+}
+
 export type RenpyArchiveFile = {
   name: string
   path: string
@@ -505,6 +532,8 @@ export type RenpySaveLocation = {
   savePath: string
   folderName: string
 }
+
+export type RenpyInfoScope = 'saves' | 'full'
 
 export type RenpyInfo = {
   fileId: string

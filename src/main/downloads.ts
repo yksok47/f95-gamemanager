@@ -21,6 +21,9 @@ import { isArchivePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload } from './open-url'
+import { flagPackageAs, onLibraryPackageAdded } from './p2p/controller'
+import { signMessageBytes } from './p2p/identity'
+import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
 import {
   getDownloadsDirSync,
   getMetadataApiEnabledSync,
@@ -451,8 +454,6 @@ export async function openDownloadsFolder(): Promise<void> {
 
 async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
   if (!getMetadataApiEnabledSync()) return
-  const { buildInstallClaimMessage, reportPackageInstall } = await import('./p2p/metadata-client')
-  const { signMessageBytes } = await import('./p2p/identity')
   const ts = Math.floor(Date.now() / 1000)
   const msg = buildInstallClaimMessage(contentHash, ts, tags)
   const { seederPubkey, signature } = await signMessageBytes(msg)
@@ -524,20 +525,16 @@ export async function approveDownload(
   entry.updatedAt = Date.now()
   broadcast()
 
-  void import('./p2p/controller')
-    .then(({ onLibraryPackageAdded }) =>
-      onLibraryPackageAdded({
-        filePath: trustedPath,
-        contentHash: hash,
-        gameName: nextContext.title,
-        gameVersion: normalizedTags.version,
-        f95ThreadId: nextContext.threadId,
-        f95ThreadUrl: nextContext.threadUrl
-      })
-    )
-    .catch((error) => {
-      console.warn('[p2p] auto-seed after HTTP download approve failed', error)
-    })
+  void onLibraryPackageAdded({
+    filePath: trustedPath,
+    contentHash: hash,
+    gameName: nextContext.title,
+    gameVersion: normalizedTags.version,
+    f95ThreadId: nextContext.threadId,
+    f95ThreadUrl: nextContext.threadUrl
+  }).catch((error) => {
+    console.warn('[p2p] auto-seed after HTTP download approve failed', error)
+  })
 
   void reportInstallTags(hash, normalizedTags).catch((error) => {
     console.warn('[downloads] install report after approve failed', error)
@@ -579,7 +576,6 @@ export async function flagDownload(
 
   const records = await rejectDownload(id)
   try {
-    const { flagPackageAs } = await import('./p2p/controller')
     await flagPackageAs(contentHash, 'harmful', note)
   } catch (error) {
     console.warn('[downloads] harmful flag after reject failed', error)

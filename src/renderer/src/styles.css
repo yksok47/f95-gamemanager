@@ -5327,6 +5327,27 @@ body.is-save-dragging * {
   letter-spacing: 0.02em;
 }
 
+.save-tile-edit {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 10, 14, 0.62);
+  color: #f4f6fb;
+  font-size: 0.72rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.save-tile-edit:hover:not(:disabled) {
+  background: rgba(8, 10, 14, 0.86);
+}
+
+.save-tile-edit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .save-tile-meta {
   display: grid;
   gap: 2px;
@@ -6132,6 +6153,123 @@ body.is-save-dragging * {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+}
+
+.save-editor-overlay {
+  z-index: 11900;
+}
+
+.save-editor-dialog {
+  width: min(820px, 100%);
+  max-height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+}
+
+.save-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.save-editor-file {
+  margin: 0;
+}
+
+.save-editor-filter {
+  display: grid;
+  gap: 4px;
+  min-width: min(240px, 100%);
+}
+
+.save-editor-filter-input {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg, #101218);
+  color: inherit;
+}
+
+.save-editor-count {
+  margin: 10px 0 8px;
+}
+
+.save-editor-error {
+  margin: 0 0 8px;
+  color: var(--danger, #f07178);
+}
+
+.save-editor-table-wrap {
+  min-height: 180px;
+  max-height: min(56vh, 520px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #101218;
+}
+
+.save-editor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.save-editor-table th,
+.save-editor-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: middle;
+}
+
+.save-editor-table th {
+  position: sticky;
+  top: 0;
+  background: #161922;
+  font-weight: 650;
+  z-index: 1;
+}
+
+.save-editor-table td:nth-child(1) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.save-editor-table td:nth-child(2) {
+  width: 110px;
+  color: var(--muted, #9aa3b2);
+}
+
+.save-editor-table td:nth-child(3) {
+  width: 160px;
+}
+
+.save-editor-table tr.is-editable td {
+  background: rgba(232, 196, 104, 0.08);
+}
+
+.save-editor-bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.save-editor-int {
+  width: 100%;
+  max-width: 140px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0b0d12;
+  color: inherit;
+}
+
+.save-editor-empty {
+  margin: 12px;
 }
 
 .app-error-notices {

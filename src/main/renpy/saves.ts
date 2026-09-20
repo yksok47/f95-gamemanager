@@ -2,7 +2,17 @@ import { readdir, readFile, rename, rm, stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { engineKind } from '@shared/engines'
-import type { IdentifiedSaveFolder, RenpyInfo, RenpySaveFile, RenpySaveKind, RenpyToolId, UnRenAction } from '@shared/types'
+import type {
+  IdentifiedSaveFolder,
+  RenpyInfo,
+  RenpyInfoScope,
+  RenpySaveEditPatch,
+  RenpySaveEditorData,
+  RenpySaveFile,
+  RenpySaveKind,
+  RenpyToolId,
+  UnRenAction
+} from '@shared/types'
 import { getGameFile, setRenpySaveDirectory, setRenpySaveDirectoryForThread } from '../game-files-store'
 import { rpgMakerSavesRoot } from '../rpgmaker/saves'
 import {
@@ -15,7 +25,13 @@ import {
 } from '../save-folders-store'
 import { findRenpyGameRoot } from '../launch'
 import { folderBytes, mapLimit } from '../disk-usage'
-import { listDirents, pathExists, resolveLongPath, toFsPath } from '../win-path'
+import {
+  listDirents,
+  pathExists,
+  resolveLongPath,
+  resolveLongPathAsync,
+  toFsPath
+} from '../win-path'
 import { findNamedFiles, gameDirFromRoot, scanScripts } from './scan'
 import { EMPTY_OPTIONS, readRenpyOptions } from './options'
 import {
@@ -27,6 +43,7 @@ import {
 import { isRenpyOptionsGlobalEnabled } from './options-prefs-store'
 import { removeLegacyUnrenTools } from './tools'
 import { attachSaveMeta, invalidateSaveMeta } from './save-meta'
+import { applySaveEditor, readSaveEditor } from './save-edit'
 import { matchRenpySaveFolder } from './save-folder-match'
 import { discoverRenpySaveFolders } from './save-folder-scan'
 import { getLastUnRenRun, replayUnRenStatus, runUnRen } from './unren'
@@ -69,7 +86,7 @@ export type RenpyDiskSaveFolder = {
 }
 
 export async function listRenpySaveFolders(): Promise<RenpyDiskSaveFolder[]> {
-  const folders = discoverRenpySaveFolders(renpySavesRoot())
+  const folders = await discoverRenpySaveFolders(renpySavesRoot())
   return mapLimit(folders, 4, async (folder) => ({
     name: folder.name,
     path: folder.path,
@@ -77,13 +94,13 @@ export async function listRenpySaveFolders(): Promise<RenpyDiskSaveFolder[]> {
   }))
 }
 
-function listRenpySaveFolderNames(): string[] {
-  return discoverRenpySaveFolders(renpySavesRoot()).map((folder) => folder.name)
+async function listRenpySaveFolderNames(): Promise<string[]> {
+  return (await discoverRenpySaveFolders(renpySavesRoot())).map((folder) => folder.name)
 }
 
-function fuzzySaveDirectory(title: string): string | null {
+function fuzzySaveDirectory(title: string, folderNames: string[]): string | null {
   if (!title.trim()) return null
-  return matchRenpySaveFolder(title, listRenpySaveFolderNames())
+  return matchRenpySaveFolder(title, folderNames)
 }
 
 function isInsidePath(target: string, root: string): boolean {
@@ -241,30 +258,32 @@ export async function listRenpySaveFiles(savePath: string): Promise<RenpySaveFil
 }
 
 async function listSaves(savePath: string): Promise<RenpySaveFile[]> {
-  if (!pathExists(savePath)) return []
-  const entries = await readdir(toFsPath(savePath), { withFileTypes: true })
-  const files: RenpySaveFile[] = []
-  for (const entry of entries) {
-    if (!entry.isFile()) continue
+  const entries = await readdir(toFsPath(savePath), { withFileTypes: true }).catch(() => [])
+  const candidates = entries.filter((entry) => {
+    if (!entry.isFile()) return false
     const lower = entry.name.toLowerCase()
-    if (!lower.endsWith('.save') || lower.startsWith('persistent')) continue
-    const full = join(savePath, entry.name)
-    const info = await stat(toFsPath(full)).catch(() => null)
-    if (!info) continue
-    const kind = saveKind(entry.name)
-    const page = savePage(entry.name, kind)
-    const slot = saveSlot(entry.name, kind)
-    files.push({
-      name: entry.name,
-      label: saveLabel(entry.name, kind, slot),
-      path: resolveLongPath(full),
-      size: info.size,
-      modifiedAt: info.mtimeMs,
-      kind,
-      page,
-      slot
+    return lower.endsWith('.save') && !lower.startsWith('persistent')
+  })
+  const files = (
+    await mapLimit(candidates, 16, async (entry) => {
+      const full = join(savePath, entry.name)
+      const info = await stat(toFsPath(full)).catch(() => null)
+      if (!info) return null
+      const kind = saveKind(entry.name)
+      const page = savePage(entry.name, kind)
+      const slot = saveSlot(entry.name, kind)
+      return {
+        name: entry.name,
+        label: saveLabel(entry.name, kind, slot),
+        path: await resolveLongPathAsync(full),
+        size: info.size,
+        modifiedAt: info.mtimeMs,
+        kind,
+        page,
+        slot
+      } satisfies RenpySaveFile
     })
-  }
+  ).filter((file): file is RenpySaveFile => Boolean(file))
   const parsed = await attachSaveMeta(files)
   return parsed.sort((a, b) => {
     const pages = pageRank(a.page)[0] - pageRank(b.page)[0] || pageRank(a.page)[1] - pageRank(b.page)[1]
@@ -294,7 +313,12 @@ type SaveLookup = {
   threadId: number
 }
 
-async function loadSaveLookup(fileId: string, titleHint = '', threadId = 0): Promise<SaveLookup> {
+async function loadSaveLookup(
+  fileId: string,
+  titleHint = '',
+  threadId = 0,
+  locateGame = true
+): Promise<SaveLookup> {
   const hint = titleHint.trim()
   if (!fileId) {
     if (!hint && !threadId) throw new Error('The save folder is not known yet.')
@@ -307,7 +331,7 @@ async function loadSaveLookup(fileId: string, titleHint = '', threadId = 0): Pro
   }
 
   let gameRoot: string | null = null
-  if (file.installPath && pathExists(file.installPath)) {
+  if (locateGame && file.installPath && pathExists(file.installPath)) {
     gameRoot = findRenpyGameRoot(file.installPath)
     if (!gameRoot) throw new Error("Could not find a Ren'Py game folder in that install.")
   }
@@ -401,8 +425,11 @@ async function resolveSaveDirectory(
   }
 
   if (saveDirectory === undefined) {
+    const folderNames = await listRenpySaveFolderNames()
     saveDirectory =
-      fuzzySaveDirectory(lookup.title) ?? fuzzySaveDirectory(options?.name || '') ?? undefined
+      fuzzySaveDirectory(lookup.title, folderNames) ??
+      fuzzySaveDirectory(options?.name || '', folderNames) ??
+      undefined
   }
 
   if (file && saveDirectory !== undefined && file.renpySaveDirectory !== saveDirectory) {
@@ -420,23 +447,25 @@ async function resolveSaveDirectory(
 async function readOptions(
   gameRoot: string
 ): Promise<{ path: string; saveDirectory: string | null | undefined; name: string } | null> {
-  const options = findNamedFiles(gameDirFromRoot(gameRoot), 'options.rpy')
+  const options = await findNamedFiles(gameDirFromRoot(gameRoot), 'options.rpy')
   if (!options[0]) return null
   const parsed = await parseOptions(options[0])
   return { path: options[0], saveDirectory: parsed.saveDirectory, name: parsed.name }
 }
 
 async function ensureOptions(fileId: string, gameRoot: string): Promise<boolean> {
-  if (findNamedFiles(gameDirFromRoot(gameRoot), 'options.rpy').length) return true
-  const scripts = scanScripts(gameRoot)
+  const gameDir = gameDirFromRoot(gameRoot)
+  if ((await findNamedFiles(gameDir, 'options.rpy')).length) return true
+  const scripts = await scanScripts(gameRoot)
   if (scripts.packed && !scripts.optionsRpyc) {
     await runUnRen(gameRoot, 'extract', fileId)
   }
-  if (findNamedFiles(gameDirFromRoot(gameRoot), 'options.rpy').length) return true
-  if (scanScripts(gameRoot).optionsRpyc || scanScripts(gameRoot).compiled) {
+  if ((await findNamedFiles(gameDir, 'options.rpy')).length) return true
+  const afterExtract = await scanScripts(gameRoot)
+  if (afterExtract.optionsRpyc || afterExtract.compiled) {
     await runUnRen(gameRoot, 'decompile', fileId)
   }
-  return findNamedFiles(gameDirFromRoot(gameRoot), 'options.rpy').length > 0
+  return (await findNamedFiles(gameDir, 'options.rpy')).length > 0
 }
 
 function requireRenpyRoot(installPath: string | null): string {
@@ -460,7 +489,7 @@ async function requireKnownSaveFolder(fileId: string, title = '', threadId = 0):
 function saveMessage(
   saveDirectory: string | null | undefined,
   savePath: string | null,
-  scripts: ReturnType<typeof scanScripts> | null,
+  scripts: Awaited<ReturnType<typeof scanScripts>> | null,
   gameRoot: string | null
 ): string | undefined {
   if (saveDirectory !== undefined) {
@@ -484,27 +513,40 @@ function saveMessage(
   return "Save folder is not known yet. Use Set location, or extract/decompile on the UnRen tab if options.rpy is packed."
 }
 
+function reloadRenpySaves(fileId: string, title = '', threadId = 0): Promise<RenpyInfo> {
+  return getRenpyInfo(fileId, false, title, threadId, 'saves')
+}
+
 export async function getRenpyInfo(
   fileId: string,
   prepare = false,
   title = '',
-  threadId = 0
+  threadId = 0,
+  scope: RenpyInfoScope = 'full'
 ): Promise<RenpyInfo> {
-  const lookup = await loadSaveLookup(fileId, title, threadId)
-  const { file, gameRoot } = lookup
+  const savesOnly = scope === 'saves'
+  const lookup = await loadSaveLookup(fileId, title, threadId, !savesOnly || prepare)
+  const { file } = lookup
   const { saveDirectory, options } = await resolveSaveDirectory(lookup, prepare)
+  let { gameRoot } = lookup
+  if (savesOnly && saveDirectory === null && !gameRoot && file?.installPath && pathExists(file.installPath)) {
+    gameRoot = findRenpyGameRoot(file.installPath)
+    lookup.gameRoot = gameRoot
+  }
   const savePath = saveDirectory !== undefined ? resolveSavePath(gameRoot, saveDirectory) : null
   const saves = savePath ? await listSaves(savePath) : []
-  const scripts = gameRoot ? scanScripts(gameRoot) : null
+  const scripts = !savesOnly && gameRoot ? await scanScripts(gameRoot) : null
   if (file) replayUnRenStatus(file.id)
   const gameDir = gameRoot ? gameDirFromRoot(gameRoot) : null
-  if (gameDir) await removeLegacyUnrenTools(gameDir)
+  if (!savesOnly && gameDir) await removeLegacyUnrenTools(gameDir)
   const optionsThreadId = file?.threadId || lookup.threadId || 0
-  const tools = optionsThreadId
-    ? await ensureDesiredOnGameDir(optionsThreadId, gameDir, savePath)
-    : gameDir
-      ? readRenpyOptions(gameDir, savePath)
-      : { ...EMPTY_OPTIONS }
+  const tools = savesOnly
+    ? { ...EMPTY_OPTIONS }
+    : optionsThreadId
+      ? await ensureDesiredOnGameDir(optionsThreadId, gameDir, savePath)
+      : gameDir
+        ? readRenpyOptions(gameDir, savePath)
+        : { ...EMPTY_OPTIONS }
   const saveLocations = renpySaveLocationOptions(await identifiedFoldersForLookup(lookup), savePath)
 
   return {
@@ -516,7 +558,7 @@ export async function getRenpyInfo(
     saveFolderBytes: savePath && pathExists(savePath) ? await folderBytes(savePath) : 0,
     saveLocations,
     optionsFound: Boolean(options),
-    optionsGlobal: await isRenpyOptionsGlobalEnabled(),
+    optionsGlobal: savesOnly ? false : await isRenpyOptionsGlobalEnabled(),
     tools,
     saves,
     scripts,
@@ -626,11 +668,11 @@ export async function chooseRenpySaveDirectory(
   const result = parent
     ? await dialog.showOpenDialog(parent, options)
     : await dialog.showOpenDialog(options)
-  if (result.canceled || !result.filePaths[0]) return getRenpyInfo(fileId, false, title, threadId)
+  if (result.canceled || !result.filePaths[0]) return reloadRenpySaves(fileId, title, threadId)
 
   const saveDirectory = normalizeChosenSaveDirectory(result.filePaths[0])
   await persistLinkedSaveDirectory(lookup, saveDirectory)
-  return getRenpyInfo(fileId, false, title, threadId)
+  return reloadRenpySaves(fileId, title, threadId)
 }
 
 export async function setRenpySaveLocation(
@@ -647,7 +689,7 @@ export async function setRenpySaveLocation(
     ? normalizeChosenSaveDirectory(folder)
     : saveDirectoryFromPath(folder)
   await persistLinkedSaveDirectory(lookup, saveDirectory)
-  return getRenpyInfo(fileId, false, title, threadId)
+  return reloadRenpySaves(fileId, title, threadId)
 }
 
 export async function unlinkRenpySaveLocation(
@@ -668,7 +710,7 @@ export async function unlinkRenpySaveLocation(
   } else if (lookup.file) {
     await setRenpySaveDirectory(lookup.file.id, undefined)
   }
-  return getRenpyInfo(fileId, false, title, threadId)
+  return reloadRenpySaves(fileId, title, threadId)
 }
 
 export async function clearRenpySaveDirectory(
@@ -685,7 +727,7 @@ export async function clearRenpySaveDirectory(
   } else if (lookup.file) {
     await setRenpySaveDirectory(lookup.file.id, undefined)
   }
-  return getRenpyInfo(fileId, false, title, threadId)
+  return reloadRenpySaves(fileId, title, threadId)
 }
 
 export async function showRenpySave(fileId: string, savePath: string, title = ''): Promise<void> {
@@ -695,6 +737,32 @@ export async function showRenpySave(fileId: string, savePath: string, title = ''
   shell.showItemInFolder(savePath)
 }
 
+export async function readRenpySaveEditor(
+  fileId: string,
+  savePath: string,
+  title = ''
+): Promise<RenpySaveEditorData> {
+  const folder = await requireKnownSaveFolder(fileId, title)
+  assertInsideSaveFolder(folder, savePath)
+  if (!pathExists(savePath)) throw new Error('That save is missing.')
+  return readSaveEditor(savePath)
+}
+
+export async function applyRenpySaveEditor(
+  fileId: string,
+  savePath: string,
+  patches: RenpySaveEditPatch[],
+  title = ''
+): Promise<RenpyInfo> {
+  const folder = await requireKnownSaveFolder(fileId, title)
+  assertInsideSaveFolder(folder, savePath)
+  if (!pathExists(savePath)) throw new Error('That save is missing.')
+  invalidateSaveMeta(savePath)
+  await applySaveEditor(savePath, patches)
+  invalidateSaveMeta(savePath)
+  return reloadRenpySaves(fileId, title)
+}
+
 export async function deleteRenpySave(fileId: string, savePath: string, title = ''): Promise<RenpyInfo> {
   return deleteRenpySaves(fileId, [savePath], title)
 }
@@ -702,13 +770,13 @@ export async function deleteRenpySave(fileId: string, savePath: string, title = 
 export async function deleteRenpySaves(fileId: string, savePaths: string[], title = ''): Promise<RenpyInfo> {
   const folder = await requireKnownSaveFolder(fileId, title)
   const unique = [...new Set(savePaths.map((item) => String(item || '')).filter(Boolean))]
-  if (!unique.length) return getRenpyInfo(fileId, false, title)
+  if (!unique.length) return reloadRenpySaves(fileId, title)
   for (const savePath of unique) {
     assertInsideSaveFolder(folder, savePath)
     invalidateSaveMeta(savePath)
     if (pathExists(savePath)) await rm(toFsPath(savePath), { force: true })
   }
-  return getRenpyInfo(fileId, false, title)
+  return reloadRenpySaves(fileId, title)
 }
 
 export async function moveRenpySave(
@@ -727,7 +795,7 @@ export async function moveRenpySave(
   const nextSlot = normalizeSlot(slot)
   const nextName = buildSaveName(nextPage, nextSlot, parsed.suffix)
   const nextPath = join(dirname(savePath), nextName)
-  if (resolve(nextPath) === resolve(savePath)) return getRenpyInfo(fileId, false, title)
+  if (resolve(nextPath) === resolve(savePath)) return reloadRenpySaves(fileId, title)
   const used = occupiedKey(await listSavePlaces(folder), savePath)
   if (used.has(placeKey(nextPage, nextSlot))) {
     const pageLabel = nextPage === 'auto' ? 'Auto' : nextPage === 'quick' ? 'Quick' : nextPage
@@ -736,7 +804,7 @@ export async function moveRenpySave(
   if (pathExists(nextPath)) throw new Error('A file already exists at that slot.')
   invalidateSaveMeta(savePath)
   await rename(toFsPath(savePath), toFsPath(nextPath))
-  return getRenpyInfo(fileId, false, title)
+  return reloadRenpySaves(fileId, title)
 }
 
 export async function renumberRenpyPage(
@@ -748,7 +816,7 @@ export async function renumberRenpyPage(
   const folder = await requireKnownSaveFolder(fileId, title)
   const source = normalizePage(fromPage)
   const dest = normalizePage(toPage)
-  if (source === dest) return getRenpyInfo(fileId, false, title)
+  if (source === dest) return reloadRenpySaves(fileId, title)
   const places = await listSavePlaces(folder)
   const moving = places.filter((place) => place.page === source)
   if (!moving.length) throw new Error('That page has no saves.')
@@ -763,7 +831,7 @@ export async function renumberRenpyPage(
     invalidateSaveMeta(place.path)
     await rename(toFsPath(place.path), toFsPath(nextPath))
   }
-  return getRenpyInfo(fileId, false, title)
+  return reloadRenpySaves(fileId, title)
 }
 
 export async function measureRenpySaveBytes(fileId: string, title = ''): Promise<number> {

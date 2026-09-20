@@ -1,6 +1,7 @@
 import { engineKind } from '@shared/engines'
 import type { GameLibraryFile, RenpyToolId } from '@shared/types'
 import { isInstallableLibraryPackage } from '@shared/types'
+import { listGameFiles } from '../game-files-store'
 import { findRenpyGameRoot } from '../launch'
 import {
   EMPTY_OPTIONS,
@@ -29,7 +30,6 @@ function isRenpyInstall(file: Pick<GameLibraryFile, 'installPath' | 'engine' | '
 }
 
 async function listInstalledRenpyFiles(threadId?: number): Promise<GameLibraryFile[]> {
-  const { listGameFiles } = await import('../game-files-store')
   const files = await listGameFiles(threadId)
   return files.filter((file) => file.isInstalled && isRenpyInstall(file))
 }

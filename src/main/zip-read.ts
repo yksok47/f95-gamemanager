@@ -1,6 +1,9 @@
 import { open, type FileHandle } from 'fs/promises'
-import { inflateRawSync } from 'zlib'
+import { promisify } from 'util'
+import { inflateRaw as inflateRawCb } from 'zlib'
 import { toFsPath } from './win-path'
+
+const inflateRaw = promisify(inflateRawCb)
 
 const LOCAL_SIG = 0x04034b50
 const CENTRAL_SIG = 0x02014b50
@@ -76,11 +79,11 @@ function parseCentralDirectory(cd: Buffer): ZipIndexEntry[] {
   return entries
 }
 
-function inflateEntry(method: number, data: Buffer, uncompressedSize: number): Buffer {
+async function inflateEntry(method: number, data: Buffer, uncompressedSize: number): Promise<Buffer> {
   if (!data.length && uncompressedSize === 0) return Buffer.alloc(0)
   if (method === 0) return data
   if (method !== 8) throw new Error(`Unsupported ZIP method ${method}`)
-  return inflateRawSync(data, { maxOutputLength: Math.max(uncompressedSize, 1) })
+  return inflateRaw(data, { maxOutputLength: Math.max(uncompressedSize, 1) })
 }
 
 export async function openZipReader(filePath: string): Promise<ZipReader | null> {
@@ -131,7 +134,7 @@ export async function openZipReader(filePath: string): Promise<ZipReader | null>
       const compressed = await readAt(file, dataStart, entry.compressedSize)
       if (compressed.length !== entry.compressedSize) return null
       try {
-        return inflateEntry(entry.method, compressed, entry.uncompressedSize)
+        return await inflateEntry(entry.method, compressed, entry.uncompressedSize)
       } catch {
         return null
       }

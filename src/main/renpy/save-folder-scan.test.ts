@@ -20,25 +20,25 @@ afterEach(() => {
 })
 
 describe('isRenpySaveFolder', () => {
-  test('requires a file named persistent', () => {
+  test('requires a file named persistent', async () => {
     const root = tempDir()
     mkdirSync(join(root, 'GAME-1'))
     writeFileSync(join(root, 'GAME-1', '1-1.save'), 'slot')
-    expect(isRenpySaveFolder(join(root, 'GAME-1'))).toBe(false)
+    expect(await isRenpySaveFolder(join(root, 'GAME-1'))).toBe(false)
     writeFileSync(join(root, 'GAME-1', 'persistent'), 'data')
-    expect(isRenpySaveFolder(join(root, 'GAME-1'))).toBe(true)
+    expect(await isRenpySaveFolder(join(root, 'GAME-1'))).toBe(true)
   })
 
-  test('ignores similarly named files', () => {
+  test('ignores similarly named files', async () => {
     const root = tempDir()
     mkdirSync(join(root, 'GAME-1'))
     writeFileSync(join(root, 'GAME-1', 'persistent.bak'), 'data')
-    expect(isRenpySaveFolder(join(root, 'GAME-1'))).toBe(false)
+    expect(await isRenpySaveFolder(join(root, 'GAME-1'))).toBe(false)
   })
 })
 
 describe('discoverRenpySaveFolders', () => {
-  test('skips folders without persistent and includes nested save folders', () => {
+  test('skips folders without persistent and includes nested save folders', async () => {
     const root = tempDir()
     mkdirSync(join(root, 'GAME-11111111'))
     writeFileSync(join(root, 'GAME-11111111', 'persistent'), 'data')
@@ -48,16 +48,16 @@ describe('discoverRenpySaveFolders', () => {
     writeFileSync(join(root, 'PTGames', 'Lunars Chosen Episode 2', 'persistent'), 'data')
     mkdirSync(join(root, 'PTGames', 'empty-child'), { recursive: true })
 
-    const found = discoverRenpySaveFolders(root).map((folder) => folder.name).sort()
+    const found = (await discoverRenpySaveFolders(root)).map((folder) => folder.name).sort()
     expect(found).toEqual(['GAME-11111111', join('PTGames', 'Lunars Chosen Episode 2')].sort())
   })
 
-  test('does not recurse when the parent folder itself is a save folder', () => {
+  test('does not recurse when the parent folder itself is a save folder', async () => {
     const root = tempDir()
     mkdirSync(join(root, 'GAME-1', 'nested'), { recursive: true })
     writeFileSync(join(root, 'GAME-1', 'persistent'), 'data')
     writeFileSync(join(root, 'GAME-1', 'nested', 'persistent'), 'data')
 
-    expect(discoverRenpySaveFolders(root).map((folder) => folder.name)).toEqual(['GAME-1'])
+    expect((await discoverRenpySaveFolders(root)).map((folder) => folder.name)).toEqual(['GAME-1'])
   })
 })

@@ -109,7 +109,7 @@ async function decompileFile(runtime: GamePython, script: string, scriptDir: str
 
 async function runExtract(gameRoot: string, fileId: string, startedAt: number): Promise<RenpyLastRun> {
   const gameDir = gameDirFromRoot(gameRoot)
-  const before = scanScripts(gameRoot)
+    const before = await scanScripts(gameRoot)
   const archives = before.rpaFiles
   let log = `Python ${before.pythonPath || 'missing'}\nGame ${gameRoot}\n`
 
@@ -169,7 +169,7 @@ async function runExtract(gameRoot: string, fileId: string, startedAt: number): 
     })
   }
 
-  const after = scanScripts(gameRoot)
+  const after = await scanScripts(gameRoot)
   const summary =
     failed && !done
       ? `Failed to extract ${failed} archive(s).`
@@ -190,8 +190,8 @@ async function runExtract(gameRoot: string, fileId: string, startedAt: number): 
 }
 
 async function runDecompile(gameRoot: string, fileId: string, startedAt: number): Promise<RenpyLastRun> {
-  const pending = listRpycNeedingDecompile(gameRoot)
-  const scripts = scanScripts(gameRoot)
+  const pending = await listRpycNeedingDecompile(gameRoot)
+  const scripts = await scanScripts(gameRoot)
   let log = `Python ${scripts.pythonPath || 'missing'}\nGame ${gameRoot}\n`
 
   if (!pending.length) {
@@ -258,7 +258,7 @@ async function runDecompile(gameRoot: string, fileId: string, startedAt: number)
     removeUnrpycStage(gameRoot)
   }
 
-  const after = scanScripts(gameRoot)
+  const after = await scanScripts(gameRoot)
   const summary =
     failed && !done
       ? `Failed to decompile ${failed} script(s).`

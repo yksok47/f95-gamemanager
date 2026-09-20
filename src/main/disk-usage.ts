@@ -4,7 +4,7 @@ import { childPath, pathExists, toFsPath } from './win-path'
 const STAT_BATCH = 24
 const YIELD_EVERY = 240
 
-function yieldToEventLoop(): Promise<void> {
+export function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve))
 }
 

@@ -7,6 +7,7 @@ import type {
   GameFileContext,
   GameRarity,
   LoginPayload,
+  RenpyInfoScope,
   RenpyToolId,
   UnRenAction,
   VersionPlayStatus
@@ -62,6 +63,7 @@ import {
   showRpgMakerSave
 } from './rpgmaker/saves'
 import {
+  applyRenpySaveEditor,
   chooseRenpySaveDirectory,
   clearRenpySaveDirectory,
   deleteRenpySave,
@@ -69,6 +71,7 @@ import {
   getRenpyInfo,
   moveRenpySave,
   openRenpySaves,
+  readRenpySaveEditor,
   renumberRenpyPage,
   runRenpyAction,
   setAllRenpyToolsForFile,
@@ -925,13 +928,14 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('renpy:info', async (_event, id: string, prepare?: boolean, title?: string, threadId?: number) => {
+  ipcMain.handle('renpy:info', async (_event, id: string, prepare?: boolean, title?: string, threadId?: number, scope?: RenpyInfoScope) => {
     try {
       return await getRenpyInfo(
         String(id || ''),
         Boolean(prepare),
         String(title || ''),
-        Number(threadId) || 0
+        Number(threadId) || 0,
+        scope === 'saves' ? 'saves' : 'full'
       )
     } catch (error) {
       throw toIpcError(error)
@@ -1048,6 +1052,30 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle('renpy:readSaveEditor', async (_event, id: string, savePath: string, title?: string) => {
+    try {
+      return await readRenpySaveEditor(String(id || ''), String(savePath), String(title || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'renpy:applySaveEditor',
+    async (_event, id: string, savePath: string, patches: unknown, title?: string) => {
+      try {
+        return await applyRenpySaveEditor(
+          String(id || ''),
+          String(savePath),
+          Array.isArray(patches) ? patches : [],
+          String(title || '')
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
 
   ipcMain.handle('renpy:deleteSave', async (_event, id: string, savePath: string, title?: string) => {
     try {

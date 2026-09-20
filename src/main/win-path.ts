@@ -1,4 +1,5 @@
 import { existsSync, realpathSync, readdirSync, type Dirent } from 'fs'
+import { access, readdir, realpath } from 'fs/promises'
 import { dirname, join, resolve, toNamespacedPath } from 'path'
 import { spawnSync } from 'child_process'
 
@@ -38,6 +39,24 @@ export function listDirents(dir: string): Dirent[] {
   }
 }
 
+export async function pathExistsAsync(filePath: string): Promise<boolean> {
+  if (!filePath) return false
+  try {
+    await access(toFsPath(filePath))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function listDirentsAsync(dir: string): Promise<Dirent[]> {
+  try {
+    return await readdir(toFsPath(dir), { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
 export function childPath(dir: string, name: string): string {
   return join(stripNamespace(resolve(dir)), name)
 }
@@ -57,6 +76,15 @@ export function resolveLongPath(filePath: string): string {
     } catch {
       return stripNamespace(resolve(filePath))
     }
+  }
+}
+
+export async function resolveLongPathAsync(filePath: string): Promise<string> {
+  if (!filePath) return filePath
+  try {
+    return stripNamespace(await realpath(toFsPath(filePath)))
+  } catch {
+    return stripNamespace(resolve(filePath))
   }
 }
 

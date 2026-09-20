@@ -28,6 +28,9 @@ import {
   parseInstallFolderGuess,
   scoreImportTitle
 } from './library-import-parse'
+import { onLibraryPackageAdded } from './p2p/controller'
+import { signMessageBytes } from './p2p/identity'
+import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
 import { getAppPaths } from './paths'
 import { folderSearchQueries } from './renpy/save-folder-match'
 import {
@@ -504,8 +507,6 @@ function contextFromGuess(
 
 async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
   if (!getMetadataApiEnabledSync() || !contentHash) return
-  const { buildInstallClaimMessage, reportPackageInstall } = await import('./p2p/metadata-client')
-  const { signMessageBytes } = await import('./p2p/identity')
   const ts = Math.floor(Date.now() / 1000)
   const msg = buildInstallClaimMessage(contentHash, ts, tags)
   const { seederPubkey, signature } = await signMessageBytes(msg)
@@ -553,20 +554,16 @@ export async function approvePendingImport(
   })
 
   if (hash) {
-    void import('./p2p/controller')
-      .then(({ onLibraryPackageAdded }) =>
-        onLibraryPackageAdded({
-          filePath: pending.path,
-          contentHash: hash,
-          gameName: context.title,
-          gameVersion: normalized.version,
-          f95ThreadId: context.threadId,
-          f95ThreadUrl: context.threadUrl
-        })
-      )
-      .catch((error) => {
-        console.warn('[library] auto-seed after import failed', error)
-      })
+    void onLibraryPackageAdded({
+      filePath: pending.path,
+      contentHash: hash,
+      gameName: context.title,
+      gameVersion: normalized.version,
+      f95ThreadId: context.threadId,
+      f95ThreadUrl: context.threadUrl
+    }).catch((error) => {
+      console.warn('[library] auto-seed after import failed', error)
+    })
     void reportInstallTags(hash, normalized).catch((error) => {
       console.warn('[library] install report after import failed', error)
     })

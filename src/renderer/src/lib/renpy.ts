@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { GameLibraryFile, RenpyInfo, RenpyStatus } from '@shared/types'
+import type { GameLibraryFile, RenpyInfo, RenpyInfoScope, RenpyStatus } from '@shared/types'
 import { notifyError } from '../components/ErrorNotifications'
 
 export function formatBytes(size: number): string {
@@ -13,12 +13,14 @@ type UseRenpySessionOptions = {
   title?: string
   threadId?: number
   installedOnly?: boolean
+  scope?: RenpyInfoScope
 }
 
 export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessionOptions = {}) {
   const prepare = options.prepare ?? false
   const fallbackTitle = options.title || ''
   const threadId = options.threadId || 0
+  const scope = options.scope ?? 'full'
   const installed = useMemo(() => files.filter((file) => file.isInstalled), [files])
   const sources = options.installedOnly || installed.length ? installed : files
   const [fileId, setFileId] = useState(sources[0]?.id || '')
@@ -58,7 +60,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     setBusy(true)
     setError(null)
     void window.api.renpy
-      .info(activeId, prepare, lookupTitle, threadId)
+      .info(activeId, prepare, lookupTitle, threadId, scope)
       .then((next) => {
         if (cancelled) return
         setInfo(next)
@@ -73,7 +75,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     return () => {
       cancelled = true
     }
-  }, [activeId, prepare, lookupTitle, threadId])
+  }, [activeId, prepare, lookupTitle, threadId, scope])
 
   async function withInfo(work: () => Promise<RenpyInfo>): Promise<void> {
     setError(null)

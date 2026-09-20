@@ -12,6 +12,7 @@ import {
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
 import { extractArchive } from './extract'
+import { isSamePath } from './extra-library-dirs'
 import { isArchivePath } from './fs-utils'
 import {
   expectedInstallPath,
@@ -27,12 +28,15 @@ import {
   launchExecutable,
   pickExecutable
 } from './launch'
+import { rebasePendingImportPaths } from './library-import'
 import { getAppPaths } from './paths'
 import { startPlaySession, getPlaySession, hasPlaySessionUnder, stopPlaySession } from './play-sessions'
 import { listProcessExecutables, killProcessesUnder, pathIsInside } from './processes'
+import { ensureRenpyOptionsForLibraryFile } from './renpy/options-prefs'
 import { gameDirFromRoot } from './renpy/scan'
 import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyScriptPath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
-import { isSamePath } from './extra-library-dirs'
+import { syncRpgMakerSaves } from './rpgmaker/saves'
+import { rebaseSaveFolderPaths } from './save-folders-store'
 import {
   getDownloadsDirSync,
   getExtraArchiveDirsSync,
@@ -747,7 +751,6 @@ function usesRpgMakerSaves(file: StoredGameFile): boolean {
 async function syncRpgMakerForFile(file: StoredGameFile, mode: 'merge' | 'backup'): Promise<void> {
   if (!usesRpgMakerSaves(file)) return
   try {
-    const { syncRpgMakerSaves } = await import('./rpgmaker/saves')
     await syncRpgMakerSaves({
       installPath: file.installPath,
       threadId: file.threadId,
@@ -800,7 +803,6 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
     installing.delete(id)
     await syncRpgMakerForFile(file, 'merge')
     try {
-      const { ensureRenpyOptionsForLibraryFile } = await import('./renpy/options-prefs')
       await ensureRenpyOptionsForLibraryFile(file)
     } catch (error) {
       console.warn('Could not apply Ren\'Py options', error)
@@ -869,13 +871,11 @@ export async function relocateGameInstall(id: string): Promise<GameLibraryFile> 
   await writeStore(files)
   await removeEmptyParentsAfterMove(oldPath)
   try {
-    const { rebaseSaveFolderPaths } = await import('./save-folders-store')
     await rebaseSaveFolderPaths(oldPath, dest)
   } catch (error) {
     console.warn('Could not update save-folder paths after the move', error)
   }
   try {
-    const { rebasePendingImportPaths } = await import('./library-import')
     await rebasePendingImportPaths(oldPath, dest)
   } catch (error) {
     console.warn('Could not update import paths after the move', error)

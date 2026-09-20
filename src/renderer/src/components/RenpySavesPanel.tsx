@@ -12,6 +12,7 @@ import type { GameLibraryFile, RenpySaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
 import { useRenpySession } from '../lib/renpy'
+import RenpySaveEditorDialog from './RenpySaveEditorDialog'
 
 type RenpySavesPanelProps = {
   files: GameLibraryFile[]
@@ -157,10 +158,39 @@ function hitTarget(
 }
 
 function SaveThumb({ url }: { url?: string }): JSX.Element {
+  const ref = useRef<HTMLElement | null>(null)
+  const [visible, setVisible] = useState(false)
   const [broken, setBroken] = useState(false)
-  if (!url || broken) return <div className="save-tile-shot save-tile-empty" aria-hidden="true" />
+
+  useEffect(() => {
+    setBroken(false)
+    setVisible(false)
+    if (!url) return
+    const node = ref.current
+    if (!node) return
+    const root = node.closest('.details-modal')
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return
+        setVisible(true)
+        io.disconnect()
+      },
+      { root: root instanceof Element ? root : null, rootMargin: '160px' }
+    )
+    io.observe(node)
+    return () => io.disconnect()
+  }, [url])
+
+  function bindRef(node: HTMLElement | null): void {
+    ref.current = node
+  }
+
+  if (!url || broken || !visible) {
+    return <div ref={bindRef} className="save-tile-shot save-tile-empty" aria-hidden="true" />
+  }
   return (
     <img
+      ref={bindRef}
       className="save-tile-shot"
       src={url}
       alt=""
@@ -221,12 +251,13 @@ export default function RenpySavesPanel({
     busy,
     running,
     withInfo
-  } = useRenpySession(files, { title, threadId })
+  } = useRenpySession(files, { title, threadId, scope: 'saves' })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [slotsInput, setSlotsInput] = useState<number | null>(null)
   const [drag, setDrag] = useState<DragItem | null>(null)
   const [over, setOver] = useState<string | null>(null)
   const [ghost, setGhost] = useState<string | null>(null)
+  const [editing, setEditing] = useState<RenpySaveFile | null>(null)
   const skipClick = useRef(false)
   const sessionRef = useRef<DragSession | null>(null)
   const ghostRef = useRef<HTMLDivElement>(null)
@@ -308,6 +339,7 @@ export default function RenpySavesPanel({
     setDrag(null)
     setOver(null)
     setGhost(null)
+    setEditing(null)
     sessionRef.current = null
     document.body.classList.remove('is-save-dragging')
   }, [activeId])
@@ -482,7 +514,7 @@ export default function RenpySavesPanel({
         lookupThreadId,
         info?.savePathExists ? currentPath : undefined
       )
-      return window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId)
+      return window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves')
     })
     setSelected(new Set())
   }
@@ -533,6 +565,14 @@ export default function RenpySavesPanel({
     togglePath(path)
   }
 
+  function openEditor(save: RenpySaveFile): void {
+    skipClick.current = false
+    freezeModalScroll()
+    setEditing(save)
+  }
+
+  const selectedSave = selected.size === 1 ? saves.find((item) => selected.has(item.path)) ?? null : null
+
   function beginDrag(event: ReactPointerEvent, item: DragItem, label: string): void {
     if (event.button !== 0 || busy || running) return
     if ((event.target as HTMLElement).closest('input, button, a, select')) return
@@ -582,6 +622,16 @@ export default function RenpySavesPanel({
         <div className="renpy-section-head">
           <h2>Saves</h2>
           <div className="renpy-actions">
+            {selectedSave ? (
+              <button
+                className="ghost-btn saves-toolbar-btn"
+                type="button"
+                disabled={busy || running}
+                onClick={() => openEditor(selectedSave)}
+              >
+                Edit save
+              </button>
+            ) : null}
             {selected.size > 0 ? (
               <button
                 className="stop-btn saves-toolbar-btn"
@@ -616,7 +666,7 @@ export default function RenpySavesPanel({
               className="ghost-btn saves-toolbar-btn"
               type="button"
               disabled={busy || running}
-              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId))}
+              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves'))}
             >
               Refresh
             </button>
@@ -876,6 +926,19 @@ export default function RenpySavesPanel({
                                 onChange={() => togglePath(save.path)}
                               />
                               <span className="save-tile-slot">Slot {item.slot}</span>
+                              <button
+                                type="button"
+                                className="save-tile-edit"
+                                disabled={busy || running}
+                                onMouseDown={keepScrollOnMouse}
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openEditor(save)
+                                }}
+                              >
+                                Edit
+                              </button>
                             </div>
                             <div className="save-tile-meta">
                               {save.saveName ? <strong>{save.saveName}</strong> : null}
@@ -935,6 +998,19 @@ export default function RenpySavesPanel({
                               onChange={() => togglePath(save.path)}
                             />
                             <span className="save-tile-slot">{save.label}</span>
+                            <button
+                              type="button"
+                              className="save-tile-edit"
+                              disabled={busy || running}
+                              onMouseDown={keepScrollOnMouse}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                openEditor(save)
+                              }}
+                            >
+                              Edit
+                            </button>
                           </div>
                           <div className="save-tile-meta">
                             {when ? <span>{when}</span> : null}
@@ -953,6 +1029,17 @@ export default function RenpySavesPanel({
           </p>
         )}
       </section>
+      {editing ? (
+        <RenpySaveEditorDialog
+          fileId={activeId}
+          title={lookupTitle}
+          save={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            await withInfo(() => window.api.renpy.info(activeId, false, lookupTitle, lookupThreadId, 'saves'))
+          }}
+        />
+      ) : null}
     </div>
   )
 }

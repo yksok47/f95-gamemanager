@@ -1,5 +1,6 @@
 import { protocol } from 'electron'
 import type { RenpySaveFile } from '@shared/types'
+import { mapLimit } from '../disk-usage'
 import { openZipReader } from '../zip-read'
 
 const META_CACHE_MAX = 400
@@ -93,25 +94,34 @@ export function invalidateSaveMeta(filePath: string): void {
   shotCache.delete(filePath)
 }
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  if (!items.length) return []
-  const results = new Array<R>(items.length)
-  let next = 0
-  async function worker(): Promise<void> {
-    while (true) {
-      const index = next++
-      if (index >= items.length) return
-      results[index] = await fn(items[index])
+const SAVE_IO_LIMIT = 2
+let saveIoActive = 0
+const saveIoWait: Array<() => void> = []
+
+async function withSaveIo<T>(work: () => Promise<T>): Promise<T> {
+  await new Promise<void>((resolve) => {
+    if (saveIoActive < SAVE_IO_LIMIT) {
+      saveIoActive += 1
+      resolve()
+      return
     }
+    saveIoWait.push(() => {
+      saveIoActive += 1
+      resolve()
+    })
+  })
+  try {
+    return await work()
+  } finally {
+    saveIoActive -= 1
+    saveIoWait.shift()?.()
   }
-  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, () => worker()))
-  return results
 }
 
 export async function attachSaveMeta<T extends Pick<RenpySaveFile, 'path' | 'size' | 'modifiedAt' | 'kind'>>(
   files: T[]
 ): Promise<Array<T & SaveMeta>> {
-  return mapLimit(files, 8, async (file) => {
+  return mapLimit(files, SAVE_IO_LIMIT, async (file) => {
     if (file.kind === 'persistent') return file
     const meta = await readSaveMeta(file.path, file.size, file.modifiedAt)
     return { ...file, ...meta }
@@ -130,37 +140,39 @@ export async function readSaveMeta(filePath: string, size: number, mtime: number
     }
   }
 
-  const empty: SaveMeta = {}
-  const zip = await openZipReader(filePath).catch(() => null)
-  if (!zip) {
-    cacheSet(metaCache, filePath, { ...empty, mtime, size }, META_CACHE_MAX)
-    return empty
-  }
+  return withSaveIo(async () => {
+    const empty: SaveMeta = {}
+    const zip = await openZipReader(filePath).catch(() => null)
+    if (!zip) {
+      cacheSet(metaCache, filePath, { ...empty, mtime, size }, META_CACHE_MAX)
+      return empty
+    }
 
-  try {
-    const jsonBytes = zip.has('json') ? await zip.read('json', JSON_LIMITS) : null
-    const parsed = jsonBytes ? parseJsonObject(jsonBytes) : null
-    let saveName = textValue(parsed?._save_name)
-    if (!parsed && zip.has('extra_info')) {
-      const extraBytes = await zip.read('extra_info', JSON_LIMITS)
-      saveName = extraBytes?.toString('utf8').trim() || ''
+    try {
+      const jsonBytes = zip.has('json') ? await zip.read('json', JSON_LIMITS) : null
+      const parsed = jsonBytes ? parseJsonObject(jsonBytes) : null
+      let saveName = textValue(parsed?._save_name)
+      if (!parsed && zip.has('extra_info')) {
+        const extraBytes = await zip.read('extra_info', JSON_LIMITS)
+        saveName = extraBytes?.toString('utf8').trim() || ''
+      }
+      const gameVersion = textValue(parsed?._version)
+      const renpyVersion = formatRenpyVersion(parsed?._renpy_version)
+      const savedAt = parseCtime(parsed?._ctime)
+      const thumbnailUrl = screenshotName(zip.names) ? saveThumbnailUrl(filePath, mtime) : undefined
+      const meta: SaveMeta = {
+        saveName: saveName || undefined,
+        gameVersion: gameVersion || undefined,
+        renpyVersion: renpyVersion || undefined,
+        thumbnailUrl,
+        savedAt
+      }
+      cacheSet(metaCache, filePath, { ...meta, mtime, size }, META_CACHE_MAX)
+      return meta
+    } finally {
+      await zip.close()
     }
-    const gameVersion = textValue(parsed?._version)
-    const renpyVersion = formatRenpyVersion(parsed?._renpy_version)
-    const savedAt = parseCtime(parsed?._ctime)
-    const thumbnailUrl = screenshotName(zip.names) ? saveThumbnailUrl(filePath, mtime) : undefined
-    const meta: SaveMeta = {
-      saveName: saveName || undefined,
-      gameVersion: gameVersion || undefined,
-      renpyVersion: renpyVersion || undefined,
-      thumbnailUrl,
-      savedAt
-    }
-    cacheSet(metaCache, filePath, { ...meta, mtime, size }, META_CACHE_MAX)
-    return meta
-  } finally {
-    await zip.close()
-  }
+  })
 }
 
 function sniffImage(bytes: Buffer): { mime: string; bytes: Buffer } | null {
@@ -180,20 +192,22 @@ export async function readSaveScreenshot(
   const cached = cacheGet(shotCache, filePath)
   if (cached && cached.mtime === mtime) return { mime: cached.mime, bytes: cached.bytes }
 
-  const zip = await openZipReader(filePath).catch(() => null)
-  if (!zip) return null
-  try {
-    const name = screenshotName(zip.names)
-    if (!name) return null
-    const raw = await zip.read(name, SHOT_LIMITS)
-    if (!raw) return null
-    const image = sniffImage(raw)
-    if (!image) return null
-    cacheSet(shotCache, filePath, { mtime, size: image.bytes.length, mime: image.mime, bytes: image.bytes }, SHOT_CACHE_MAX)
-    return image
-  } finally {
-    await zip.close()
-  }
+  return withSaveIo(async () => {
+    const zip = await openZipReader(filePath).catch(() => null)
+    if (!zip) return null
+    try {
+      const name = screenshotName(zip.names)
+      if (!name) return null
+      const raw = await zip.read(name, SHOT_LIMITS)
+      if (!raw) return null
+      const image = sniffImage(raw)
+      if (!image) return null
+      cacheSet(shotCache, filePath, { mtime, size: image.bytes.length, mime: image.mime, bytes: image.bytes }, SHOT_CACHE_MAX)
+      return image
+    } finally {
+      await zip.close()
+    }
+  })
 }
 
 export const SAVE_THUMB_SCHEME = {
