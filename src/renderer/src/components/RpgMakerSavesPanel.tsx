@@ -417,7 +417,7 @@ export default function RpgMakerSavesPanel({
           title={title}
           save={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => void load(null)}
+          onSaved={() => load(null)}
         />
       ) : null}
       <SavesDeleteSelectedFab
