@@ -382,17 +382,32 @@ type VersionRatchetProps = {
   onCollapse?: () => void
 }
 
+/**
+ * Version list with a highlighted window. Native overflow is used for drag,
+ * but wheel is stepped one row at a time so mouse notches do not skip entries.
+ */
 function VersionRatchet({ options, value, onPick, onCollapse }: VersionRatchetProps): JSX.Element {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const ignoreScrollRef = useRef(false)
   const scrollingRef = useRef(false)
   const snapTimerRef = useRef<number | null>(null)
+  const wheelAccRef = useRef(0)
   const names = useMemo(() => options.map((o) => o.name), [options])
   const [activeIndex, setActiveIndex] = useState(() => {
     if (!value) return 0
     const idx = names.indexOf(value)
     return idx >= 0 ? idx + 1 : 0
   })
+  const activeIndexRef = useRef(activeIndex)
+  const valueRef = useRef(value)
+  const onPickRef = useRef(onPick)
+  const onCollapseRef = useRef(onCollapse)
+  const namesRef = useRef(names)
+  activeIndexRef.current = activeIndex
+  valueRef.current = value
+  onPickRef.current = onPick
+  onCollapseRef.current = onCollapse
+  namesRef.current = names
 
   function indexForValue(v: string): number {
     if (!v) return 0
@@ -401,18 +416,41 @@ function VersionRatchet({ options, value, onPick, onCollapse }: VersionRatchetPr
   }
 
   function valueForIndex(idx: number): string {
-    const clamped = Math.max(0, Math.min(names.length, idx))
-    return clamped === 0 ? '' : (names[clamped - 1] ?? '')
+    const list = namesRef.current
+    const clamped = Math.max(0, Math.min(list.length, idx))
+    return clamped === 0 ? '' : (list[clamped - 1] ?? '')
   }
 
   function clampIndex(idx: number): number {
-    return Math.max(0, Math.min(names.length, idx))
+    return Math.max(0, Math.min(namesRef.current.length, idx))
+  }
+
+  function commitIndex(idx: number, collapse = false): void {
+    const el = scrollerRef.current
+    if (!el) return
+    const clamped = clampIndex(idx)
+    scrollingRef.current = false
+    ignoreScrollRef.current = true
+    if (snapTimerRef.current != null) {
+      window.clearTimeout(snapTimerRef.current)
+      snapTimerRef.current = null
+    }
+    el.scrollTop = clamped * RATCHET_ITEM_H
+    activeIndexRef.current = clamped
+    setActiveIndex(clamped)
+    const next = valueForIndex(clamped)
+    if (next !== valueRef.current) onPickRef.current(next)
+    requestAnimationFrame(() => {
+      ignoreScrollRef.current = false
+    })
+    if (collapse && next) onCollapseRef.current?.()
   }
 
   useLayoutEffect(() => {
     const el = scrollerRef.current
     if (!el || scrollingRef.current) return
     const expectedIdx = indexForValue(value)
+    activeIndexRef.current = expectedIdx
     setActiveIndex(expectedIdx)
     const expected = expectedIdx * RATCHET_ITEM_H
     if (Math.abs(el.scrollTop - expected) <= 1) return
@@ -424,31 +462,38 @@ function VersionRatchet({ options, value, onPick, onCollapse }: VersionRatchetPr
   }, [names, value])
 
   useEffect(() => {
-    return () => {
-      if (snapTimerRef.current != null) window.clearTimeout(snapTimerRef.current)
-    }
-  }, [])
-
-  function commitIndex(idx: number, collapse = false): void {
     const el = scrollerRef.current
     if (!el) return
-    const clamped = clampIndex(idx)
-    scrollingRef.current = false
-    ignoreScrollRef.current = true
-    el.scrollTop = clamped * RATCHET_ITEM_H
-    setActiveIndex(clamped)
-    const next = valueForIndex(clamped)
-    if (next !== value) onPick(next)
-    requestAnimationFrame(() => {
-      ignoreScrollRef.current = false
-    })
-    if (collapse && next) onCollapse?.()
-  }
+    function onWheel(e: WheelEvent): void {
+      e.preventDefault()
+      e.stopPropagation()
+      // One version per threshold so a mouse notch (often 100px) does not skip rows.
+      let dy = e.deltaY
+      if (e.deltaMode === 1) dy *= 16
+      else if (e.deltaMode === 2) dy *= RATCHET_ITEM_H
+      wheelAccRef.current += dy
+      const threshold = RATCHET_ITEM_H * 0.45
+      if (wheelAccRef.current >= threshold) {
+        wheelAccRef.current = 0
+        commitIndex(activeIndexRef.current + 1)
+      } else if (wheelAccRef.current <= -threshold) {
+        wheelAccRef.current = 0
+        commitIndex(activeIndexRef.current - 1)
+      }
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      if (snapTimerRef.current != null) window.clearTimeout(snapTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable listener via refs
+  }, [names.length])
 
   function handleScroll(e: UIEvent<HTMLDivElement>): void {
     if (ignoreScrollRef.current) return
     scrollingRef.current = true
     const idx = clampIndex(Math.round(e.currentTarget.scrollTop / RATCHET_ITEM_H))
+    activeIndexRef.current = idx
     setActiveIndex(idx)
     if (snapTimerRef.current != null) window.clearTimeout(snapTimerRef.current)
     snapTimerRef.current = window.setTimeout(() => {
@@ -664,15 +709,10 @@ export default function P2pApproveTagsForm({
 
   useEffect(() => {
     if (contentKind == null) return
-    if (!contentKindAllowsOs(contentKind)) {
-      setOs([])
-      setOsOpen(false)
-    }
-    if (!contentKindAllowsVersion(contentKind)) {
-      setVersion('')
-      setVersionOpen(false)
-      setCustomVersion(false)
-    }
+    // Keep OS / version in state when Extra/Other hides those fields so switching
+    // back to a type that uses them restores the previous picks.
+    if (!contentKindAllowsOs(contentKind)) setOsOpen(false)
+    if (!contentKindAllowsVersion(contentKind)) setVersionOpen(false)
   }, [contentKind])
 
   function toggleOs(id: number): void {

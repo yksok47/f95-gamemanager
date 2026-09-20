@@ -6748,7 +6748,10 @@ body.is-save-dragging * {
   align-items: center;
   justify-content: center;
   width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
   height: var(--ratchet-item-h);
+  min-height: var(--ratchet-item-h);
   margin: 0;
   padding: 0 12px;
   border: 0;
