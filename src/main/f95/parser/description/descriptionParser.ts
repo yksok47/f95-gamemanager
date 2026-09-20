@@ -310,7 +310,6 @@ function buildEmbed($: CheerioAPI, src: string): Cheerio<AnyNode> {
     .attr('referrerpolicy', 'strict-origin-when-cross-origin')
     .attr('allowfullscreen', 'true')
     .attr('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen')
-    .attr('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-popups')
 }
 
 function embedShell(node: Cheerio<AnyNode>): Cheerio<AnyNode> {

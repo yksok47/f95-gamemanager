@@ -21,6 +21,7 @@ import {
 } from "./app-update";
 import { loadSession, persistSessionNow } from "./session-store";
 import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
+import { registerEmbedRequestHeaders } from "./embed-request-headers";
 import {
   clearF95ImageCache,
   F95_IMG_SCHEME,
@@ -28,6 +29,7 @@ import {
   registerF95ImageCache
 } from "./f95/image-cache";
 import { appIcon } from "./app-icon";
+import { startRendererServer } from "./renderer-server";
 
 protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME]);
 
@@ -35,7 +37,9 @@ protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME]);
 app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
 app.commandLine.appendSwitch("disk-cache-size", String(64 * 1024 * 1024));
 
-function createWindow(): void {
+let rendererOrigin = "";
+
+async function createWindow(): Promise<void> {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 840,
@@ -60,18 +64,15 @@ function createWindow(): void {
     mainWindow.show();
   });
 
-  attachMainWindowGuards(mainWindow, (url) => {
-    if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-      return url.startsWith(process.env["ELECTRON_RENDERER_URL"]);
-    }
-    return url.startsWith("file:");
-  });
-
-  if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
-    mainWindow.loadURL(process.env["ELECTRON_RENDERER_URL"]);
-  } else {
-    mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
+  const devUrl = is.dev ? process.env["ELECTRON_RENDERER_URL"] : "";
+  if (!devUrl && !rendererOrigin) {
+    rendererOrigin = await startRendererServer(join(__dirname, "../renderer"));
   }
+  const origin = devUrl || rendererOrigin;
+
+  attachMainWindowGuards(mainWindow, (url) => url.startsWith(origin));
+
+  await mainWindow.loadURL(devUrl || `${rendererOrigin}/index.html`);
 }
 
 app.whenReady().then(async () => {
@@ -86,6 +87,7 @@ app.whenReady().then(async () => {
   await loadSession();
   await initF95ImageCache();
   registerF95CdnRequestHeaders();
+  registerEmbedRequestHeaders();
   registerF95ImageCache();
   initAdblock();
   const settings = await getSettings();
@@ -125,14 +127,14 @@ app.whenReady().then(async () => {
     console.warn("[app-update] leftover cleanup failed", error)
   );
   if (await resumeInterruptedAppUpdate()) return;
-  createWindow();
+  await createWindow();
   void startAppUpdateService();
   void adoptRunningLibrarySessions().catch((error) =>
     console.warn("Could not adopt running game processes", error)
   );
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) void createWindow();
   });
 });
 
