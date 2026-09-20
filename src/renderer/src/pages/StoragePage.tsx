@@ -438,7 +438,9 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
     setIdentifyTarget({
       id: item.id,
       savePath: item.savePath,
-      folderName: item.saveFolderName || item.title
+      folderName: item.saveFolderName || item.title,
+      mappedTitle: item.identified ? item.title : undefined,
+      mappedThreadId: item.identified ? item.threadId : undefined
     })
   }
 
@@ -457,6 +459,19 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
       }
     } catch (err) {
       notifyCaught(err, 'Could not identify that save folder.')
+    } finally {
+      setActing(null)
+    }
+  }
+
+  async function unmapIdentifiedGame(): Promise<void> {
+    if (!identifyTarget) return
+    setActing(`identify:${identifyTarget.id}`)
+    try {
+      await window.api.library.unmapSaveFolder(identifyTarget.savePath)
+      setIdentifyTarget(null)
+    } catch (err) {
+      notifyCaught(err, 'Could not unmap that save folder.')
     } finally {
       setActing(null)
     }
@@ -979,6 +994,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             onOpenGame={(item) => openGame(item, 'saves')}
             onOpenFolder={(item) => void openSaveFolder(item.savePath)}
             onIdentify={(item) => void identifySaveFolder(item)}
+            onChange={(item) => openIdentifyPicker(item)}
             onDelete={(item) => void deleteSaves(item)}
           />
         ) : null}
@@ -994,6 +1010,7 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
             setIdentifyTarget(null)
           }}
           onPick={(game) => void assignIdentifiedGame(game)}
+          onUnmap={() => void unmapIdentifiedGame()}
           onOpenGame={(game) =>
             openGame(
               {
@@ -1043,7 +1060,7 @@ function saveStatusPills(item: LibraryStorageItem): Array<{ key: string; label: 
     pills.push({ key: 'identified', label: 'Identified', tone: 'identified' })
   }
   if (item.identifyFailed && !item.identified) {
-    pills.push({ key: 'unknown', label: 'Unable to identify', tone: 'unknown' })
+    pills.push({ key: 'unknown', label: 'Not mapped', tone: 'unknown' })
   }
   return pills
 }
@@ -1055,6 +1072,7 @@ function StorageSavesList({
   onOpenGame,
   onOpenFolder,
   onIdentify,
+  onChange,
   onDelete
 }: {
   items: LibraryStorageItem[]
@@ -1063,6 +1081,7 @@ function StorageSavesList({
   onOpenGame: (item: LibraryStorageItem) => void
   onOpenFolder: (item: LibraryStorageItem) => void
   onIdentify: (item: LibraryStorageItem) => void
+  onChange: (item: LibraryStorageItem) => void
   onDelete: (item: LibraryStorageItem) => void
 }): JSX.Element {
   if (!items.length) return <p className="muted">{empty}</p>
@@ -1135,7 +1154,16 @@ function StorageSavesList({
                 >
                   {identifying ? 'Identifying…' : item.identifyFailed ? 'Find game' : 'Identify'}
                 </button>
-              ) : null}
+              ) : (
+                <button
+                  className="ghost-btn"
+                  type="button"
+                  disabled={Boolean(busyId) || !item.savePath}
+                  onClick={() => onChange(item)}
+                >
+                  Change
+                </button>
+              )}
               <button
                 className="stop-btn"
                 type="button"

@@ -1,16 +1,28 @@
-import { useEffect, useMemo, useState, type JSX } from 'react'
-import type { AppSettings, CatalogTag, FavoriteTag, HatedTag } from '@shared/types'
-import { CATALOG_PAGE_SIZES } from '@shared/types'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import type {
+  AppSettings,
+  CatalogTag,
+  CloudSaveAccount,
+  CloudSaveGameSummary,
+  CloudSaveKeepCount,
+  CloudSaveSyncStatus,
+  FavoriteTag,
+  HatedTag
+} from '@shared/types'
+import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
+import { formatDateTime } from '@shared/updates'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
 import AppUpdatePanel from '../components/AppUpdatePanel'
+import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught } from '../components/ErrorNotifications'
 import Switch from '../components/Switch'
+import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'p2p' | 'tags' | 'hated' | 'ignored'
+type SettingsTab = 'general' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -107,6 +119,7 @@ export default function SettingsPage({
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: 'General' },
     { id: 'p2p', label: 'P2P' },
+    { id: 'cloud', label: 'Cloud' },
     { id: 'tags', label: 'Favorite tags' },
     { id: 'hated', label: 'Hated tags' },
     { id: 'ignored', label: 'Ignored' }
@@ -353,6 +366,15 @@ export default function SettingsPage({
           </div>
         ) : null}
 
+        {tab === 'cloud' ? (
+          <CloudSavesPanel
+            settings={settings}
+            saving={saving}
+            persist={persist}
+            onOpenThread={onOpenThread}
+          />
+        ) : null}
+
         {tab === 'tags' ? (
           <RankedTagsEditor
             selected={favoriteTags}
@@ -426,6 +448,465 @@ function ExternalLibrariesField({
       <button className="ghost-btn" type="button" disabled={disabled} onClick={() => void onAdd()}>
         Add folder
       </button>
+    </div>
+  )
+}
+
+function keepCountLabel(count: CloudSaveKeepCount): string {
+  return count === 0 ? 'Unlimited' : String(count)
+}
+
+function CloudSavesPanel({
+  settings,
+  saving,
+  persist,
+  onOpenThread
+}: {
+  settings: AppSettings
+  saving: boolean
+  persist: (next: Partial<AppSettings>) => Promise<void>
+  onOpenThread: (threadId: number, title: string) => void
+}): JSX.Element {
+  const enabled = Boolean(settings.cloudSavesEnabled)
+  const [account, setAccount] = useState<CloudSaveAccount>({ signedIn: false, email: null })
+  const [sync, setSync] = useState<CloudSaveSyncStatus | null>(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [games, setGames] = useState<CloudSaveGameSummary[] | null>(null)
+  const [inventoryBusy, setInventoryBusy] = useState(false)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  const [actingId, setActingId] = useState<number | 'all' | null>(null)
+  const [filter, setFilter] = useState('')
+  const inventoryOpenRef = useRef(false)
+  inventoryOpenRef.current = inventoryOpen
+
+  async function loadInventory(): Promise<void> {
+    setInventoryBusy(true)
+    try {
+      setGames(await window.api.cloudSaves.inventory())
+    } catch (err) {
+      notifyCaught(err, 'Could not list cloud saves.')
+      setGames([])
+    } finally {
+      setInventoryBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.cloudSaves.account().then((next) => {
+      if (!cancelled) setAccount(next)
+    })
+    void window.api.cloudSaves.status().then((next) => {
+      if (!cancelled) setSync(next)
+    })
+    const stopAccount = window.api.cloudSaves.onAccount((next) => setAccount(next))
+    const stopStatus = window.api.cloudSaves.onStatus((next) => setSync(next))
+    const stopInventory = window.api.cloudSaves.onInventory(() => {
+      if (!cancelled && inventoryOpenRef.current) void loadInventory()
+    })
+    return () => {
+      cancelled = true
+      stopAccount()
+      stopStatus()
+      stopInventory()
+    }
+  }, [])
+
+  const syncing = Boolean(sync?.running && sync.phase === 'syncing')
+  const signingIn = Boolean(sync?.phase === 'signing-in' || authBusy)
+  const canSync = enabled && account.signedIn && !saving && !syncing && !signingIn
+  const wasSyncing = useRef(false)
+  if (syncing) wasSyncing.current = true
+
+  useEffect(() => {
+    if (!account.signedIn) {
+      setGames(null)
+      return
+    }
+    if (inventoryOpen) void loadInventory()
+  }, [account.signedIn, inventoryOpen])
+
+  useEffect(() => {
+    if (syncing) return
+    if (wasSyncing.current && account.signedIn && inventoryOpen) {
+      wasSyncing.current = false
+      void loadInventory()
+    }
+  }, [syncing, account.signedIn, inventoryOpen, sync?.lastRunAt])
+
+  async function signIn(openBrowser = true): Promise<void> {
+    setAuthBusy(true)
+    setCopied(false)
+    try {
+      setAccount(await window.api.cloudSaves.signIn(openBrowser))
+    } catch (err) {
+      notifyCaught(err, 'Could not sign in to Google Drive.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function waitForSignInUrl(): Promise<string> {
+    for (let i = 0; i < 50; i++) {
+      const next = await window.api.cloudSaves.status()
+      if (next.signInUrl) return next.signInUrl
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    throw new Error('The sign-in link was not ready yet.')
+  }
+
+  async function copySignInLink(): Promise<void> {
+    try {
+      let url = sync?.signInUrl
+      if (!url) {
+        void signIn(false)
+        url = await waitForSignInUrl()
+      }
+      try {
+        await navigator.clipboard.writeText(url)
+      } catch {
+        const input = document.createElement('textarea')
+        input.value = url
+        document.body.appendChild(input)
+        input.select()
+        document.execCommand('copy')
+        input.remove()
+      }
+      setCopied(true)
+    } catch (err) {
+      notifyCaught(err, 'Could not copy the Google sign-in link.')
+    }
+  }
+
+  async function signOut(): Promise<void> {
+    setAuthBusy(true)
+    try {
+      setAccount(await window.api.cloudSaves.signOut())
+      setGames(null)
+    } catch (err) {
+      notifyCaught(err, 'Could not sign out of Google Drive.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function syncAll(): Promise<void> {
+    try {
+      setSync(await window.api.cloudSaves.syncAll())
+    } catch (err) {
+      notifyCaught(err, 'Could not sync cloud saves.')
+    }
+  }
+
+  async function stopSync(): Promise<void> {
+    try {
+      setSync(await window.api.cloudSaves.cancel())
+    } catch (err) {
+      notifyCaught(err, 'Could not stop cloud sync.')
+    }
+  }
+
+  async function resyncGame(threadId: number): Promise<void> {
+    setActingId(threadId)
+    try {
+      setSync(await window.api.cloudSaves.syncThread(threadId))
+      await loadInventory()
+    } catch (err) {
+      notifyCaught(err, 'Could not resync that game.')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  async function removeGame(game: CloudSaveGameSummary): Promise<void> {
+    if (
+      !(await confirm({
+        title: 'Remove cloud saves',
+        message: `Delete ${game.saveCount} cloud ${game.saveCount === 1 ? 'save' : 'saves'} for ${game.title} from Google Drive? Local files stay on disk.`,
+        confirmLabel: 'Remove from cloud',
+        danger: true
+      }))
+    ) {
+      return
+    }
+    setActingId(game.threadId)
+    try {
+      await window.api.cloudSaves.deleteGame(game.threadId)
+      await loadInventory()
+    } catch (err) {
+      notifyCaught(err, 'Could not remove those cloud saves.')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  async function removeAll(): Promise<void> {
+    if (
+      !(await confirm({
+        title: 'Remove all cloud saves',
+        message: 'Delete every game’s saves from Google Drive? Local files stay on disk. This cannot be undone.',
+        confirmLabel: 'Remove all',
+        danger: true
+      }))
+    ) {
+      return
+    }
+    setActingId('all')
+    try {
+      await window.api.cloudSaves.deleteAll()
+      await loadInventory()
+    } catch (err) {
+      notifyCaught(err, 'Could not remove cloud saves.')
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  const query = filter.trim().toLowerCase()
+  const visibleGames = (games ?? []).filter((game) => {
+    if (!query) return true
+    return game.title.toLowerCase().includes(query) || String(game.threadId).includes(query)
+  })
+  const totalSaves = (games ?? []).reduce((sum, game) => sum + game.saveCount, 0)
+  const totalBytes = (games ?? []).reduce((sum, game) => sum + game.bytes, 0)
+  const inventoryLocked = syncing || signingIn || actingId != null
+
+  return (
+    <div className="settings-tab-body">
+      <Switch
+        checked={enabled}
+        disabled={saving}
+        onChange={(checked) => void persist({ cloudSavesEnabled: checked })}
+        label="Enable Google Drive cloud saves"
+      />
+      <p className="muted download-meta">
+        Optional. When on and signed in, saves upload after you close a game. You can also sync
+        every known game from this tab.
+      </p>
+
+      <div className="folder-field">
+        <span className="filter-label">Google account</span>
+        <p className="muted download-meta">
+          {account.signedIn
+            ? `Signed in as ${account.email || 'Google Drive'}.`
+            : 'Sign in to store saves in this app’s hidden Drive app-data folder. They will not show up in your normal Drive files.'}
+        </p>
+        <div className="folder-path-row">
+          {account.signedIn ? (
+            <button className="ghost-btn" type="button" disabled={signingIn || syncing} onClick={() => void signOut()}>
+              Sign out
+            </button>
+          ) : (
+            <>
+              <button className="ghost-btn" type="button" disabled={signingIn} onClick={() => void signIn(true)}>
+                {signingIn ? 'Waiting for Google…' : 'Sign in with Google'}
+              </button>
+              <button className="ghost-btn" type="button" onClick={() => void copySignInLink()}>
+                {copied ? 'Copied' : 'Copy sign-in link'}
+              </button>
+            </>
+          )}
+        </div>
+        {signingIn && sync?.signInUrl ? (
+          <>
+            <p className="muted download-meta">
+              Paste this original Google URL into the browser you want. Do not copy the address after
+              Google redirects — that page is tied to the first browser and will 400 in another.
+            </p>
+            <input className="folder-path" value={sync.signInUrl} readOnly onFocus={(event) => event.currentTarget.select()} />
+          </>
+        ) : null}
+      </div>
+
+      <div className="folder-field">
+        <span className="filter-label" id="cloud-keep-count-label">
+          Last slot saves per game
+        </span>
+        <p className="muted download-meta">
+          Only the newest numbered saves are kept in Drive. Persistent / config files are always
+          included.
+        </p>
+        <div className="cloud-keep-options" role="radiogroup" aria-labelledby="cloud-keep-count-label">
+          {CLOUD_SAVE_KEEP_COUNTS.map((count) => (
+            <button
+              key={count}
+              className={
+                settings.cloudSaveKeepCount === count
+                  ? 'details-tab details-tab-active'
+                  : 'details-tab'
+              }
+              type="button"
+              role="radio"
+              aria-checked={settings.cloudSaveKeepCount === count}
+              disabled={saving}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                if (count !== settings.cloudSaveKeepCount) void persist({ cloudSaveKeepCount: count })
+              }}
+            >
+              {keepCountLabel(count)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Switch
+        checked={settings.cloudSaveIncludeAutoQuick !== false}
+        disabled={saving}
+        onChange={(checked) => void persist({ cloudSaveIncludeAutoQuick: checked })}
+        label="Include auto and quick saves"
+      />
+      <p className="muted download-meta">
+        Auto and quick saves ignore the slot limit above. Turn this off to sync only numbered slots
+        plus persistent data.
+      </p>
+
+      <div className="folder-field">
+        <span className="filter-label">Sync now</span>
+        <p className="muted download-meta">
+          Uploads and downloads for every identified save folder and RPG Maker backup. Games also
+          sync automatically when you close them.
+        </p>
+        <div className="folder-path-row">
+          {syncing ? (
+            <button className="stop-btn" type="button" onClick={() => void stopSync()}>
+              {sync?.cancelled ? 'Stopping…' : 'Stop'}
+            </button>
+          ) : (
+            <button className="ghost-btn" type="button" disabled={!canSync} onClick={() => void syncAll()}>
+              Sync all games
+            </button>
+          )}
+        </div>
+        {sync?.running && sync.phase === 'syncing' ? (
+          <p className="muted download-meta">
+            {sync.currentTitle
+              ? `Syncing ${sync.currentTitle} (${sync.gamesDone}/${sync.gamesTotal})`
+              : `Syncing ${sync.gamesDone}/${sync.gamesTotal} games`}
+          </p>
+        ) : null}
+        {sync?.lastRunAt && !sync.running ? (
+          <p className="muted download-meta">
+            {sync.cancelled
+              ? 'Last sync was stopped.'
+              : `Last sync: ${sync.uploaded} uploaded, ${sync.downloaded} downloaded${sync.lastError ? `. ${sync.lastError}` : '.'}`}
+          </p>
+        ) : null}
+      </div>
+
+      {account.signedIn ? (
+        <div className="folder-field">
+          <div className="saves-location-head">
+            <span className="filter-label">Saves in the cloud</span>
+            <div className="cloud-inventory-actions">
+              {inventoryOpen && games && games.length ? (
+                <span className="muted">
+                  {games.length} {games.length === 1 ? 'game' : 'games'} · {totalSaves}{' '}
+                  {totalSaves === 1 ? 'save' : 'saves'} · {formatBytes(totalBytes)}
+                </span>
+              ) : null}
+              <button
+              className="ghost-btn"
+              type="button"
+              disabled={!account.signedIn}
+              aria-expanded={inventoryOpen}
+              onClick={() => setInventoryOpen((current) => !current)}
+            >
+              {inventoryOpen ? 'Hide' : 'Show'}
+            </button>
+            </div>
+          </div>
+          <p className="muted download-meta">
+            Games that currently have files in this app’s Drive folder. Hidden until you show the
+            list so Drive is not scanned when you open Settings.
+          </p>
+          {inventoryOpen ? (
+            <>
+          <div className="folder-path-row">
+            <input
+              className="folder-path"
+              type="search"
+              value={filter}
+              placeholder="Filter by game"
+              disabled={!games?.length}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+            <button
+              className="ghost-btn"
+              type="button"
+              disabled={inventoryLocked || inventoryBusy}
+              onClick={() => void loadInventory()}
+            >
+              {inventoryBusy ? 'Reading…' : 'Refresh'}
+            </button>
+            {games && games.length ? (
+              <button
+                className="stop-btn"
+                type="button"
+                disabled={inventoryLocked}
+                onClick={() => void removeAll()}
+              >
+                Remove all
+              </button>
+            ) : null}
+          </div>
+          {inventoryBusy && !games ? (
+            <p className="muted download-meta">Reading Google Drive…</p>
+          ) : visibleGames.length ? (
+            <ul className="cloud-inventory-list">
+              {visibleGames.map((game) => {
+                const when = formatDateTime(game.updatedAt)
+                const busyRow = inventoryLocked || actingId === game.threadId
+                return (
+                  <li key={game.threadId} className="cloud-inventory-row">
+                    <button
+                      className="cloud-inventory-main"
+                      type="button"
+                      onClick={() => onOpenThread(game.threadId, game.title)}
+                    >
+                      <strong>{game.title}</strong>
+                      <span className="muted">
+                        {game.saveCount} {game.saveCount === 1 ? 'save' : 'saves'} · {formatBytes(game.bytes)}
+                        {when ? ` · ${when}` : ''}
+                      </span>
+                    </button>
+                    <div className="cloud-inventory-actions">
+                      <button
+                        className="ghost-btn"
+                        type="button"
+                        disabled={busyRow || !enabled}
+                        title={enabled ? 'Sync this game' : 'Turn on cloud saves to resync'}
+                        onClick={() => void resyncGame(game.threadId)}
+                      >
+                        {actingId === game.threadId && syncing ? 'Syncing…' : 'Resync'}
+                      </button>
+                      <button
+                        className="stop-btn"
+                        type="button"
+                        disabled={busyRow}
+                        onClick={() => void removeGame(game)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          ) : (
+            <p className="muted download-meta">
+              {inventoryBusy
+                ? 'Reading Google Drive…'
+                : filter.trim()
+                  ? 'No cloud games match that filter.'
+                  : 'No saves in Google Drive yet.'}
+            </p>
+          )}
+            </>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

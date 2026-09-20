@@ -9,6 +9,18 @@ function firstIds(...lists: number[][]): number[] {
   return []
 }
 
+function sameIds(left?: number[], right?: number[]): boolean {
+  const a = left || []
+  const b = right || []
+  return a.length === b.length && a.every((id, index) => id === b[index])
+}
+
+function sameTexts(left?: string[], right?: string[]): boolean {
+  const a = left || []
+  const b = right || []
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
 export function mergeIdentifiedSaveFolder(
   prev: IdentifiedSaveFolder | undefined,
   next: IdentifiedSaveFolder
@@ -38,6 +50,33 @@ export function mergeIdentifiedSaveFolder(
 
 export function saveFolderKey(savePath: string): string {
   return resolve(savePath).toLowerCase()
+}
+
+/** True when two mappings describe the same folder identity, ignoring `identifiedAt`. */
+export function sameIdentifiedSaveFolder(
+  prev: IdentifiedSaveFolder | undefined,
+  next: IdentifiedSaveFolder
+): boolean {
+  if (!prev) return false
+  return (
+    prev.title === next.title &&
+    prev.threadId === next.threadId &&
+    (prev.coverUrl || null) === (next.coverUrl || null) &&
+    saveFolderKey(prev.savePath) === saveFolderKey(next.savePath) &&
+    prev.folderName === next.folderName &&
+    (prev.creator || '') === (next.creator || '') &&
+    (prev.engine || '') === (next.engine || '') &&
+    (prev.version || '') === (next.version || '') &&
+    (prev.rating || 0) === (next.rating || 0) &&
+    (prev.likes || 0) === (next.likes || 0) &&
+    (prev.views || 0) === (next.views || 0) &&
+    (prev.threadUrl || '') === (next.threadUrl || '') &&
+    sameIds(prev.prefixes, next.prefixes) &&
+    sameIds(prev.tags, next.tags) &&
+    (prev.timestamp || 0) === (next.timestamp || 0) &&
+    (prev.updatedAt || '') === (next.updatedAt || '') &&
+    sameTexts(prev.screens, next.screens)
+  )
 }
 
 export function identifiedSaveFoldersForGame(

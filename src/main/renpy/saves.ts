@@ -19,8 +19,13 @@ import {
   findIdentifiedSaveFolder,
   forgetIdentifiedSaveFolder,
   forgetIdentifiedSaveFoldersForThread,
+  getFailedSaveFolder,
+  getIdentifiedSaveFolder,
+  listFailedSaveFolders,
   listIdentifiedSaveFoldersForGame,
   rememberIdentifiedSaveFolders,
+  clearFailedSaveFolder,
+  touchIdentifiedSaveFolder,
   renpySaveLocationOptions
 } from '../save-folders-store'
 import { findRenpyGameRoot } from '../launch'
@@ -44,9 +49,28 @@ import { isRenpyOptionsGlobalEnabled } from './options-prefs-store'
 import { removeLegacyUnrenTools } from './tools'
 import { attachSaveMeta, invalidateSaveMeta } from './save-meta'
 import { applySaveEditor, readSaveEditor } from './save-edit'
+import {
+  recordLocalSaveDeletes,
+  recordLocalSaveEdit,
+  recordLocalSaveFolderCleared,
+  recordLocalSaveRename
+} from '../cloud-saves/local-manifest'
+import { folderKey } from '../cloud-saves/manifest'
 import { matchRenpySaveFolder } from './save-folder-match'
 import { discoverRenpySaveFolders } from './save-folder-scan'
 import { getLastUnRenRun, replayUnRenStatus, runUnRen } from './unren'
+
+function scheduleCloudSyncForFolder(savePath: string): void {
+  void getIdentifiedSaveFolder(savePath)
+    .then((rec) => {
+      const threadId = Number(rec?.threadId || 0)
+      if (!threadId) return
+      return import('../cloud-saves/sync').then(({ scheduleCloudSyncForThread }) =>
+        scheduleCloudSyncForThread(threadId)
+      )
+    })
+    .catch((error) => console.warn('Could not sync cloud saves', error))
+}
 
 export function renpySavesRoot(): string {
   if (process.platform === 'darwin') return join(app.getPath('home'), 'Library', 'RenPy')
@@ -262,7 +286,9 @@ async function listSaves(savePath: string): Promise<RenpySaveFile[]> {
   const candidates = entries.filter((entry) => {
     if (!entry.isFile()) return false
     const lower = entry.name.toLowerCase()
-    return lower.endsWith('.save') && !lower.startsWith('persistent')
+    if (lower === 'f95gm-manifest.json') return false
+    if (lower.startsWith('persistent')) return true
+    return lower.endsWith('.save')
   })
   const files = (
     await mapLimit(candidates, 16, async (entry) => {
@@ -360,6 +386,16 @@ function requireAssignableLookup(lookup: SaveLookup): void {
   }
 }
 
+async function isUnmappedSaveDirectory(
+  lookup: SaveLookup,
+  saveDirectory: string | null | undefined
+): Promise<boolean> {
+  if (!saveDirectory) return false
+  const savePath = resolveSavePath(lookup.gameRoot, saveDirectory)
+  if (!savePath) return false
+  return Boolean(await getFailedSaveFolder(savePath))
+}
+
 async function identifiedRenpySaveDirectory(lookup: SaveLookup): Promise<string | undefined> {
   const rec = await findIdentifiedSaveFolder(lookup.threadId, lookup.title)
   if (!rec?.savePath || !pathExists(rec.savePath)) return undefined
@@ -378,17 +414,20 @@ async function persistLinkedSaveDirectory(
 
   if (!threadId || !saveDirectory) return
   const savePath = resolveSavePath(lookup.gameRoot, saveDirectory)
-  if (!savePath || !pathExists(savePath)) return
-  await rememberIdentifiedSaveFolders([
-    {
-      title: lookup.title || lookup.file?.title || basename(savePath),
-      threadId,
-      coverUrl: lookup.file?.coverUrl ?? null,
-      savePath,
-      folderName: basename(savePath),
-      identifiedAt: Date.now()
-    }
-  ])
+  if (!savePath) return
+  if (pathExists(savePath)) {
+    await rememberIdentifiedSaveFolders([
+      {
+        title: lookup.title || lookup.file?.title || basename(savePath),
+        threadId,
+        coverUrl: lookup.file?.coverUrl ?? null,
+        savePath,
+        folderName: basename(savePath),
+        identifiedAt: Date.now()
+      }
+    ])
+  }
+  await touchIdentifiedSaveFolder(savePath)
 }
 
 async function resolveSaveDirectory(
@@ -402,13 +441,22 @@ async function resolveSaveDirectory(
   let options = gameRoot ? await readOptions(gameRoot) : null
   let saveDirectory: string | null | undefined =
     file && file.renpySaveDirectory !== undefined ? file.renpySaveDirectory : undefined
+  if (saveDirectory !== undefined && (await isUnmappedSaveDirectory(lookup, saveDirectory))) {
+    saveDirectory = undefined
+  }
 
   if (saveDirectory === undefined) {
     saveDirectory = await identifiedRenpySaveDirectory(lookup)
   }
+  if (saveDirectory !== undefined && (await isUnmappedSaveDirectory(lookup, saveDirectory))) {
+    saveDirectory = undefined
+  }
 
   if (saveDirectory === undefined) {
     saveDirectory = options?.saveDirectory
+  }
+  if (saveDirectory !== undefined && (await isUnmappedSaveDirectory(lookup, saveDirectory))) {
+    saveDirectory = undefined
   }
 
   if (prepare && file && gameRoot && (saveDirectory === undefined || !options)) {
@@ -417,15 +465,23 @@ async function resolveSaveDirectory(
     if (saveDirectory === undefined && options && options.saveDirectory !== undefined) {
       saveDirectory = options.saveDirectory
     }
+    if (saveDirectory !== undefined && (await isUnmappedSaveDirectory(lookup, saveDirectory))) {
+      saveDirectory = undefined
+    }
   }
 
   if (saveDirectory === undefined && options?.name) {
     const named = join(renpySavesRoot(), options.name)
-    if (pathExists(named)) saveDirectory = options.name
+    if (pathExists(named) && !(await getFailedSaveFolder(named))) saveDirectory = options.name
   }
 
   if (saveDirectory === undefined) {
-    const folderNames = await listRenpySaveFolderNames()
+    const failed = new Set(
+      (await listFailedSaveFolders()).map((item) => item.folderName.toLowerCase())
+    )
+    const folderNames = (await listRenpySaveFolderNames()).filter(
+      (name) => !failed.has(name.toLowerCase())
+    )
     saveDirectory =
       fuzzySaveDirectory(lookup.title, folderNames) ??
       fuzzySaveDirectory(options?.name || '', folderNames) ??
@@ -620,15 +676,27 @@ export async function clearSaveFolderContents(savePath: string): Promise<void> {
   const folder = resolve(savePath)
   const root = resolve(renpySavesRoot())
   if (folder === root) throw new Error("Cannot delete the Ren'Py saves directory.")
+  const rec = await getIdentifiedSaveFolder(folder)
+  const hint = rec
+    ? {
+        threadId: rec.threadId,
+        title: rec.title,
+        folderKey: folderKey(rec.folderName || basename(folder))
+      }
+    : undefined
   if (pathExists(folder)) {
+    await recordLocalSaveFolderCleared(folder, hint).catch(() => undefined)
     const entries = await readdir(toFsPath(folder), { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
       if (entry.name === '.' || entry.name === '..') continue
       invalidateSaveMeta(join(folder, entry.name))
     }
     await rm(toFsPath(folder), { recursive: true, force: true })
+  } else {
+    await recordLocalSaveFolderCleared(folder, hint).catch(() => undefined)
   }
   await forgetIdentifiedSaveFolder(folder)
+  if (rec?.threadId) scheduleCloudSyncForFolder(folder)
 
   const parent = dirname(folder)
   if (
@@ -700,7 +768,8 @@ export async function unlinkRenpySaveLocation(
 ): Promise<RenpyInfo> {
   const lookup = await loadSaveLookup(fileId, title, threadId)
   requireAssignableLookup(lookup)
-  await forgetIdentifiedSaveFolder(String(savePath || ''))
+  const { unmapSaveFolder } = await import('../save-folders')
+  await unmapSaveFolder(String(savePath || ''))
   const remaining = await identifiedFoldersForLookup(lookup)
   const next = remaining[0]
   if (next?.savePath) {
@@ -722,8 +791,12 @@ export async function clearRenpySaveDirectory(
   requireAssignableLookup(lookup)
   const assignedThreadId = lookup.file?.threadId || lookup.threadId
   if (assignedThreadId) {
+    const identified = await listIdentifiedSaveFoldersForGame(assignedThreadId)
     await setRenpySaveDirectoryForThread(assignedThreadId, undefined)
     await forgetIdentifiedSaveFoldersForThread(assignedThreadId)
+    for (const rec of identified) {
+      await clearFailedSaveFolder(rec.savePath)
+    }
   } else if (lookup.file) {
     await setRenpySaveDirectory(lookup.file.id, undefined)
   }
@@ -760,6 +833,8 @@ export async function applyRenpySaveEditor(
   invalidateSaveMeta(savePath)
   await applySaveEditor(savePath, patches)
   invalidateSaveMeta(savePath)
+  await recordLocalSaveEdit(folder, basename(savePath)).catch(() => undefined)
+  scheduleCloudSyncForFolder(folder)
   return reloadRenpySaves(fileId, title)
 }
 
@@ -771,11 +846,16 @@ export async function deleteRenpySaves(fileId: string, savePaths: string[], titl
   const folder = await requireKnownSaveFolder(fileId, title)
   const unique = [...new Set(savePaths.map((item) => String(item || '')).filter(Boolean))]
   if (!unique.length) return reloadRenpySaves(fileId, title)
+  await recordLocalSaveDeletes(
+    folder,
+    unique.map((item) => basename(item))
+  ).catch(() => undefined)
   for (const savePath of unique) {
     assertInsideSaveFolder(folder, savePath)
     invalidateSaveMeta(savePath)
     if (pathExists(savePath)) await rm(toFsPath(savePath), { force: true })
   }
+  scheduleCloudSyncForFolder(folder)
   return reloadRenpySaves(fileId, title)
 }
 
@@ -803,7 +883,9 @@ export async function moveRenpySave(
   }
   if (pathExists(nextPath)) throw new Error('A file already exists at that slot.')
   invalidateSaveMeta(savePath)
+  await recordLocalSaveRename(folder, basename(savePath), nextName).catch(() => undefined)
   await rename(toFsPath(savePath), toFsPath(nextPath))
+  scheduleCloudSyncForFolder(folder)
   return reloadRenpySaves(fileId, title)
 }
 
@@ -829,8 +911,10 @@ export async function renumberRenpyPage(
     const nextPath = join(folder, nextName)
     if (pathExists(nextPath)) throw new Error('A file already exists at that slot.')
     invalidateSaveMeta(place.path)
+    await recordLocalSaveRename(folder, place.name, nextName).catch(() => undefined)
     await rename(toFsPath(place.path), toFsPath(nextPath))
   }
+  scheduleCloudSyncForFolder(folder)
   return reloadRenpySaves(fileId, title)
 }
 

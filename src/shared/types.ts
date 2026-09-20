@@ -124,6 +124,60 @@ export type HatedTag = {
   name: string
 }
 
+/** How many newest slot saves to keep in the cloud per game. 0 = unlimited. */
+export const CLOUD_SAVE_KEEP_COUNTS = [1, 3, 6, 10, 0] as const
+export type CloudSaveKeepCount = (typeof CLOUD_SAVE_KEEP_COUNTS)[number]
+export const DEFAULT_CLOUD_SAVE_KEEP_COUNT: CloudSaveKeepCount = 3
+
+export function isCloudSaveKeepCount(value: unknown): value is CloudSaveKeepCount {
+  return typeof value === 'number' && (CLOUD_SAVE_KEEP_COUNTS as readonly number[]).includes(value)
+}
+
+export type CloudSaveAccount = {
+  signedIn: boolean
+  email: string | null
+}
+
+export type CloudSaveSyncStatus = {
+  running: boolean
+  phase: 'idle' | 'signing-in' | 'syncing'
+  currentTitle: string | null
+  signInUrl: string | null
+  gamesDone: number
+  gamesTotal: number
+  uploaded: number
+  downloaded: number
+  lastError: string | null
+  lastRunAt: number | null
+  cancelled: boolean
+}
+
+export type CloudSaveRemoteFile = {
+  name: string
+  size: number
+  modifiedAt: number
+  folderKey: string
+  hash: string
+  /** True when this cloud file’s hash (or name) is present on this PC. */
+  presentLocally: boolean
+}
+
+export type CloudSaveGameSummary = {
+  threadId: number
+  title: string
+  saveCount: number
+  bytes: number
+  updatedAt: number | null
+}
+
+export type CloudSaveGameDetail = {
+  threadId: number
+  title: string
+  files: CloudSaveRemoteFile[]
+  /** Local filenames whose content hash matches a cloud save. */
+  syncedNames: string[]
+}
+
 export type AppSettings = {
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
@@ -148,6 +202,12 @@ export type AppSettings = {
   p2pUploadLimitKBps: number
   /** Titles loaded per catalog page. */
   catalogPageSize: CatalogPageSize
+  /** OFF by default. Sync saves to Google Drive when signed in. */
+  cloudSavesEnabled: boolean
+  /** Newest slot saves per game to keep in Drive. 0 = unlimited. */
+  cloudSaveKeepCount: CloudSaveKeepCount
+  /** Auto and quick saves are synced even when they exceed the slot limit. */
+  cloudSaveIncludeAutoQuick: boolean
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

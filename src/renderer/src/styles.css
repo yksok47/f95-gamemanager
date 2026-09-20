@@ -6014,6 +6014,114 @@ body.is-save-dragging * {
   gap: 14px;
 }
 
+.cloud-keep-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cloud-inventory-list,
+.cloud-save-file-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.cloud-inventory-row,
+.cloud-save-file-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
+}
+
+.cloud-inventory-main,
+.cloud-save-file-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.cloud-inventory-main {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cloud-inventory-main strong,
+.cloud-save-file-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cloud-inventory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.save-cloud-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #f4f6fb;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-shadow: none;
+  white-space: nowrap;
+}
+
+.save-cloud-badge.is-only {
+  border-color: color-mix(in srgb, #8ec8ff 55%, transparent);
+  background: color-mix(in srgb, #4d7cff 28%, transparent);
+}
+
+.save-tile-cloud-only {
+  cursor: default;
+  border-style: dashed;
+  background:
+    linear-gradient(180deg, rgba(77, 124, 255, 0.18), transparent 58%), #0b0d12;
+}
+
+.save-tile-top .save-cloud-badge {
+  margin-left: 0;
+}
+
+.rpg-save-row .save-cloud-badge {
+  flex: 0 0 auto;
+}
+
+.cloud-game-saves {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .cloud-inventory-row,
+  .cloud-save-file-row {
+    flex-wrap: wrap;
+  }
+
+  .cloud-inventory-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
 .settings-slider-head {
   display: flex;
   align-items: baseline;

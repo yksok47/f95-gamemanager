@@ -7,6 +7,10 @@ import type {
   CatalogLookupQuery,
   CatalogPage,
   CatalogQuery,
+  CloudSaveAccount,
+  CloudSaveGameDetail,
+  CloudSaveGameSummary,
+  CloudSaveSyncStatus,
   DownloadRecord,
   GameFileContext,
   GameLibraryFile,
@@ -145,6 +149,44 @@ const api = {
     userDataPath: (): Promise<string> => ipcRenderer.invoke('settings:userDataPath'),
     openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData')
   },
+  cloudSaves: {
+    account: (): Promise<CloudSaveAccount> => ipcRenderer.invoke('cloudSaves:account'),
+    status: (): Promise<CloudSaveSyncStatus> => ipcRenderer.invoke('cloudSaves:status'),
+    signIn: (openBrowser = true): Promise<CloudSaveAccount> =>
+      ipcRenderer.invoke('cloudSaves:signIn', openBrowser),
+    signOut: (): Promise<CloudSaveAccount> => ipcRenderer.invoke('cloudSaves:signOut'),
+    syncAll: (): Promise<CloudSaveSyncStatus> => ipcRenderer.invoke('cloudSaves:syncAll'),
+    syncThread: (threadId: number): Promise<CloudSaveSyncStatus> =>
+      ipcRenderer.invoke('cloudSaves:syncThread', threadId),
+    cancel: (): Promise<CloudSaveSyncStatus> => ipcRenderer.invoke('cloudSaves:cancel'),
+    inventory: (): Promise<CloudSaveGameSummary[]> => ipcRenderer.invoke('cloudSaves:inventory'),
+    listForThread: (threadId: number): Promise<CloudSaveGameDetail> =>
+      ipcRenderer.invoke('cloudSaves:listForThread', threadId),
+    deleteGame: (threadId: number): Promise<void> =>
+      ipcRenderer.invoke('cloudSaves:deleteGame', threadId),
+    deleteAll: (): Promise<void> => ipcRenderer.invoke('cloudSaves:deleteAll'),
+    onAccount: (listener: (account: CloudSaveAccount) => void): (() => void) => {
+      const wrapped = (_event: unknown, account: CloudSaveAccount): void => listener(account)
+      ipcRenderer.on('cloud-saves:account', wrapped)
+      return () => {
+        ipcRenderer.removeListener('cloud-saves:account', wrapped)
+      }
+    },
+    onStatus: (listener: (status: CloudSaveSyncStatus) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: CloudSaveSyncStatus): void => listener(next)
+      ipcRenderer.on('cloud-saves:status', wrapped)
+      return () => {
+        ipcRenderer.removeListener('cloud-saves:status', wrapped)
+      }
+    },
+    onInventory: (listener: () => void): (() => void) => {
+      const wrapped = (): void => listener()
+      ipcRenderer.on('cloud-saves:inventory-changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('cloud-saves:inventory-changed', wrapped)
+      }
+    }
+  },
   appUpdate: {
     get: (): Promise<AppUpdateStatus> => ipcRenderer.invoke('appUpdate:get'),
     check: (): Promise<AppUpdateStatus> => ipcRenderer.invoke('appUpdate:check'),
@@ -237,6 +279,8 @@ const api = {
       }
     ): Promise<LibraryStorageStats> =>
       ipcRenderer.invoke('library:assignSaveFolder', savePath, game),
+    unmapSaveFolder: (savePath: string): Promise<LibraryStorageStats> =>
+      ipcRenderer.invoke('library:unmapSaveFolder', savePath),
     importExternal: (): Promise<LibraryImportScanResult> =>
       ipcRenderer.invoke('library:importExternal'),
     getImport: (filePath: string): Promise<LibraryImportCandidate | null> =>

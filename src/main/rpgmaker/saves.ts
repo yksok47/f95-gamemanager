@@ -14,6 +14,7 @@ import {
   rpgMakerSaveFileBytes,
   wipeRpgMakerSaveDirs
 } from './save-disk'
+import { recordLocalSaveDeletes, recordLocalSaveFolderCleared } from '../cloud-saves/local-manifest'
 
 const MTIME_SKEW_MS = 1000
 const UNSTABLE_MS = 2000
@@ -378,6 +379,13 @@ export async function deleteRpgMakerSaves(
     assertManagedSave(info, savePath)
     names.add(basename(savePath))
   }
+  if (info.backupPath) {
+    await recordLocalSaveDeletes(info.backupPath, [...names], {
+      threadId: input.threadId,
+      title: input.title,
+      folderKey: 'rpgmaker'
+    }).catch(() => undefined)
+  }
   for (const name of names) {
     for (const root of [info.gameSavePath, info.backupPath]) {
       if (!root) continue
@@ -407,5 +415,10 @@ export async function clearRpgMakerSaveFiles(input: {
 }): Promise<void> {
   const threadId = Number(input.threadId)
   if (!threadId) throw new Error('Missing game id.')
-  await wipeRpgMakerSaveDirs(findRpgMakerGameSaveDir(input.installPath), rpgMakerBackupDir(threadId))
+  const backupPath = rpgMakerBackupDir(threadId)
+  await recordLocalSaveFolderCleared(backupPath, {
+    threadId,
+    folderKey: 'rpgmaker'
+  }).catch(() => undefined)
+  await wipeRpgMakerSaveDirs(findRpgMakerGameSaveDir(input.installPath), backupPath)
 }

@@ -1,4 +1,4 @@
-import { cleanThreadTitle } from '../f95/parse'
+import { cleanThreadTitle, parseGameTitle } from '../f95/parse'
 
 export function normalizeSaveKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '')
@@ -71,13 +71,20 @@ function acronymBoundaryMatch(folderKey: string, acro: string): boolean {
 
 export function scoreSaveFolder(folderName: string, title: string): number {
   const matchName = saveFolderMatchName(folderName)
-  const needle = normalizeSaveKey(cleanThreadTitle(title) || title)
+  const parsed = parseGameTitle(title)
+  const needle = normalizeSaveKey(parsed.title || title)
   if (needle.length < 3) return 0
   const key = normalizeSaveKey(matchName)
   if (!key) return 0
 
   let score = 0
   const folderAcro = folderAcronymKey(matchName)
+  const creatorKey = normalizeSaveKey(parsed.creator)
+  const folderIsCreator =
+    creatorKey.length >= 3 &&
+    (key === creatorKey || folderAcro === creatorKey) &&
+    needle !== key &&
+    !needle.startsWith(key)
 
   for (const acro of titleAcronyms(title)) {
     if (acro.length < 3) continue
@@ -93,24 +100,19 @@ export function scoreSaveFolder(folderName: string, title: string): number {
 
   const n = needle.slice(0, 16)
   const k = key.slice(0, 16)
-  if (n.length >= 4 && (key.includes(n) || needle.includes(k))) {
-    const overlap = Math.min(n.length, k.length)
-    score = Math.max(score, 40 + overlap)
+  if (!folderIsCreator && n.length >= 4) {
+    const titleInFolder = key.includes(n)
+    const folderPrefix = needle.startsWith(k)
+    const substantial =
+      k.length / Math.max(n.length, 1) >= 0.6 && (needle.startsWith(k) || needle.endsWith(k))
+    if (titleInFolder || folderPrefix || substantial) {
+      score = Math.max(score, 40 + Math.min(n.length, k.length))
+    }
   }
 
-  // Soft boost when folder acronym letters all appear in order in the title key
-  if (folderAcro.length >= 3 && folderAcro.length <= 12) {
-    let at = 0
-    let hits = 0
-    for (const ch of folderAcro) {
-      const found = needle.indexOf(ch, at)
-      if (found < 0) break
-      hits += 1
-      at = found + 1
-    }
-    if (hits === folderAcro.length) {
-      score = Math.max(score, 35 + folderAcro.length)
-    }
+  // Soft boost when the folder acronym is actually present in the title key
+  if (!folderIsCreator && folderAcro.length >= 3 && folderAcro.length <= 12 && needle.includes(folderAcro)) {
+    score = Math.max(score, 35 + folderAcro.length)
   }
 
   return score

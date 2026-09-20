@@ -4,7 +4,8 @@ import {
   identifiedSaveFoldersForGame,
   mergeIdentifiedSaveFolder,
   pickIdentifiedSaveFolder,
-  renpySaveLocationOptions
+  renpySaveLocationOptions,
+  sameIdentifiedSaveFolder
 } from './save-folder-meta'
 
 function folder(
@@ -43,6 +44,36 @@ describe('mergeIdentifiedSaveFolder', () => {
   })
 })
 
+describe('sameIdentifiedSaveFolder', () => {
+  test('ignores identifiedAt so rescans do not look like new mappings', () => {
+    const prev = folder({
+      title: 'Game',
+      threadId: 4,
+      savePath: 'C:\\saves\\game',
+      creator: 'Author',
+      coverUrl: 'https://cdn.test/c.jpg',
+      identifiedAt: 1
+    })
+    const next = mergeIdentifiedSaveFolder(
+      prev,
+      folder({
+        title: 'Game',
+        threadId: 4,
+        savePath: 'C:\\saves\\game',
+        identifiedAt: Date.now()
+      })
+    )
+    expect(sameIdentifiedSaveFolder(prev, next)).toBe(true)
+  })
+
+  test('detects a real mapping change', () => {
+    const prev = folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\game' })
+    const next = folder({ title: 'Other', threadId: 8, savePath: 'C:\\saves\\game' })
+    expect(sameIdentifiedSaveFolder(prev, next)).toBe(false)
+    expect(sameIdentifiedSaveFolder(undefined, next)).toBe(false)
+  })
+})
+
 describe('identifiedSaveFoldersForGame', () => {
   test('returns every folder for a thread, newest first', () => {
     const older = folder({
@@ -70,6 +101,25 @@ describe('identifiedSaveFoldersForGame', () => {
       folder({ title: 'Game', threadId: 4, savePath: 'C:\\saves\\new', identifiedAt: 9 })
     ]
     expect(pickIdentifiedSaveFolder(folders, 4)?.savePath).toBe('C:\\saves\\new')
+  })
+
+  test('switching the active folder follows the later identifiedAt', () => {
+    const first = folder({
+      title: 'Game',
+      threadId: 4,
+      savePath: 'C:\\saves\\first',
+      identifiedAt: 2
+    })
+    const second = folder({
+      title: 'Game',
+      threadId: 4,
+      savePath: 'C:\\saves\\second',
+      identifiedAt: 9
+    })
+    expect(pickIdentifiedSaveFolder([first, second], 4)?.savePath).toBe('C:\\saves\\second')
+    expect(
+      pickIdentifiedSaveFolder([{ ...first, identifiedAt: 20 }, second], 4)?.savePath
+    ).toBe('C:\\saves\\first')
   })
 
   test('does not pick an ambiguous title-only match', () => {

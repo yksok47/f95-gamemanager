@@ -91,6 +91,7 @@ import {
 import {
   assignSaveFolder,
   identifySaveFolder,
+  unmapSaveFolder,
   listSaveFolderPeek,
   listPresentIdentifiedSaveFolders,
   listSaveOnlyItems,
@@ -106,6 +107,19 @@ import {
   scanExternalLibraries
 } from './library-import'
 import { getSettings, saveSettings } from './settings-store'
+import {
+  getCloudSaveAccount,
+  signInCloudSaves,
+  signOutCloudSaves
+} from './cloud-saves/oauth'
+import { getCloudSaveStatus, syncAllCloudSaves, syncCloudSavesForThread, cancelCloudSync } from './cloud-saves/sync'
+import {
+  deleteAllCloudSaves,
+  deleteCloudSavesForThread,
+  listCloudSaveInventory,
+  listCloudSavesForThread
+} from './cloud-saves/inventory'
+import { clearDriveCaches } from './cloud-saves/drive'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
   applyCatalogGames,
@@ -498,6 +512,84 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('cloudSaves:account', async () => {
+    try {
+      return await getCloudSaveAccount()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:status', () => getCloudSaveStatus())
+
+  ipcMain.handle('cloudSaves:signIn', async (_event, openBrowser?: boolean) => {
+    try {
+      return await signInCloudSaves(openBrowser !== false)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:signOut', async () => {
+    try {
+      const account = await signOutCloudSaves()
+      clearDriveCaches()
+      return account
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:syncAll', async () => {
+    try {
+      return await syncAllCloudSaves()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:syncThread', async (_event, threadId: number) => {
+    try {
+      return await syncCloudSavesForThread(threadId)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:cancel', () => cancelCloudSync())
+
+  ipcMain.handle('cloudSaves:inventory', async () => {
+    try {
+      return await listCloudSaveInventory(true)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:listForThread', async (_event, threadId: number) => {
+    try {
+      return await listCloudSavesForThread(threadId)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:deleteGame', async (_event, threadId: number) => {
+    try {
+      await deleteCloudSavesForThread(threadId)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudSaves:deleteAll', async () => {
+    try {
+      await deleteAllCloudSaves()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('appUpdate:get', () => getAppUpdateStatus())
 
   ipcMain.handle('appUpdate:check', async () => {
@@ -744,6 +836,15 @@ export function registerIpc(): void {
       }
     }
   )
+
+  ipcMain.handle('library:unmapSaveFolder', async (_event, savePath: string) => {
+    try {
+      const patch = await unmapSaveFolder(String(savePath || ''))
+      return await applySaveFolderIdentityToScan(patch)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
 
   ipcMain.handle('library:importExternal', async () => {
     try {

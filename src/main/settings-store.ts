@@ -3,11 +3,14 @@ import { dirname, isAbsolute, join } from 'path'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
   DEFAULT_CATALOG_PAGE_SIZE,
+  DEFAULT_CLOUD_SAVE_KEEP_COUNT,
   TAG_QUERY_LIMIT,
   TAG_TIERS,
   isCatalogPageSize,
+  isCloudSaveKeepCount,
   type AppSettings,
   type CatalogPageSize,
+  type CloudSaveKeepCount,
   type FavoriteTag,
   type HatedTag,
   type TagTier
@@ -106,6 +109,11 @@ function normalizeCatalogPageSize(value: unknown): CatalogPageSize {
   return isCatalogPageSize(n) ? n : DEFAULT_CATALOG_PAGE_SIZE
 }
 
+function normalizeCloudSaveKeepCount(value: unknown): CloudSaveKeepCount {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN
+  return isCloudSaveKeepCount(n) ? n : DEFAULT_CLOUD_SAVE_KEEP_COUNT
+}
+
 function readRankedTags(value: unknown): FavoriteTag[] {
   const seen = new Set<number>()
   const tags: FavoriteTag[] = []
@@ -160,6 +168,9 @@ function emptySettings(): AppSettings {
     trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: 0,
     catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
+    cloudSavesEnabled: false,
+    cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
+    cloudSaveIncludeAutoQuick: true,
     ...defaultFolders()
   }
 }
@@ -187,7 +198,11 @@ function normalizeSettings(value: unknown): AppSettings {
     metadataBaseUrl: hardcodedMetadataUrl(),
     trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps),
-    catalogPageSize: normalizeCatalogPageSize(raw.catalogPageSize)
+    catalogPageSize: normalizeCatalogPageSize(raw.catalogPageSize),
+    cloudSavesEnabled: Boolean(raw.cloudSavesEnabled),
+    cloudSaveKeepCount: normalizeCloudSaveKeepCount(raw.cloudSaveKeepCount),
+    cloudSaveIncludeAutoQuick:
+      typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true
   }
 }
 

@@ -11,6 +11,7 @@ import {
   mergeIdentifiedSaveFolder,
   pickIdentifiedSaveFolder,
   identifiedSaveFoldersForGame,
+  sameIdentifiedSaveFolder,
   saveFolderKey
 } from './save-folder-meta'
 import { pathExists } from './win-path'
@@ -216,18 +217,41 @@ export async function rememberIdentifiedSaveFolders(entries: IdentifiedSaveFolde
     const item = asIdentified(entry)
     if (!item) continue
     const key = saveFolderKey(item.savePath)
-    const merged = mergeIdentifiedSaveFolder(identified[key], {
+    const prev = identified[key]
+    const merged = mergeIdentifiedSaveFolder(prev, {
       ...item,
-      identifiedAt: item.identifiedAt || Date.now()
+      identifiedAt:
+        prev && prev.threadId === item.threadId
+          ? prev.identifiedAt
+          : item.identifiedAt || Date.now()
     })
-    identified[key] = merged
     if (failed[key]) {
       delete failed[key]
+      changed = true
     }
+    if (sameIdentifiedSaveFolder(prev, merged)) continue
+    identified[key] = merged
     changed = true
   }
   if (!changed) return
   await queueWrite({ version: 1, identified, failed })
+}
+
+/** Mark this folder as the one currently in use so lookup prefers it over older matches. */
+export async function touchIdentifiedSaveFolder(savePath: string): Promise<void> {
+  const path = savePath.trim()
+  if (!path) return
+  const store = await loadStore()
+  const key = saveFolderKey(path)
+  const prev = store.identified[key]
+  if (!prev) return
+  const identifiedAt = Date.now()
+  if (prev.identifiedAt === identifiedAt) return
+  await queueWrite({
+    version: 1,
+    identified: { ...store.identified, [key]: { ...prev, identifiedAt } },
+    failed: store.failed
+  })
 }
 
 export async function forgetIdentifiedSaveFoldersForThread(threadId: number): Promise<void> {
@@ -274,6 +298,17 @@ export async function markSaveFolderIdentifyFailed(savePath: string, folderName:
       }
     }
   })
+}
+
+export async function clearFailedSaveFolder(savePath: string): Promise<void> {
+  const path = savePath.trim()
+  if (!path) return
+  const store = await loadStore()
+  const key = saveFolderKey(path)
+  if (!store.failed[key]) return
+  const failed = { ...store.failed }
+  delete failed[key]
+  await queueWrite({ version: 1, identified: store.identified, failed })
 }
 
 export async function rebaseSaveFolderPaths(fromRoot: string, toRoot: string): Promise<void> {

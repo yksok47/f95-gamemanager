@@ -11,7 +11,9 @@ import { confirm } from './ConfirmDialog'
 import type { GameLibraryFile, RenpySaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
+import { cloudFolderKey, filesForSaveFolder, useCloudSavesForThread } from '../lib/cloud-saves'
 import { useRenpySession } from '../lib/renpy'
+import GameCloudSaves from './GameCloudSaves'
 import RenpySaveEditorDialog from './RenpySaveEditorDialog'
 
 type RenpySavesPanelProps = {
@@ -72,6 +74,45 @@ function lastNumberedPage(saves: RenpySaveFile[]): number {
   return last
 }
 
+function cloudPlace(name: string): { page: string; slot: number } | null {
+  const auto = name.match(/^(auto|quick)-(\d+)/i)
+  if (auto) return { page: auto[1].toLowerCase(), slot: Number(auto[2]) }
+  const paged = name.match(/^(\d+)-(\d+)/)
+  if (paged) return { page: String(Number(paged[1])), slot: Number(paged[2]) }
+  const only = name.match(/^(\d+)\.save$/i)
+  if (only) return { page: '1', slot: Number(only[1]) }
+  return null
+}
+
+function lastCloudPage(names: Iterable<string>): number {
+  let last = 0
+  for (const name of names) {
+    const place = cloudPlace(name)
+    if (place && /^\d+$/.test(place.page)) last = Math.max(last, Number(place.page))
+  }
+  return last
+}
+
+function maxCloudSlot(names: Iterable<string>): number {
+  let max = 0
+  for (const name of names) {
+    const place = cloudPlace(name)
+    if (!place || place.page === 'auto') continue
+    max = Math.max(max, place.slot)
+  }
+  return max
+}
+
+function cloudByPlace(names: Iterable<string>): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const name of names) {
+    const place = cloudPlace(name)
+    if (!place) continue
+    map.set(`${place.page}:${place.slot}`, name)
+  }
+  return map
+}
+
 function folderName(path: string): string {
   return path.split(/[/\\]/).filter(Boolean).pop() || path
 }
@@ -112,14 +153,13 @@ function makeSlots(
   return slots
 }
 
-function buildBoards(saves: RenpySaveFile[], slotCount: number): PageBoard[] {
+function buildBoards(saves: RenpySaveFile[], slotCount: number, lastPage: number): PageBoard[] {
   const placed = savesByPlace(saves)
-  const last = lastNumberedPage(saves)
   const boards: PageBoard[] = [
     { page: 'auto', label: 'Auto', slots: makeSlots('auto', AUTO_SLOT_COUNT, placed) },
     { page: 'quick', label: 'Quick', slots: makeSlots('quick', slotCount, placed) }
   ]
-  for (let page = 1; page <= last + 1; page++) {
+  for (let page = 1; page <= lastPage + 1; page++) {
     boards.push({
       page: String(page),
       label: `Page ${page}`,
@@ -258,6 +298,8 @@ export default function RenpySavesPanel({
   const [over, setOver] = useState<string | null>(null)
   const [ghost, setGhost] = useState<string | null>(null)
   const [editing, setEditing] = useState<RenpySaveFile | null>(null)
+  const [cloudOpen, setCloudOpen] = useState(false)
+  const [pickedPath, setPickedPath] = useState('')
   const skipClick = useRef(false)
   const sessionRef = useRef<DragSession | null>(null)
   const ghostRef = useRef<HTMLDivElement>(null)
@@ -273,20 +315,53 @@ export default function RenpySavesPanel({
     movePage: async (_page: string, _item: DragPage): Promise<void> => {}
   })
   const saves = info?.saves ?? []
-  const detectedSlots = useMemo(() => detectedSlotCount(saves), [saves])
+  const cloud = useCloudSavesForThread(lookupThreadId)
+  const localNames = useMemo(() => new Set(saves.map((save) => save.name)), [saves])
+  const locations = info?.saveLocations ?? []
+  const currentPath = info?.savePath || ''
+  const desiredPath = pickedPath || currentPath
+  const selectedLocation =
+    locations.find((item) => sameSavePath(item.savePath, desiredPath))?.savePath || desiredPath
+  const currentFolderKey = cloudFolderKey(
+    locations.find((item) => sameSavePath(item.savePath, selectedLocation))?.folderName ||
+      folderName(selectedLocation)
+  )
+  const locationCloudFiles = useMemo(
+    () => filesForSaveFolder(cloud.files, currentFolderKey, lookupThreadId),
+    [cloud.files, currentFolderKey, lookupThreadId]
+  )
+  const locationCloudNames = useMemo(
+    () => new Set(locationCloudFiles.map((file) => file.name)),
+    [locationCloudFiles]
+  )
+  const syncedCloudNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const name of cloud.syncedNames) names.add(name)
+    for (const name of locationCloudNames) names.add(name)
+    return names
+  }, [cloud.syncedNames, locationCloudNames])
+  const cloudPlaces = useMemo(() => cloudByPlace(locationCloudNames), [locationCloudNames])
+  const detectedSlots = useMemo(
+    () => Math.max(detectedSlotCount(saves), maxCloudSlot(locationCloudNames)),
+    [saves, locationCloudNames]
+  )
   const slotsMin = detectedSlots
   const slotsMax = Math.max(slotsMin + 12, 24)
   const slotsPerPage = Math.min(Math.max(slotsMin, slotsInput ?? slotsMin), slotsMax)
   const slotsAtDefault = slotsPerPage === slotsMin
-  const boards = useMemo(() => buildBoards(saves, slotsPerPage), [saves, slotsPerPage])
+  const boards = useMemo(
+    () =>
+      buildBoards(
+        saves,
+        slotsPerPage,
+        Math.max(lastNumberedPage(saves), lastCloudPage(locationCloudNames))
+      ),
+    [saves, slotsPerPage, locationCloudNames]
+  )
   const leftovers = useMemo(
     () => saves.filter((save) => save.kind === 'other'),
     [saves]
   )
-  const locations = info?.saveLocations ?? []
-  const currentPath = info?.savePath || ''
-  const selectedLocation =
-    locations.find((item) => sameSavePath(item.savePath, currentPath))?.savePath || currentPath
   const canAssign = Boolean(activeId || lookupTitle || lookupThreadId)
   const showLocationSelect = locations.length > 1
 
@@ -340,6 +415,7 @@ export default function RenpySavesPanel({
     setOver(null)
     setGhost(null)
     setEditing(null)
+    setPickedPath('')
     sessionRef.current = null
     document.body.classList.remove('is-save-dragging')
   }, [activeId])
@@ -521,9 +597,14 @@ export default function RenpySavesPanel({
 
   async function switchSaveLocation(savePath: string): Promise<void> {
     if (!savePath || sameSavePath(savePath, currentPath)) return
-    await withInfo(() =>
-      window.api.renpy.setSaveDirectory(activeId, savePath, lookupTitle, lookupThreadId)
-    )
+    setPickedPath(savePath)
+    try {
+      await withInfo(() =>
+        window.api.renpy.setSaveDirectory(activeId, savePath, lookupTitle, lookupThreadId)
+      )
+    } finally {
+      setPickedPath('')
+    }
   }
 
   async function unlinkSaveLocation(): Promise<void> {
@@ -872,6 +953,27 @@ export default function RenpySavesPanel({
                       const slotOver = over === `${board.page}:${item.slot}`
                       const canDrop = allowSaveDrop(board.page, item.slot, drag)
                       if (!save) {
+                        const cloudName = cloudPlaces.get(`${board.page}:${item.slot}`)
+                        const cloudFile = locationCloudFiles.find((file) => file.name === cloudName)
+                        if (cloudName && cloudFile && !cloudFile.presentLocally && !localNames.has(cloudName)) {
+                          return (
+                            <article
+                              key={`cloud:${cloudName}`}
+                              className="save-tile save-tile-cloud-only"
+                              title={`${cloudName} is only in Google Drive`}
+                            >
+                              <div className="save-tile-overlay">
+                                <div className="save-tile-top">
+                                  <span className="save-tile-slot">Slot {item.slot}</span>
+                                  <span className="save-cloud-badge is-only">Cloud only</span>
+                                </div>
+                                <div className="save-tile-meta">
+                                  <strong>{cloudName}</strong>
+                                </div>
+                              </div>
+                            </article>
+                          )
+                        }
                         return (
                           <div
                             key={item.slot}
@@ -926,6 +1028,11 @@ export default function RenpySavesPanel({
                                 onChange={() => togglePath(save.path)}
                               />
                               <span className="save-tile-slot">Slot {item.slot}</span>
+                              {syncedCloudNames.has(save.name) ? (
+                                <span className="save-cloud-badge" title="Also in Google Drive">
+                                  Cloud
+                                </span>
+                              ) : null}
                               <button
                                 type="button"
                                 className="save-tile-edit"
@@ -998,6 +1105,11 @@ export default function RenpySavesPanel({
                               onChange={() => togglePath(save.path)}
                             />
                             <span className="save-tile-slot">{save.label}</span>
+                            {syncedCloudNames.has(save.name) ? (
+                              <span className="save-cloud-badge" title="Also in Google Drive">
+                                Cloud
+                              </span>
+                            ) : null}
                             <button
                               type="button"
                               className="save-tile-edit"
@@ -1029,6 +1141,17 @@ export default function RenpySavesPanel({
           </p>
         )}
       </section>
+      {lookupThreadId ? (
+        <GameCloudSaves
+          threadId={lookupThreadId}
+          localNames={localNames}
+          folderKey={currentFolderKey}
+          disabled={busy || running}
+          open={cloudOpen}
+          onOpenChange={setCloudOpen}
+          cloud={cloud}
+        />
+      ) : null}
       {editing ? (
         <RenpySaveEditorDialog
           fileId={activeId}

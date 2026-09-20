@@ -4,7 +4,9 @@ import { notifyCaught } from './ErrorNotifications'
 import type { GameLibraryFile, RpgMakerInfo, RpgMakerSaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
+import { RPG_CLOUD_FOLDER, filesForSaveFolder, useCloudSavesForThread } from '../lib/cloud-saves'
 import { usePlaySessions } from '../lib/library'
+import GameCloudSaves from './GameCloudSaves'
 
 type RpgMakerSavesPanelProps = {
   files: GameLibraryFile[]
@@ -26,6 +28,7 @@ export default function RpgMakerSavesPanel({
   const [info, setInfo] = useState<RpgMakerInfo | null>(null)
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [cloudOpen, setCloudOpen] = useState(false)
   const sessions = usePlaySessions()
   const selectedFile = installed.find((file) => file.id === fileId) || installed[0] || files[0] || null
   const activeId = selectedFile?.id || ''
@@ -134,6 +137,18 @@ export default function RpgMakerSavesPanel({
   }
 
   const saves = info?.saves ?? []
+  const localNames = useMemo(() => new Set(saves.map((save) => save.name)), [saves])
+  const cloud = useCloudSavesForThread(threadId)
+  const locationCloudNames = useMemo(
+    () => new Set(filesForSaveFolder(cloud.files, RPG_CLOUD_FOLDER, threadId).map((file) => file.name)),
+    [cloud.files, threadId]
+  )
+  const syncedCloudNames = useMemo(() => {
+    const names = new Set<string>()
+    for (const name of cloud.syncedNames) names.add(name)
+    for (const name of locationCloudNames) names.add(name)
+    return names
+  }, [cloud.syncedNames, locationCloudNames])
 
   return (
     <div className="renpy-panel">
@@ -261,6 +276,11 @@ export default function RpgMakerSavesPanel({
                       {when ? ` · ${when}` : ''}
                     </span>
                   </span>
+                  {syncedCloudNames.has(save.name) ? (
+                    <span className="save-cloud-badge" title="Also in Google Drive">
+                      Cloud
+                    </span>
+                  ) : null}
                   <button
                     className="ghost-btn"
                     type="button"
@@ -283,6 +303,15 @@ export default function RpgMakerSavesPanel({
           <p className="muted">{busy ? 'Syncing save folders…' : 'No save files found.'}</p>
         )}
       </section>
+      <GameCloudSaves
+        threadId={threadId}
+        localNames={localNames}
+        folderKey={RPG_CLOUD_FOLDER}
+        disabled={busy}
+        open={cloudOpen}
+        onOpenChange={setCloudOpen}
+        cloud={cloud}
+      />
     </div>
   )
 }

@@ -8,6 +8,8 @@ export type SaveFolderIdentifyTarget = {
   id: string
   savePath: string
   folderName: string
+  mappedTitle?: string
+  mappedThreadId?: number
 }
 
 export type SaveFolderIdentifyPick = {
@@ -93,6 +95,7 @@ export default function SaveFolderIdentifyDialog({
   matchedSavesByThread,
   onClose,
   onPick,
+  onUnmap,
   onOpenGame
 }: {
   target: SaveFolderIdentifyTarget
@@ -100,6 +103,7 @@ export default function SaveFolderIdentifyDialog({
   matchedSavesByThread?: Map<number, SaveFolderIdentifyMatch[]>
   onClose: () => void
   onPick: (game: SaveFolderIdentifyPick) => void
+  onUnmap?: () => void
   onOpenGame: (game: SaveFolderIdentifyPick) => void
 }): JSX.Element {
   const titleId = useId()
@@ -316,11 +320,20 @@ export default function SaveFolderIdentifyDialog({
       >
         <div className="storage-identify-head">
           <h2 id={titleId} className="app-confirm-title">
-            Match save folder
+            {target.mappedTitle ? 'Change save mapping' : 'Match save folder'}
           </h2>
           <p className="muted">
-            Could not identify <strong>{target.folderName}</strong> automatically. Search for the game
-            this folder belongs to, or peek at screenshots stored in the saves.
+            {target.mappedTitle ? (
+              <>
+                <strong>{target.folderName}</strong> is mapped to{' '}
+                <strong>{target.mappedTitle}</strong>. Pick a different game, or unmap it.
+              </>
+            ) : (
+              <>
+                Could not identify <strong>{target.folderName}</strong> automatically. Search for the
+                game this folder belongs to, or peek at screenshots stored in the saves.
+              </>
+            )}
           </p>
         </div>
         <SavePeekStrip savePath={target.savePath} />
@@ -409,6 +422,11 @@ export default function SaveFolderIdentifyDialog({
           )}
         </div>
         <div className="app-confirm-actions">
+          {target.mappedTitle && onUnmap ? (
+            <button className="ghost-btn" type="button" disabled={busy} onClick={onUnmap}>
+              Unmap
+            </button>
+          ) : null}
           <button className="ghost-btn" type="button" disabled={busy} onClick={onClose}>
             Cancel
           </button>

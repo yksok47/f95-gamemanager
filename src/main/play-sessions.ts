@@ -68,6 +68,16 @@ async function backupRpgMakerSaves(session: PlaySession, skipUnstable = false): 
   }
 }
 
+async function syncCloudSaves(threadId: number): Promise<void> {
+  if (!threadId) return
+  try {
+    const { syncCloudSavesForThread } = await import('./cloud-saves/sync')
+    await syncCloudSavesForThread(threadId)
+  } catch (error) {
+    console.warn('Could not sync cloud saves', error)
+  }
+}
+
 async function flushSession(session: PlaySession, until = now()): Promise<void> {
   const delta = until - session.flushedAt
   session.flushedAt = until
@@ -81,6 +91,7 @@ async function endSession(fileId: string): Promise<void> {
   sessions.delete(fileId)
   await flushSession(session)
   await backupRpgMakerSaves(session, false)
+  await syncCloudSaves(session.threadId)
   broadcast()
 }
 
@@ -180,8 +191,12 @@ export async function stopPlaySession(fileId: string): Promise<void> {
 }
 
 export async function flushPlaySessions(): Promise<void> {
+  const threadIds = [...new Set([...sessions.values()].map((session) => session.threadId))]
   for (const session of sessions.values()) {
     await flushSession(session)
     await backupRpgMakerSaves(session, false)
+  }
+  for (const threadId of threadIds) {
+    await syncCloudSaves(threadId)
   }
 }

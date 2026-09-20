@@ -11,6 +11,8 @@ import type {
   Subscription
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
+import { clearFolderManifest, readFolderManifest, recordLocalSaveFolderCleared, writeIdentityManifest } from './cloud-saves/local-manifest'
+import { folderKey } from './cloud-saves/manifest'
 import { uniqueScreenUrls, fetchCatalog } from './f95/catalog'
 import { lookupGame } from './f95/lookup'
 import { sanitizeCatalogQuery } from './f95/sanitize-query'
@@ -44,10 +46,12 @@ import { wipeRpgMakerSaveDirs } from './rpgmaker/save-disk'
 import {
   listFailedSaveFolders,
   listIdentifiedSaveFolders,
+  listIdentifiedSaveFoldersForGame,
   markSaveFolderIdentifyFailed,
   pruneMissingSaveFolders,
   forgetIdentifiedSaveFolder,
   forgetIdentifiedSaveFoldersForThread,
+  getIdentifiedSaveFolder,
   rememberIdentifiedSaveFolders,
   saveFolderKey
 } from './save-folders-store'
@@ -352,6 +356,26 @@ function renpySaveDirectoryForFolder(savePath: string): string | null {
   return saveDirectoryFromPath(folder)
 }
 
+function cloudHintForFolder(
+  rec: IdentifiedSaveFolder | null | undefined,
+  savePath: string
+): { threadId: number; title: string; folderKey: string } | undefined {
+  if (!rec?.threadId) return undefined
+  return {
+    threadId: rec.threadId,
+    title: rec.title,
+    folderKey: folderKey(rec.folderName || basename(savePath))
+  }
+}
+
+function scheduleCloudSync(threadId?: number): void {
+  const id = Number(threadId)
+  if (!id) return
+  void import('./cloud-saves/sync')
+    .then(({ scheduleCloudSyncForThread }) => scheduleCloudSyncForThread(id))
+    .catch((error) => console.warn('Could not sync cloud saves', error))
+}
+
 async function rememberAndSyncSaveFolder(entry: IdentifiedSaveFolder): Promise<void> {
   await rememberIdentifiedSaveFolders([entry])
   const saveDirectory = renpySaveDirectoryForFolder(entry.savePath)
@@ -359,6 +383,40 @@ async function rememberAndSyncSaveFolder(entry: IdentifiedSaveFolder): Promise<v
   const files = await listGameFiles(entry.threadId)
   if (files.some((file) => file.renpySaveDirectory !== undefined)) return
   await setRenpySaveDirectoryForThread(entry.threadId, saveDirectory)
+}
+
+async function detachSaveFolderFromThread(savePath: string, threadId: number): Promise<void> {
+  if (!threadId) return
+  const folder = saveFolderKey(savePath)
+  const files = await listGameFiles(threadId)
+  const pointsHere = files.some((file) => {
+    if (!file.renpySaveDirectory) return false
+    return saveFolderKey(resolveRenpyDirectory(file.renpySaveDirectory)) === folder
+  })
+  if (!pointsHere) return
+  const others = (await listIdentifiedSaveFoldersForGame(threadId)).filter(
+    (item) => saveFolderKey(item.savePath) !== folder
+  )
+  const next = others[0]
+  await setRenpySaveDirectoryForThread(
+    threadId,
+    next?.savePath ? saveDirectoryFromPath(next.savePath) : undefined
+  )
+}
+
+async function detachSaveFolderFromOtherGames(savePath: string, keepThreadId = 0): Promise<void> {
+  const folder = saveFolderKey(savePath)
+  const threads = new Set<number>()
+  const prev = await getIdentifiedSaveFolder(savePath)
+  if (prev?.threadId && prev.threadId !== keepThreadId) threads.add(prev.threadId)
+  for (const file of await listGameFiles()) {
+    if (!file.threadId || file.threadId === keepThreadId || !file.renpySaveDirectory) continue
+    if (saveFolderKey(resolveRenpyDirectory(file.renpySaveDirectory)) !== folder) continue
+    threads.add(file.threadId)
+  }
+  for (const threadId of threads) {
+    await detachSaveFolderFromThread(savePath, threadId)
+  }
 }
 
 export async function collectSaveItems(files: GameLibraryFile[]): Promise<LibraryStorageItem[]> {
@@ -390,26 +448,6 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   const failedByPath = new Map(
     (await listFailedSaveFolders()).map((item) => [saveFolderKey(item.savePath), item])
   )
-
-  for (const game of known.values()) {
-    const dir = game.file?.renpySaveDirectory
-    if (!dir) continue
-    const folderPath = resolveRenpyDirectory(dir)
-    const disk = foldersByKey.get(saveFolderKey(folderPath))
-    const bytes = disk?.bytes || (pathExists(folderPath) ? await folderBytes(folderPath) : 0)
-    if (bytes <= 0) continue
-    claim(
-      saveItem({
-        path: disk?.path || folderPath,
-        folderName: disk?.name || basename(folderPath),
-        bytes,
-        game,
-        identified: true,
-        identifyFailed: false,
-        engineHint: "Ren'Py"
-      })
-    )
-  }
 
   for (const folder of diskFolders) {
     if (claimedFolders.has(saveFolderKey(folder.path))) continue
@@ -445,7 +483,31 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
     }
   }
 
-  const leftover = diskFolders.filter((folder) => !claimedFolders.has(saveFolderKey(folder.path)))
+  for (const game of known.values()) {
+    const dir = game.file?.renpySaveDirectory
+    if (!dir) continue
+    const folderPath = resolveRenpyDirectory(dir)
+    if (claimedFolders.has(saveFolderKey(folderPath))) continue
+    const disk = foldersByKey.get(saveFolderKey(folderPath))
+    const bytes = disk?.bytes || (pathExists(folderPath) ? await folderBytes(folderPath) : 0)
+    if (bytes <= 0) continue
+    claim(
+      saveItem({
+        path: disk?.path || folderPath,
+        folderName: disk?.name || basename(folderPath),
+        bytes,
+        game,
+        identified: true,
+        identifyFailed: false,
+        engineHint: "Ren'Py"
+      })
+    )
+  }
+
+  const leftover = diskFolders.filter(
+    (folder) =>
+      !claimedFolders.has(saveFolderKey(folder.path)) && !failedByPath.has(saveFolderKey(folder.path))
+  )
   const matchable = [...known.values()].filter((game) => game.title)
   const matches = matchSaveFoldersToGames(
     leftover.map((folder) => folder.name),
@@ -698,7 +760,9 @@ function identityFromKnown(savePath: string, game: KnownGame): SaveFolderIdentit
 }
 
 async function rememberIdentity(savePath: string, game: KnownGame): Promise<SaveFolderIdentityPatch> {
+  await detachSaveFolderFromOtherGames(savePath, game.threadId)
   await rememberAndSyncSaveFolder(rememberedFromKnown(savePath, basename(savePath), game))
+  await writeIdentityManifest(savePath, game.threadId, game.title, basename(savePath)).catch(() => undefined)
   return identityFromKnown(savePath, game)
 }
 
@@ -784,8 +848,21 @@ export async function assignSaveFolder(
     inLibrary: Boolean(known?.inLibrary),
     inFollowed: Boolean(known?.inFollowed)
   }
+  await detachSaveFolderFromOtherGames(folder, threadId)
   await rememberAndSyncSaveFolder(rememberedFromKnown(folder, basename(folder), assigned))
+  await writeIdentityManifest(folder, threadId, title, basename(folder)).catch(() => undefined)
   return identityFromKnown(folder, assigned)
+}
+
+export async function unmapSaveFolder(savePath: string): Promise<SaveFolderIdentityPatch> {
+  const folder = assertManagedSavePath(savePath)
+  const rec = await getIdentifiedSaveFolder(folder)
+  await recordLocalSaveFolderCleared(folder, cloudHintForFolder(rec, folder)).catch(() => undefined)
+  await detachSaveFolderFromOtherGames(folder)
+  await markSaveFolderIdentifyFailed(folder, rec?.folderName || basename(folder))
+  await clearFolderManifest(folder).catch(() => undefined)
+  scheduleCloudSync(rec?.threadId)
+  return { savePath: folder, identified: false, identifyFailed: true }
 }
 
 export async function identifySaveFolder(savePath: string): Promise<SaveFolderIdentityPatch> {
@@ -794,6 +871,34 @@ export async function identifySaveFolder(savePath: string): Promise<SaveFolderId
   const folderName = basename(folder)
   const files = await listGameFiles()
   const known = await loadKnownGames(files)
+
+  const marked = await readFolderManifest(folder)
+  if (marked?.threadId) {
+    const local = known.get(marked.threadId)
+    if (local) return rememberIdentity(folder, local)
+    try {
+      const details = await fetchThreadDetails(marked.threadId)
+      return rememberIdentity(folder, {
+        threadId: marked.threadId,
+        title: details.title || marked.title || `Thread ${marked.threadId}`,
+        creator: details.creator || '',
+        coverUrl: details.coverUrl || null,
+        engine: details.engine || '',
+        version: details.version,
+        likes: details.likes,
+        views: details.views,
+        threadUrl: details.threadUrl,
+        timestamp: undefined,
+        updatedAt: details.updatedAt,
+        screens: details.gallery,
+        file: null,
+        inLibrary: false,
+        inFollowed: false
+      })
+    } catch {
+      // Fall through to folder-name matching.
+    }
+  }
 
   if (isInside(folder, rpgMakerSavesRoot()) && /^\d+$/.test(folderName)) {
     const threadId = Number(folderName)
@@ -880,8 +985,13 @@ async function forgetSaveFolderQuietly(savePath: string): Promise<void> {
 
 async function wipeManagedSaveFolder(savePath: string): Promise<void> {
   if (!savePath) return
+  const rec = await getIdentifiedSaveFolder(savePath).catch(() => null)
   if (!pathExists(savePath)) {
+    await recordLocalSaveFolderCleared(savePath, cloudHintForFolder(rec, savePath)).catch(
+      () => undefined
+    )
     await forgetSaveFolderQuietly(savePath)
+    scheduleCloudSync(rec?.threadId)
     return
   }
   try {
@@ -889,6 +999,7 @@ async function wipeManagedSaveFolder(savePath: string): Promise<void> {
     if (isInside(folder, rpgMakerSavesRoot())) {
       await wipeRpgMakerSaveDirs(null, folder)
       await forgetSaveFolderQuietly(folder)
+      scheduleCloudSync(rec?.threadId)
       return
     }
     await clearSaveFolderContents(folder)

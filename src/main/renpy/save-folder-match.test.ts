@@ -18,6 +18,19 @@ describe('titleAcronyms', () => {
   })
 })
 
+describe('scoreSaveFolder', () => {
+  test('does not map a developer-named folder onto another game by that studio', () => {
+    expect(scoreSaveFolder('TheX', 'The Fixer [v1.0] [TheX]')).toBe(0)
+    expect(scoreSaveFolder('TheX', 'The Fixer')).toBe(0)
+    expect(scoreSaveFolder('TheFixer', 'The X')).toBe(0)
+  })
+
+  test('still matches a folder named after the game', () => {
+    expect(scoreSaveFolder('TheFixer', 'The Fixer [v1.0] [TheX]')).toBeGreaterThan(40)
+    expect(scoreSaveFolder('TheX', 'The X')).toBeGreaterThan(40)
+  })
+})
+
 describe('matchRenpySaveFolder', () => {
   const folders = ['MBDK-1749650324', 'MBDS2-1749650324', 'SomeOtherGame-1', 'unrelated']
 

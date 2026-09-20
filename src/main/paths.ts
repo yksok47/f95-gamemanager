@@ -11,6 +11,7 @@ export function getAppPaths(): {
   sessionFile: string
   subscriptionsFile: string
   settingsFile: string
+  googleDriveTokenFile: string
   gameFilesFile: string
   p2pTorrentMapFile: string
   p2pDownloadsFile: string
@@ -19,6 +20,7 @@ export function getAppPaths(): {
   downloadsHistoryFile: string
   gameNotesFile: string
   saveFoldersFile: string
+  cloudSaveManifestsDir: string
   libraryImportsFile: string
   renpyOptionsFile: string
   rosterFile: string
@@ -32,6 +34,7 @@ export function getAppPaths(): {
     sessionFile: join(userData, 'session.json'),
     subscriptionsFile: join(userData, 'subscriptions.json'),
     settingsFile: join(userData, 'settings.json'),
+    googleDriveTokenFile: join(userData, 'google-drive-token.json'),
     gameFilesFile: join(userData, 'game-files.json'),
     p2pTorrentMapFile: join(userData, 'p2p-torrent-map.json'),
     p2pDownloadsFile: join(userData, 'p2p-downloads.json'),
@@ -40,6 +43,7 @@ export function getAppPaths(): {
     downloadsHistoryFile: join(userData, 'downloads-history.json'),
     gameNotesFile: join(userData, 'game-notes.json'),
     saveFoldersFile: join(userData, 'save-folders.json'),
+    cloudSaveManifestsDir: join(userData, 'cloud-save-manifests'),
     libraryImportsFile: join(userData, 'library-imports.json'),
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),

@@ -7,6 +7,9 @@ out
 .env
 .env.*
 
+# Google OAuth client (desktop). Keep local; pack from resources at build time.
+resources/google-oauth.json
+
 # Agent throwaway scripts/research (only scratch dir allowed)
 .agent-scratch/
 .user-scratch/

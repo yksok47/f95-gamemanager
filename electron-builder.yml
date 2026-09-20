@@ -19,6 +19,8 @@ extraResources:
     to: certs
     filter:
       - '**/*'
+  - from: resources/google-oauth.json
+    to: google-oauth.json
   - from: node_modules/7zip-bin/win
     to: 7zip/win
     filter:

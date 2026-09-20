@@ -41,6 +41,16 @@ function libraryKey(items: GameLibraryFile[]): string {
 
 let receivedPush = false
 
+function scheduleRefresh(): void {
+  if (!opened) return
+  if (libraryTimer) window.clearTimeout(libraryTimer)
+  libraryTimer = window.setTimeout(() => {
+    void window.api.library.storageStats(true).catch((err) => {
+      notifyCaught(err, 'Could not measure disk usage.')
+    })
+  }, 400)
+}
+
 function startBridge(): void {
   if (bridged) return
   bridged = true
@@ -55,13 +65,12 @@ function startBridge(): void {
     const nextIdentity = libraryKey(items)
     if (nextIdentity === libraryIdentity) return
     libraryIdentity = nextIdentity
-    if (!opened) return
-    if (libraryTimer) window.clearTimeout(libraryTimer)
-    libraryTimer = window.setTimeout(() => {
-      void window.api.library.storageStats(true).catch((err) => {
-        notifyCaught(err, 'Could not measure disk usage.')
-      })
-    }, 400)
+    scheduleRefresh()
+  })
+  window.api.library.onSaveFoldersChange(() => {
+    // Mapping writes from the scan itself must not enqueue another scan.
+    if (snapshot.scanning) return
+    scheduleRefresh()
   })
 }
 
