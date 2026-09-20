@@ -277,6 +277,7 @@ export async function getRpgMakerInfo(input: {
   fileId?: string
   threadId: number
   title?: string
+  which?: 'game' | 'backup'
 }): Promise<RpgMakerInfo> {
   const threadId = Number(input.threadId)
   if (!threadId) throw new Error('Missing game id.')
@@ -302,7 +303,14 @@ export async function getRpgMakerInfo(input: {
     mode: playing ? 'backup' : 'merge',
     skipUnstable: playing
   })
-  const listFrom = sync.gameSavePath && pathExists(sync.gameSavePath) ? sync.gameSavePath : sync.backupPath
+  const listFrom =
+    input.which === 'backup'
+      ? sync.backupPath
+      : input.which === 'game'
+        ? sync.gameSavePath
+        : sync.gameSavePath && pathExists(sync.gameSavePath)
+          ? sync.gameSavePath
+          : sync.backupPath
   const saves = await listSaves(listFrom)
   const backupHasSaves = pathExists(sync.backupPath) && listSaveNames(sync.backupPath).length > 0
   const backupExists = pathExists(sync.backupPath)

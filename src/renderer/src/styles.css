@@ -3368,6 +3368,10 @@ input[type='search']::-webkit-search-results-decoration {
   animation: details-spin 0.7s linear infinite;
 }
 
+.details-hero-cloud-sync.is-offset {
+  left: 56px;
+}
+
 @keyframes details-spin {
   to {
     transform: rotate(360deg);
@@ -5036,7 +5040,26 @@ body.is-details-modal-dragging .details-modal-shell * {
 
 .renpy-panel {
   display: grid;
-  gap: 24px;
+  gap: 16px;
+}
+
+.saves-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.saves-panel-head .match-toggle {
+  justify-self: start;
+  flex-wrap: wrap;
+  border-radius: 18px;
+}
+
+.saves-panel-head .match-toggle button {
+  padding: 5px 12px;
+  font-size: 0.78rem;
 }
 
 .renpy-section {
@@ -6107,7 +6130,8 @@ body.is-save-dragging * {
 }
 
 .cloud-game-saves {
-  margin-top: 4px;
+  display: grid;
+  gap: 8px;
 }
 
 @media (max-width: 720px) {

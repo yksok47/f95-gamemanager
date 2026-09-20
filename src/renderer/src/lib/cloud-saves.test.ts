@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { CloudSaveRemoteFile } from '@shared/types'
-import { cloudFolderKey, filesForSaveFolder } from './cloud-saves'
+import { cloudFolderKey, filesForSaveFolder, isPersistentSaveName } from './cloud-saves'
 
 function file(name: string, folderKey: string): CloudSaveRemoteFile {
   return {
@@ -12,6 +12,14 @@ function file(name: string, folderKey: string): CloudSaveRemoteFile {
     presentLocally: false
   }
 }
+
+describe('isPersistentSaveName', () => {
+  test('matches RenPy persistent files', () => {
+    expect(isPersistentSaveName('persistent')).toBe(true)
+    expect(isPersistentSaveName('Persistent.new')).toBe(true)
+    expect(isPersistentSaveName('1-1.save')).toBe(false)
+  })
+})
 
 describe('cloudFolderKey', () => {
   test('matches the Drive folder key for a save directory name', () => {

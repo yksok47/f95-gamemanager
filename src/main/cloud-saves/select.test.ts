@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { classifySaveName, cloudBlobName, cloudSaveNameAllowed, isCloudBlobName, selectCloudSaves, type CloudSaveCandidate } from './select'
+import {
+  classifySaveName,
+  cloudBlobName,
+  cloudSaveNameAllowed,
+  isCloudBlobName,
+  isPersistentSaveName,
+  selectCloudSaves,
+  type CloudSaveCandidate
+} from './select'
 
 function file(
   name: string,
@@ -22,6 +30,12 @@ describe('classifySaveName', () => {
     expect(classifySaveName('game.txt')).toBe(null)
     expect(classifySaveName('manifest.json')).toBe(null)
     expect(classifySaveName('f95gm-manifest.json')).toBe(null)
+  })
+
+  test('detects RenPy persistent files', () => {
+    expect(isPersistentSaveName('persistent')).toBe(true)
+    expect(isPersistentSaveName('persistent.new')).toBe(true)
+    expect(isPersistentSaveName('1-1.save')).toBe(false)
   })
 })
 

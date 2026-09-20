@@ -11,10 +11,11 @@ import { confirm } from './ConfirmDialog'
 import type { GameLibraryFile, RenpySaveFile } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
-import { cloudFolderKey, filesForSaveFolder, useCloudSavesForThread } from '../lib/cloud-saves'
+import { cloudFolderKey, filesForSaveFolder, isPersistentSaveName, useCloudSavesForThread } from '../lib/cloud-saves'
 import { useRenpySession } from '../lib/renpy'
-import GameCloudSaves from './GameCloudSaves'
+import GameCloudSaves, { GameCloudSaveActions } from './GameCloudSaves'
 import RenpySaveEditorDialog from './RenpySaveEditorDialog'
+import SavesPanelTabs, { type SavesPanelView } from './SavesPanelTabs'
 
 type RenpySavesPanelProps = {
   files: GameLibraryFile[]
@@ -298,7 +299,7 @@ export default function RenpySavesPanel({
   const [over, setOver] = useState<string | null>(null)
   const [ghost, setGhost] = useState<string | null>(null)
   const [editing, setEditing] = useState<RenpySaveFile | null>(null)
-  const [cloudOpen, setCloudOpen] = useState(false)
+  const [view, setView] = useState<SavesPanelView>('saves')
   const [pickedPath, setPickedPath] = useState('')
   const skipClick = useRef(false)
   const sessionRef = useRef<DragSession | null>(null)
@@ -336,10 +337,11 @@ export default function RenpySavesPanel({
   )
   const syncedCloudNames = useMemo(() => {
     const names = new Set<string>()
+    if (!cloud.enabled) return names
     for (const name of cloud.syncedNames) names.add(name)
     for (const name of locationCloudNames) names.add(name)
     return names
-  }, [cloud.syncedNames, locationCloudNames])
+  }, [cloud.syncedNames, locationCloudNames, cloud.enabled])
   const cloudPlaces = useMemo(() => cloudByPlace(locationCloudNames), [locationCloudNames])
   const detectedSlots = useMemo(
     () => Math.max(detectedSlotCount(saves), maxCloudSlot(locationCloudNames)),
@@ -359,7 +361,10 @@ export default function RenpySavesPanel({
     [saves, slotsPerPage, locationCloudNames]
   )
   const leftovers = useMemo(
-    () => saves.filter((save) => save.kind === 'other'),
+    () =>
+      saves.filter(
+        (save) => save.kind === 'other' && !isPersistentSaveName(save.name)
+      ),
     [saves]
   )
   const canAssign = Boolean(activeId || lookupTitle || lookupThreadId)
@@ -419,6 +424,10 @@ export default function RenpySavesPanel({
     sessionRef.current = null
     document.body.classList.remove('is-save-dragging')
   }, [activeId])
+
+  useEffect(() => {
+    if (!cloud.enabled && view === 'cloud') setView('saves')
+  }, [cloud.enabled, view])
 
   useEffect(() => {
     const valid = new Set(saves.map((save) => save.path))
@@ -697,12 +706,14 @@ export default function RenpySavesPanel({
         </label>
       ) : null}
 
-      {info?.message ? <p className="muted">{info.message}</p> : null}
+      {info?.message && view === 'saves' ? <p className="muted">{info.message}</p> : null}
 
-      <section className="renpy-section">
-        <div className="renpy-section-head">
-          <h2>Saves</h2>
-          <div className="renpy-actions">
+      <SavesPanelTabs
+        view={view}
+        onViewChange={setView}
+        cloudEnabled={cloud.enabled}
+        actions={
+          <>
             {selectedSave ? (
               <button
                 className="ghost-btn saves-toolbar-btn"
@@ -751,56 +762,35 @@ export default function RenpySavesPanel({
             >
               Refresh
             </button>
-          </div>
-        </div>
+            {lookupThreadId ? (
+              <GameCloudSaveActions
+                threadId={lookupThreadId}
+                cloud={cloud}
+                disabled={busy || running}
+              />
+            ) : null}
+          </>
+        }
+      />
 
+      {view === 'saves' && showLocationSelect ? (
         <div className="saves-controls">
           <div className="folder-field saves-location-field">
-            <div className="saves-location-head">
-              <span className="filter-label">Save location</span>
-              {locations.length > 1 ? (
-                <span className="muted">{locations.length} folders</span>
-              ) : null}
-            </div>
+            <span className="filter-label">Save location</span>
             <div className="folder-path-row">
-              {showLocationSelect ? (
-                <select
-                  className="folder-path toolbar-select"
-                  value={selectedLocation}
-                  disabled={busy || running}
-                  title={currentPath || undefined}
-                  onChange={(event) => void switchSaveLocation(event.target.value)}
-                >
-                  {locations.map((item) => (
-                    <option key={item.savePath} value={item.savePath} title={item.savePath}>
-                      {saveLocationLabel(locations, item)}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  className="folder-path"
-                  readOnly
-                  value={currentPath}
-                  placeholder={busy && !info ? 'Reading…' : 'Not set — browse to choose a folder'}
-                  title={currentPath || undefined}
-                />
-              )}
-              {currentPath && info?.savePathExists ? (
-                <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
-              ) : null}
-              <button
-                className="ghost-btn saves-toolbar-btn"
-                type="button"
-                disabled={busy || running || !canAssign}
-                onClick={() =>
-                  void withInfo(() =>
-                    window.api.renpy.chooseSaveDirectory(activeId, lookupTitle, lookupThreadId)
-                  )
-                }
+              <select
+                className="folder-path toolbar-select"
+                value={selectedLocation}
+                disabled={busy || running}
+                title={currentPath || undefined}
+                onChange={(event) => void switchSaveLocation(event.target.value)}
               >
-                {currentPath ? 'Add' : 'Browse'}
-              </button>
+                {locations.map((item) => (
+                  <option key={item.savePath} value={item.savePath} title={item.savePath}>
+                    {saveLocationLabel(locations, item)}
+                  </option>
+                ))}
+              </select>
               <button
                 className="ghost-btn saves-toolbar-btn"
                 type="button"
@@ -813,92 +803,162 @@ export default function RenpySavesPanel({
               >
                 Open
               </button>
-              {currentPath ? (
-                <button
-                  className="ghost-btn saves-toolbar-btn"
-                  type="button"
-                  disabled={busy || running || !canAssign}
-                  title="Stop using this folder for this game. Save files stay on disk."
-                  onClick={() => void unlinkSaveLocation()}
-                >
-                  Remove
-                </button>
-              ) : null}
-              {currentPath ? (
-                <button
-                  className="ghost-btn saves-toolbar-btn"
-                  type="button"
-                  disabled={busy || running || !canAssign}
-                  title="Clear saved locations and try auto-detection again"
-                  onClick={() => void autoDetectSaveLocation()}
-                >
-                  Auto-detect
-                </button>
-              ) : null}
             </div>
           </div>
-
-          {info?.savePath ? (
-            <div className="saves-slots-field">
-              <div className="saves-slots-head">
-                <span className="filter-label" id="saves-slots-label">
-                  Slots per page
-                </span>
-                <span className="saves-slots-value" aria-live="polite">
-                  {slotsPerPage}
-                  {slotsAtDefault ? <span className="muted"> · default</span> : null}
-                </span>
-              </div>
-              {slotsMax > slotsMin ? (
-                <div className="saves-slots-control">
-                  <input
-                    className="saves-slots-slider"
-                    type="range"
-                    min={slotsMin}
-                    max={slotsMax}
-                    step={1}
-                    value={slotsPerPage}
-                    disabled={busy || running}
-                    aria-labelledby="saves-slots-label"
-                    aria-valuemin={slotsMin}
-                    aria-valuemax={slotsMax}
-                    aria-valuenow={slotsPerPage}
-                    aria-valuetext={
-                      slotsAtDefault ? `${slotsPerPage} (default)` : String(slotsPerPage)
-                    }
-                    onChange={(event) => {
-                      const next = Number(event.target.value)
-                      if (!Number.isInteger(next)) return
-                      setSlotsInput(next <= slotsMin ? null : next)
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                  />
-                  <div className="saves-slots-scale" aria-hidden="true">
-                    <button
-                      type="button"
-                      className={
-                        slotsAtDefault
-                          ? 'saves-slots-mark is-default is-active'
-                          : 'saves-slots-mark is-default'
-                      }
-                      disabled={busy || running || slotsAtDefault}
-                      title={`Reset to default (${slotsMin})`}
-                      onClick={() => setSlotsInput(null)}
-                    >
-                      Default · {slotsMin}
-                    </button>
-                    <span className="saves-slots-mark is-max">{slotsMax}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="muted saves-slots-hint">
-                  {slotsPerPage} slots from existing saves
-                </p>
-              )}
-            </div>
-          ) : null}
         </div>
+      ) : null}
 
+      {view === 'settings' ? (
+        <section className="renpy-section">
+          <div className="saves-controls">
+            <div className="folder-field saves-location-field">
+              <div className="saves-location-head">
+                <span className="filter-label">Save location</span>
+                {locations.length > 1 ? (
+                  <span className="muted">{locations.length} folders</span>
+                ) : null}
+              </div>
+              <div className="folder-path-row">
+                {showLocationSelect ? (
+                  <select
+                    className="folder-path toolbar-select"
+                    value={selectedLocation}
+                    disabled={busy || running}
+                    title={currentPath || undefined}
+                    onChange={(event) => void switchSaveLocation(event.target.value)}
+                  >
+                    {locations.map((item) => (
+                      <option key={item.savePath} value={item.savePath} title={item.savePath}>
+                        {saveLocationLabel(locations, item)}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="folder-path"
+                    readOnly
+                    value={currentPath}
+                    placeholder={busy && !info ? 'Reading…' : 'Not set — browse to choose a folder'}
+                    title={currentPath || undefined}
+                  />
+                )}
+                {currentPath && info?.savePathExists ? (
+                  <span className="muted saves-location-meta">{formatBytes(info.saveFolderBytes)}</span>
+                ) : null}
+                <button
+                  className="ghost-btn saves-toolbar-btn"
+                  type="button"
+                  disabled={busy || running || !canAssign}
+                  onClick={() =>
+                    void withInfo(() =>
+                      window.api.renpy.chooseSaveDirectory(activeId, lookupTitle, lookupThreadId)
+                    )
+                  }
+                >
+                  {currentPath ? 'Add' : 'Browse'}
+                </button>
+                <button
+                  className="ghost-btn saves-toolbar-btn"
+                  type="button"
+                  disabled={busy || running || !currentPath}
+                  onClick={() =>
+                    void window.api.renpy.openSaves(activeId, lookupTitle, lookupThreadId).catch((err) => {
+                      setError(err instanceof Error ? err.message : 'Could not open the save folder.')
+                    })
+                  }
+                >
+                  Open
+                </button>
+                {currentPath ? (
+                  <button
+                    className="ghost-btn saves-toolbar-btn"
+                    type="button"
+                    disabled={busy || running || !canAssign}
+                    title="Stop using this folder for this game. Save files stay on disk."
+                    onClick={() => void unlinkSaveLocation()}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+                {currentPath ? (
+                  <button
+                    className="ghost-btn saves-toolbar-btn"
+                    type="button"
+                    disabled={busy || running || !canAssign}
+                    title="Clear saved locations and try auto-detection again"
+                    onClick={() => void autoDetectSaveLocation()}
+                  >
+                    Auto-detect
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {info?.savePath ? (
+              <div className="saves-slots-field">
+                <div className="saves-slots-head">
+                  <span className="filter-label" id="saves-slots-label">
+                    Slots per page
+                  </span>
+                  <span className="saves-slots-value" aria-live="polite">
+                    {slotsPerPage}
+                    {slotsAtDefault ? <span className="muted"> · default</span> : null}
+                  </span>
+                </div>
+                {slotsMax > slotsMin ? (
+                  <div className="saves-slots-control">
+                    <input
+                      className="saves-slots-slider"
+                      type="range"
+                      min={slotsMin}
+                      max={slotsMax}
+                      step={1}
+                      value={slotsPerPage}
+                      disabled={busy || running}
+                      aria-labelledby="saves-slots-label"
+                      aria-valuemin={slotsMin}
+                      aria-valuemax={slotsMax}
+                      aria-valuenow={slotsPerPage}
+                      aria-valuetext={
+                        slotsAtDefault ? `${slotsPerPage} (default)` : String(slotsPerPage)
+                      }
+                      onChange={(event) => {
+                        const next = Number(event.target.value)
+                        if (!Number.isInteger(next)) return
+                        setSlotsInput(next <= slotsMin ? null : next)
+                      }}
+                      onMouseDown={(event) => event.stopPropagation()}
+                    />
+                    <div className="saves-slots-scale" aria-hidden="true">
+                      <button
+                        type="button"
+                        className={
+                          slotsAtDefault
+                            ? 'saves-slots-mark is-default is-active'
+                            : 'saves-slots-mark is-default'
+                        }
+                        disabled={busy || running || slotsAtDefault}
+                        title={`Reset to default (${slotsMin})`}
+                        onClick={() => setSlotsInput(null)}
+                      >
+                        Default · {slotsMin}
+                      </button>
+                      <span className="saves-slots-mark is-max">{slotsMax}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="muted saves-slots-hint">
+                    {slotsPerPage} slots from existing saves
+                  </p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {view === 'saves' ? (
+      <section className="renpy-section">
         {busy && !info ? (
           <p className="muted">Reading save location…</p>
         ) : info?.savePath ? (
@@ -955,7 +1015,13 @@ export default function RenpySavesPanel({
                       if (!save) {
                         const cloudName = cloudPlaces.get(`${board.page}:${item.slot}`)
                         const cloudFile = locationCloudFiles.find((file) => file.name === cloudName)
-                        if (cloudName && cloudFile && !cloudFile.presentLocally && !localNames.has(cloudName)) {
+                        if (
+                          cloud.enabled &&
+                          cloudName &&
+                          cloudFile &&
+                          !cloudFile.presentLocally &&
+                          !localNames.has(cloudName)
+                        ) {
                           return (
                             <article
                               key={`cloud:${cloudName}`}
@@ -1141,14 +1207,12 @@ export default function RenpySavesPanel({
           </p>
         )}
       </section>
-      {lookupThreadId ? (
+      ) : null}
+      {view === 'cloud' && lookupThreadId ? (
         <GameCloudSaves
           threadId={lookupThreadId}
           localNames={localNames}
           folderKey={currentFolderKey}
-          disabled={busy || running}
-          open={cloudOpen}
-          onOpenChange={setCloudOpen}
           cloud={cloud}
         />
       ) : null}

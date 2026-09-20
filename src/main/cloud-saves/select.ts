@@ -19,11 +19,15 @@ export function isCloudMetaName(name: string): boolean {
   return SKIP_META_NAMES.has(name.toLowerCase().trim())
 }
 
+export function isPersistentSaveName(name: string): boolean {
+  return name.toLowerCase().trim().startsWith('persistent')
+}
+
 /** Classify a save filename. Returns null for files that should not be synced. */
 export function classifySaveName(name: string): CloudSaveKind | null {
   const lower = name.toLowerCase().trim()
   if (!lower || SKIP_META_NAMES.has(lower)) return null
-  if (lower === 'persistent' || lower.startsWith('persistent')) return 'always'
+  if (isPersistentSaveName(lower)) return 'always'
   if (lower.endsWith('.save')) {
     if (lower.startsWith('auto-')) return 'auto'
     if (lower.startsWith('quick-')) return 'quick'

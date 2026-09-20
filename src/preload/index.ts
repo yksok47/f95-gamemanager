@@ -440,8 +440,12 @@ const api = {
     }
   },
   rpgmaker: {
-    info: (fileId: string, threadId: number, title = ''): Promise<RpgMakerInfo> =>
-      ipcRenderer.invoke('rpgmaker:info', fileId, threadId, title),
+    info: (
+      fileId: string,
+      threadId: number,
+      title = '',
+      which?: 'game' | 'backup'
+    ): Promise<RpgMakerInfo> => ipcRenderer.invoke('rpgmaker:info', fileId, threadId, title, which),
     openSaves: (fileId: string, threadId: number, title = '', which?: 'game' | 'backup'): Promise<void> =>
       ipcRenderer.invoke('rpgmaker:openSaves', fileId, threadId, title, which),
     showSave: (fileId: string, threadId: number, savePath: string, title = ''): Promise<void> =>

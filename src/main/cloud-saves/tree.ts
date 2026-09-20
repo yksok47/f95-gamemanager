@@ -1,4 +1,4 @@
-import { cloudSaveNameAllowed, isCloudMetaName } from './select'
+import { cloudSaveNameAllowed, isCloudMetaName, isPersistentSaveName } from './select'
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder'
 
@@ -75,12 +75,13 @@ export function gamesFromCloudTree(
     const files: CloudTreeGame['files'] = []
     collectSaves(items, folder, folder.name, files)
     const updatedAt = files.reduce((max, file) => Math.max(max, file.modifiedAt || 0), 0)
+    const counted = files.filter((file) => !isPersistentSaveName(file.name))
     games.push({
       threadId,
       title: titles.get(threadId) || folderTitle(folder, `Thread ${threadId}`),
       folderId: folder.id,
-      saveCount: files.length,
-      bytes: files.reduce((sum, file) => sum + (file.size || 0), 0),
+      saveCount: counted.length,
+      bytes: counted.reduce((sum, file) => sum + (file.size || 0), 0),
       updatedAt: updatedAt || folder.modifiedTime || null,
       files
     })

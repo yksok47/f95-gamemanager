@@ -69,6 +69,7 @@ import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import UserNotesPanel from '../components/UserNotesPanel'
 import { useCatalogPrefixes, useCatalogTags } from '../lib/catalog-prefixes'
+import { useCloudSaveStatus } from '../lib/cloud-saves'
 import {
   formatBytes,
   isActiveDownload,
@@ -412,6 +413,8 @@ function GameDetailsPage({
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
   const tagCatalog = useCatalogTags()
+  const cloudSaveStatus = useCloudSaveStatus()
+  const cloudSaveSyncing = Boolean(cloudSaveStatus?.running && cloudSaveStatus.phase === 'syncing')
   const [details, setDetails] = useState<ThreadDetails | null>(null)
   const [busy, setBusy] = useState(true)
   const [reloadToken, setReloadToken] = useState(0)
@@ -1801,6 +1804,28 @@ function GameDetailsPage({
             </div>
             {busy && !previewCover && !fullCover ? (
               <div className="details-hero-spinner" role="status" aria-label="Loading thread">
+                <span aria-hidden="true" />
+              </div>
+            ) : null}
+            {cloudSaveSyncing ? (
+              <div
+                className={
+                  busy && !previewCover && !fullCover
+                    ? 'details-hero-spinner details-hero-cloud-sync is-offset'
+                    : 'details-hero-spinner details-hero-cloud-sync'
+                }
+                role="status"
+                aria-label={
+                  cloudSaveStatus?.currentTitle
+                    ? `Syncing cloud saves for ${cloudSaveStatus.currentTitle}`
+                    : 'Syncing cloud saves'
+                }
+                title={
+                  cloudSaveStatus?.currentTitle
+                    ? `Syncing ${cloudSaveStatus.currentTitle}`
+                    : 'Syncing cloud saves'
+                }
+              >
                 <span aria-hidden="true" />
               </div>
             ) : null}

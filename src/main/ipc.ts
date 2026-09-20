@@ -1251,17 +1251,21 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('rpgmaker:info', async (_event, fileId: string, threadId: number, title?: string) => {
-    try {
-      return await getRpgMakerInfo({
-        fileId: String(fileId || ''),
-        threadId: Number(threadId),
-        title: String(title || '')
-      })
-    } catch (error) {
-      throw toIpcError(error)
+  ipcMain.handle(
+    'rpgmaker:info',
+    async (_event, fileId: string, threadId: number, title?: string, which?: 'game' | 'backup') => {
+      try {
+        return await getRpgMakerInfo({
+          fileId: String(fileId || ''),
+          threadId: Number(threadId),
+          title: String(title || ''),
+          which: which === 'backup' || which === 'game' ? which : undefined
+        })
+      } catch (error) {
+        throw toIpcError(error)
+      }
     }
-  })
+  )
 
   ipcMain.handle(
     'rpgmaker:openSaves',

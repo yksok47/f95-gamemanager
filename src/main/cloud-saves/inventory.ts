@@ -14,7 +14,7 @@ import {
   type DriveFile
 } from './drive'
 import { hasCloudSaveSession } from './oauth'
-import { classifySaveName, isCloudMetaName } from './select'
+import { classifySaveName, isCloudMetaName, isPersistentSaveName } from './select'
 import { loadCloudManifest } from './remote-manifest'
 import { localNameByHash, readGameManifest } from './local-manifest'
 import { folderKey, localFolderHasFile, type SaveManifest } from './manifest'
@@ -100,11 +100,6 @@ function filesFromChildren(children: DriveFile[], folderKey: string): CloudSaveR
   return files
 }
 
-function isRenpyPersistentName(name: string): boolean {
-  const lower = name.toLowerCase().trim()
-  return lower === 'persistent' || lower.startsWith('persistent')
-}
-
 function withLocalPresence(
   files: CloudSaveRemoteFile[],
   local: SaveManifest | null
@@ -160,7 +155,7 @@ export async function listCloudSavesForThread(threadId: number): Promise<CloudSa
       .map((item) => folderKey(item.folderName || ''))
   )
   files = files.filter((file) => {
-    if (isRenpyPersistentName(file.name)) return false
+    if (isPersistentSaveName(file.name)) return false
     if (file.folderKey && foreignKeys.has(file.folderKey) && !ownedKeys.has(file.folderKey)) {
       return false
     }

@@ -45,8 +45,8 @@ describe('gamesFromCloudTree', () => {
     expect(games[0]).toMatchObject({
       threadId: 111,
       title: 'Cool Game',
-      saveCount: 3,
-      bytes: 180,
+      saveCount: 2,
+      bytes: 130,
       updatedAt: 9
     })
     expect(games[0].files.map((file) => file.name).sort()).toEqual([

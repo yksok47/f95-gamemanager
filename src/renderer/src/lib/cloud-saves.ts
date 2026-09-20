@@ -46,6 +46,28 @@ const EMPTY_CLOUD_FILES: CloudSaveRemoteFile[] = []
 
 export const RPG_CLOUD_FOLDER = 'rpgmaker'
 
+export function isPersistentSaveName(name: string): boolean {
+  return name.toLowerCase().trim().startsWith('persistent')
+}
+
+export function useCloudSavesEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.settings.get().then((next) => {
+      if (!cancelled) setEnabled(Boolean(next.cloudSavesEnabled))
+    })
+    const stop = window.api.settings.onChange((next) => setEnabled(Boolean(next.cloudSavesEnabled)))
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [])
+
+  return enabled
+}
+
 export function cloudFolderKey(name: string): string {
   const trimmed = name.trim() || 'saves'
   return trimmed.replace(/[\\/]/g, '_').slice(0, 120)
@@ -76,11 +98,13 @@ export function useCloudSavesForThread(
   syncedNames: Set<string>
   detail: CloudSaveGameDetail | null
   busy: boolean
+  enabled: boolean
   signedIn: boolean
   syncing: boolean
   reload: () => Promise<void>
 } {
-  const enabled = options?.enabled !== false
+  const settingEnabled = useCloudSavesEnabled()
+  const enabled = options?.enabled !== false && settingEnabled
   const status = useCloudSaveStatus()
   const account = useCloudSaveAccount()
   const [detail, setDetail] = useState<CloudSaveGameDetail | null>(null)
@@ -138,6 +162,7 @@ export function useCloudSavesForThread(
     syncedNames,
     detail,
     busy,
+    enabled: settingEnabled,
     signedIn: account.signedIn,
     syncing: Boolean(status?.running && status.phase === 'syncing'),
     reload
