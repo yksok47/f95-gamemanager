@@ -2,7 +2,7 @@ import type { JSX, MouseEvent } from 'react'
 import type { TagTier } from '@shared/types'
 
 export type FilterChipState = 'off' | 'include' | 'exclude'
-export type ChipCycleDirection = 'forward' | 'reverse'
+export type ChipCycleDirection = 'forward' | 'reverse' | 'reset'
 
 type FilterChipProps = {
   label: string
@@ -17,6 +17,7 @@ export function cycleChipState(
   state: FilterChipState,
   direction: ChipCycleDirection = 'forward'
 ): FilterChipState {
+  if (direction === 'reset') return 'off'
   if (direction === 'forward') {
     if (state === 'off') return 'include'
     if (state === 'include') return 'exclude'
@@ -27,10 +28,15 @@ export function cycleChipState(
   return 'off'
 }
 
+export function isMiddleClick(event: Pick<MouseEvent, 'button'>): boolean {
+  return event.button === 1
+}
+
 export function cycleDirectionFromEvent(
   event: Pick<MouseEvent, 'type' | 'button'>,
   primary: ChipCycleDirection = 'forward'
 ): ChipCycleDirection {
+  if (isMiddleClick(event)) return 'reset'
   const reverseClick = event.type === 'contextmenu' || event.button === 2
   if (primary === 'forward') return reverseClick ? 'reverse' : 'forward'
   return reverseClick ? 'forward' : 'reverse'
@@ -44,6 +50,28 @@ export function onTriStateMouse(
   event.preventDefault()
   const direction = cycleDirectionFromEvent(event, primary)
   setState((state) => cycleChipState(state, direction))
+}
+
+export function triStateMouseProps(
+  onActivate: (event: MouseEvent) => void
+): {
+  onMouseDown: (event: MouseEvent) => void
+  onClick: (event: MouseEvent) => void
+  onContextMenu: (event: MouseEvent) => void
+  onAuxClick: (event: MouseEvent) => void
+} {
+  return {
+    onMouseDown: (event) => {
+      if (isMiddleClick(event)) event.preventDefault()
+    },
+    onClick: onActivate,
+    onContextMenu: onActivate,
+    onAuxClick: (event) => {
+      if (!isMiddleClick(event)) return
+      event.preventDefault()
+      onActivate(event)
+    }
+  }
 }
 
 export function matchesTriState(isMatch: boolean, state: FilterChipState): boolean {
@@ -92,28 +120,18 @@ export default function FilterChip({
       className={['chip', `chip-${state}`, tone ? `chip-${tone}` : '', locked ? 'chip-locked' : '']
         .filter(Boolean)
         .join(' ')}
-      onClick={
-        locked
-          ? undefined
-          : (event) => {
-              event.preventDefault()
-              onCycle(cycleDirectionFromEvent(event))
-            }
-      }
-      onContextMenu={
-        locked
-          ? undefined
-          : (event) => {
-              event.preventDefault()
-              onCycle(cycleDirectionFromEvent(event))
-            }
-      }
+      {...(locked
+        ? {}
+        : triStateMouseProps((event) => {
+            event.preventDefault()
+            onCycle(cycleDirectionFromEvent(event))
+          }))}
       disabled={locked}
       aria-disabled={locked || undefined}
       title={
         locked
           ? lockedTitle
-          : 'Left-click include, again exclude. Right-click reverses.'
+          : 'Left-click include, again exclude. Right-click reverses. Middle-click resets.'
       }
     >
       {state === 'exclude' ? `− ${label}` : state === 'include' ? `+ ${label}` : label}

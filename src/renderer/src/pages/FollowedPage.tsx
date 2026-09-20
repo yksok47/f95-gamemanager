@@ -26,6 +26,7 @@ import {
   matchesTriState,
   onTriStateMouse,
   toolbarTriStateClass,
+  triStateMouseProps,
   type FilterChipState
 } from '../components/FilterChip'
 import { useAdvancedFilters } from '../lib/use-advanced-filters'
@@ -314,6 +315,14 @@ export default function FollowedPage({
           value={query}
           onChange={setQuery}
           placeholder={updatesOnly ? 'Filter updates' : 'Filter followed'}
+          addon={
+            <FilterToolbarSplit
+              open={advanced.filtersOpen}
+              count={advanced.activeFilterCount}
+              onToggle={advanced.toggleFilters}
+              onClear={advanced.clearFilters}
+            />
+          }
         />
         <SelectMenu
           value={sort}
@@ -366,8 +375,7 @@ export default function FollowedPage({
           disabled={!favoriteTags.length}
           title={favoriteToolbarTitle(advanced.favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={advanced.cycleFavoritesFilter}
-          onContextMenu={advanced.cycleFavoritesFilter}
+          {...triStateMouseProps(advanced.cycleFavoritesFilter)}
         >
           <ThumbUpIcon />
         </button>
@@ -378,17 +386,10 @@ export default function FollowedPage({
           disabled={!hatedTags.length}
           title={hatedToolbarTitle(advanced.hatedFilter, hatedTags.length > 0)}
           aria-label="Filter by hated tags"
-          onClick={advanced.cycleHatedFilter}
-          onContextMenu={advanced.cycleHatedFilter}
+          {...triStateMouseProps(advanced.cycleHatedFilter)}
         >
           <ThumbDownIcon />
         </button>
-        <FilterToolbarSplit
-          open={advanced.filtersOpen}
-          count={advanced.activeFilterCount}
-          onToggle={advanced.toggleFilters}
-          onClear={advanced.clearFilters}
-        />
         {updatesOnly ? null : (
           <button
             className={toolbarTriStateClass(archiveFilter)}
@@ -396,8 +397,7 @@ export default function FollowedPage({
             aria-pressed={archiveFilter === 'include'}
             title={archivedToolbarTitle(archiveFilter)}
             aria-label="Filter archived games"
-            onClick={(event) => onTriStateMouse(event, setArchiveFilter)}
-            onContextMenu={(event) => onTriStateMouse(event, setArchiveFilter)}
+            {...triStateMouseProps((event) => onTriStateMouse(event, setArchiveFilter))}
           >
             <FilingCabinetIcon />
           </button>

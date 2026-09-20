@@ -24,6 +24,7 @@ import {
   matchesTriState,
   onTriStateMouse,
   toolbarTriStateClass,
+  triStateMouseProps,
   type FilterChipState
 } from '../components/FilterChip'
 import { toCatalogGame } from '../lib/catalog-game'
@@ -227,7 +228,19 @@ export default function LibraryPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <ToolbarSearch value={query} onChange={setQuery} placeholder="Filter library" />
+        <ToolbarSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter library"
+          addon={
+            <FilterToolbarSplit
+              open={advanced.filtersOpen}
+              count={advanced.activeFilterCount}
+              onToggle={advanced.toggleFilters}
+              onClear={advanced.clearFilters}
+            />
+          }
+        />
         <SelectMenu
           value={sort}
           options={SORTS}
@@ -279,8 +292,7 @@ export default function LibraryPage({
           disabled={!favoriteTags.length}
           title={favoriteToolbarTitle(advanced.favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={advanced.cycleFavoritesFilter}
-          onContextMenu={advanced.cycleFavoritesFilter}
+          {...triStateMouseProps(advanced.cycleFavoritesFilter)}
         >
           <ThumbUpIcon />
         </button>
@@ -291,17 +303,10 @@ export default function LibraryPage({
           disabled={!hatedTags.length}
           title={hatedToolbarTitle(advanced.hatedFilter, hatedTags.length > 0)}
           aria-label="Filter by hated tags"
-          onClick={advanced.cycleHatedFilter}
-          onContextMenu={advanced.cycleHatedFilter}
+          {...triStateMouseProps(advanced.cycleHatedFilter)}
         >
           <ThumbDownIcon />
         </button>
-        <FilterToolbarSplit
-          open={advanced.filtersOpen}
-          count={advanced.activeFilterCount}
-          onToggle={advanced.toggleFilters}
-          onClear={advanced.clearFilters}
-        />
         <button
           className={toolbarTriStateClass(followedFilter)}
           type="button"
@@ -312,8 +317,7 @@ export default function LibraryPage({
             off: 'Showing followed and unfollowed games'
           })}
           aria-label="Filter followed games"
-          onClick={(event) => onTriStateMouse(event, setFollowedFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setFollowedFilter)}
+          {...triStateMouseProps((event) => onTriStateMouse(event, setFollowedFilter))}
         >
           <FollowedIcon />
         </button>
@@ -323,8 +327,7 @@ export default function LibraryPage({
           aria-pressed={archivedFilter === 'include'}
           title={archivedToolbarTitle(archivedFilter)}
           aria-label="Filter archived games"
-          onClick={(event) => onTriStateMouse(event, setArchivedFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setArchivedFilter)}
+          {...triStateMouseProps((event) => onTriStateMouse(event, setArchivedFilter))}
         >
           <FilingCabinetIcon />
         </button>
@@ -338,8 +341,7 @@ export default function LibraryPage({
             off: 'Showing games that only have identified saves'
           })}
           aria-label="Filter games that only have saves"
-          onClick={(event) => onTriStateMouse(event, setSavesFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setSavesFilter)}
+          {...triStateMouseProps((event) => onTriStateMouse(event, setSavesFilter))}
         >
           <SavesOnlyIcon />
         </button>
@@ -353,8 +355,7 @@ export default function LibraryPage({
             off: 'Showing games that only have archives'
           })}
           aria-label="Filter games that only have archives"
-          onClick={(event) => onTriStateMouse(event, setArchivesFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setArchivesFilter)}
+          {...triStateMouseProps((event) => onTriStateMouse(event, setArchivesFilter))}
         >
           <ArchiveIcon />
         </button>
@@ -368,8 +369,7 @@ export default function LibraryPage({
             off: 'Showing games that only have installs'
           })}
           aria-label="Filter games that only have installs"
-          onClick={(event) => onTriStateMouse(event, setInstallsFilter)}
-          onContextMenu={(event) => onTriStateMouse(event, setInstallsFilter)}
+          {...triStateMouseProps((event) => onTriStateMouse(event, setInstallsFilter))}
         >
           <InstallIcon />
         </button>

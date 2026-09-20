@@ -18,6 +18,7 @@ import {
   favoriteToolbarTitle,
   hatedToolbarTitle,
   toolbarTriStateClass,
+  triStateMouseProps,
   type ChipCycleDirection,
   type FilterChipState
 } from '../components/FilterChip'
@@ -32,6 +33,7 @@ import CatalogPageTurn, {
   type PageTurnDirection
 } from '../components/CatalogPageTurn'
 import { selectTagsForQuery } from '../lib/favorites'
+import { captureQuickFilterSnapshot, type QuickFilterSnapshot } from '../lib/quick-filters'
 import { PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
@@ -508,6 +510,17 @@ export default function CatalogPage({
     setTagType('or')
   }
 
+  function applyQuickFilter(snapshot: QuickFilterSnapshot): void {
+    const next = captureQuickFilterSnapshot(snapshot)
+    setPrefixState(next.prefixState)
+    setTagState(next.tagState)
+    setTagType(next.tagType)
+    setCreatorInput(next.creator)
+    setCreator(next.creator)
+    setFavoritesFilter(next.favoritesFilter)
+    setHatedFilter(next.hatedFilter)
+  }
+
   return (
     <div className="catalog-page">
       <ToolbarPortal>
@@ -515,6 +528,14 @@ export default function CatalogPage({
           value={searchInput}
           onChange={setSearchInput}
           placeholder="Search games"
+          addon={
+            <FilterToolbarSplit
+              open={filtersOpen}
+              count={activeFilterCount}
+              onToggle={() => setFiltersOpen((open) => !open)}
+              onClear={clearFilters}
+            />
+          }
         />
         <SelectMenu
           value={sort}
@@ -529,8 +550,7 @@ export default function CatalogPage({
           disabled={!favoriteIds.length}
           title={favoriteToolbarTitle(favoritesFilter, favoriteIds.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={cycleFavoritesFilter}
-          onContextMenu={cycleFavoritesFilter}
+          {...triStateMouseProps(cycleFavoritesFilter)}
         >
           <ThumbUpIcon />
         </button>
@@ -541,17 +561,10 @@ export default function CatalogPage({
           disabled={!hatedIds.length}
           title={hatedToolbarTitle(hatedFilter, hatedIds.length > 0)}
           aria-label="Filter by hated tags"
-          onClick={cycleHatedFilter}
-          onContextMenu={cycleHatedFilter}
+          {...triStateMouseProps(cycleHatedFilter)}
         >
           <ThumbDownIcon />
         </button>
-        <FilterToolbarSplit
-          open={filtersOpen}
-          count={activeFilterCount}
-          onToggle={() => setFiltersOpen((open) => !open)}
-          onClear={clearFilters}
-        />
         <div className="toolbar-actions">
           <button
             className="ghost-btn icon-btn"
@@ -642,6 +655,7 @@ export default function CatalogPage({
           onTagType={setTagType}
           onTagQuery={setTagQuery}
           onCreatorInput={setCreatorInput}
+          onApplyQuickFilter={applyQuickFilter}
         />
       </FilterOverlay>
 

@@ -1,4 +1,4 @@
-import { useRef, type JSX } from 'react'
+import { useRef, type JSX, type ReactNode } from 'react'
 import { ClearIcon } from './ToolbarIcons'
 
 type ToolbarSearchProps = {
@@ -7,6 +7,7 @@ type ToolbarSearchProps = {
   placeholder?: string
   className?: string
   pageSearch?: boolean
+  addon?: ReactNode
 }
 
 export default function ToolbarSearch({
@@ -14,12 +15,13 @@ export default function ToolbarSearch({
   onChange,
   placeholder,
   className = 'toolbar-search',
-  pageSearch = className === 'toolbar-search'
+  pageSearch = className === 'toolbar-search',
+  addon
 }: ToolbarSearchProps): JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null)
   const hasValue = Boolean(value)
 
-  return (
+  const field = (
     <div className={hasValue ? `${className}-wrap has-clear` : `${className}-wrap`}>
       <input
         ref={inputRef}
@@ -46,4 +48,8 @@ export default function ToolbarSearch({
       ) : null}
     </div>
   )
+
+  if (!addon) return field
+
+  return <div className="toolbar-search-split">{field}{addon}</div>
 }

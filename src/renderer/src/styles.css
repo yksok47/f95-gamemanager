@@ -392,59 +392,41 @@ input[type='search']::-webkit-search-results-decoration {
   padding: 0;
 }
 
-.filter-split {
-  display: inline-flex;
+.toolbar-search-split {
+  display: flex;
   align-items: stretch;
-  flex-shrink: 0;
+  flex: 1;
+  min-width: 154px;
+  max-width: 314px;
 }
 
-.filter-split.is-split .ghost-btn.icon-btn:first-child {
+.toolbar-search-split .toolbar-search-wrap {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
+.toolbar-search-split .toolbar-search {
+  height: 34px;
+  box-sizing: border-box;
   border-top-right-radius: 0;
   border-bottom-right-radius: 0;
   border-right-width: 0;
 }
 
-.filter-split.is-split .filter-split-clear {
+.toolbar-search-split .ghost-btn.icon-btn {
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
+  flex-shrink: 0;
 }
 
-.filter-split:hover .ghost-btn,
-.filter-split.is-open .ghost-btn,
-.filter-split.is-open .ghost-btn.nav-btn-active {
+.toolbar-search-split:hover .toolbar-search,
+.toolbar-search-split:hover .ghost-btn.icon-btn,
+.toolbar-search-split:focus-within .toolbar-search,
+.toolbar-search-split:focus-within .ghost-btn.icon-btn,
+.toolbar-search-split:has(.nav-btn-active) .toolbar-search,
+.toolbar-search-split:has(.nav-btn-active) .ghost-btn.icon-btn {
   border-color: var(--accent);
-}
-
-.filter-split-clear {
-  position: relative;
-}
-
-.filter-split-count,
-.filter-split-x {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.filter-split-count {
-  min-width: 1.2em;
-  font-size: 1rem;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.filter-split-x {
-  display: none;
-}
-
-.filter-split:hover .filter-split-count,
-.filter-split:focus-within .filter-split-count {
-  display: none;
-}
-
-.filter-split:hover .filter-split-x,
-.filter-split:focus-within .filter-split-x {
-  display: inline-flex;
 }
 
 .user-avatar {
@@ -1299,7 +1281,7 @@ input[type='search']::-webkit-search-results-decoration {
   height: 100vh;
   border: 0;
   padding: 0;
-  background: color-mix(in srgb, #080a10 52%, transparent);
+  background: color-mix(in srgb, #080a10 28%, transparent);
   cursor: default;
 }
 
@@ -1359,6 +1341,7 @@ input[type='search']::-webkit-search-results-decoration {
   max-height: calc(100vh - 140px);
   overflow: auto;
   box-shadow: var(--shadow);
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
 }
 
 .filter-panel {
@@ -1368,11 +1351,92 @@ input[type='search']::-webkit-search-results-decoration {
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--bg) 72%, var(--bg-raised));
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
 }
 
 .filter-panel-tags {
   min-width: 0;
+}
+
+.quick-filters {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 58%, transparent);
+}
+
+.quick-filters-placeholder {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.quick-filter-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: stretch;
+  max-width: 220px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: transparent;
+  color: var(--text);
+}
+
+.quick-filter-chip button,
+.quick-filter-chip input {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.quick-filter-chip > button:first-child,
+.quick-filter-chip input {
+  padding: 4px 10px 4px 12px;
+  min-width: 0;
+  outline: none;
+}
+
+.quick-filter-chip > button:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-filter-chip input {
+  width: auto;
+  min-width: 3ch;
+  max-width: 180px;
+}
+
+.quick-filter-chip-remove {
+  display: grid;
+  place-items: center;
+  padding: 0 8px 0 4px;
+  opacity: 0.7;
+}
+
+.quick-filter-chip-remove:hover {
+  opacity: 1;
+}
+
+.quick-filter-chip-remove svg {
+  width: 10px;
+  height: 10px;
 }
 
 .filter-panel-head {

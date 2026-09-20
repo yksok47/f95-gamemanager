@@ -1,8 +1,11 @@
-import { useMemo, type JSX } from 'react'
+import { useMemo, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import type { CatalogFilters, FavoriteTag, HatedTag, MatchMode } from '@shared/types'
 import { decodeHtmlEntities } from '@shared/engines'
 import { sortFavoriteTags } from '../lib/favorites'
+import { captureQuickFilterSnapshot, type QuickFilterSnapshot } from '../lib/quick-filters'
+import { useQuickFilters } from '../lib/use-quick-filters'
 import FilterChip, { type ChipCycleDirection, type FilterChipState } from './FilterChip'
+import { ClearIcon } from './ToolbarIcons'
 import TagBrowser from './TagBrowser'
 
 type FilterShelfProps = {
@@ -25,6 +28,7 @@ type FilterShelfProps = {
   onTagType: (value: MatchMode) => void
   onTagQuery: (value: string) => void
   onCreatorInput: (value: string) => void
+  onApplyQuickFilter: (snapshot: QuickFilterSnapshot) => void
 }
 
 export default function FilterShelf({
@@ -46,8 +50,13 @@ export default function FilterShelf({
   onToggleTag,
   onTagType,
   onTagQuery,
-  onCreatorInput
+  onCreatorInput,
+  onApplyQuickFilter
 }: FilterShelfProps): JSX.Element {
+  const { quickFilters, createQuickFilter, removeQuickFilter } = useQuickFilters()
+  const [draftingQuickFilter, setDraftingQuickFilter] = useState(false)
+  const [quickFilterName, setQuickFilterName] = useState('')
+  const draftingQuickFilterRef = useRef(false)
   const statusOptions = filters.prefixes.filter((prefix) => prefix.group === 'status')
   const engineOptions = filters.prefixes.filter((prefix) => prefix.group === 'engine')
   const favoriteTagIds = useMemo(() => new Set(favoriteTags.map((tag) => tag.id)), [favoriteTags])
@@ -89,12 +98,92 @@ export default function FilterShelf({
   )
   const matchLocked = favoriteFilter !== 'off' || hatedFilter !== 'off'
 
+  function startQuickFilterDraft(): void {
+    draftingQuickFilterRef.current = true
+    setQuickFilterName('')
+    setDraftingQuickFilter(true)
+  }
+
+  function cancelQuickFilterDraft(): void {
+    draftingQuickFilterRef.current = false
+    setDraftingQuickFilter(false)
+    setQuickFilterName('')
+  }
+
+  function commitQuickFilterDraft(): void {
+    if (!draftingQuickFilterRef.current) return
+    const name = quickFilterName
+    cancelQuickFilterDraft()
+    createQuickFilter(
+      name,
+      captureQuickFilterSnapshot({
+        prefixState,
+        tagState,
+        tagType,
+        creator: creatorInput,
+        favoritesFilter: favoriteFilter,
+        hatedFilter
+      })
+    )
+  }
+
+  function onQuickFilterDraftKey(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commitQuickFilterDraft()
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      cancelQuickFilterDraft()
+    }
+  }
+
   return (
     <section className="filter-shelf">
+      <div className="quick-filters">
+        {quickFilters.map((item) => (
+          <span key={item.id} className="quick-filter-chip">
+            <button type="button" title={item.name} onClick={() => onApplyQuickFilter(item.snapshot)}>
+              {item.name}
+            </button>
+            <button
+              type="button"
+              className="quick-filter-chip-remove"
+              title={`Remove ${item.name}`}
+              aria-label={`Remove ${item.name}`}
+              onClick={() => removeQuickFilter(item.id)}
+            >
+              <ClearIcon />
+            </button>
+          </span>
+        ))}
+        {draftingQuickFilter ? (
+          <span className="quick-filter-chip is-draft">
+            <input
+              autoFocus
+              value={quickFilterName}
+              onChange={(event) => setQuickFilterName(event.target.value)}
+              onBlur={commitQuickFilterDraft}
+              onKeyDown={onQuickFilterDraftKey}
+              aria-label="Quick filter name"
+              size={Math.max(4, quickFilterName.length + 1)}
+            />
+          </span>
+        ) : (
+          <button className="chip" type="button" onClick={startQuickFilterDraft}>
+            Add
+          </button>
+        )}
+        {quickFilters.length || draftingQuickFilter ? null : (
+          <span className="quick-filters-placeholder">Save the current filters as a named shortcut</span>
+        )}
+      </div>
       <div className="filter-panel">
         <div className="filter-panel-head">
           <h3 className="filter-panel-title">Basics</h3>
-          <p className="filter-panel-hint">Left-click a chip to include, again to exclude. Right-click reverses.</p>
+          <p className="filter-panel-hint">
+            Left-click a chip to include, again to exclude. Right-click reverses. Middle-click resets.
+          </p>
         </div>
         <label className="filter-field">
           <span>Creator</span>

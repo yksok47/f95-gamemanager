@@ -19,7 +19,8 @@ import { notifyCaught } from '../components/ErrorNotifications'
 import {
   favoriteToolbarTitle,
   hatedToolbarTitle,
-  toolbarTriStateClass
+  toolbarTriStateClass,
+  triStateMouseProps
 } from '../components/FilterChip'
 import { toCatalogGame } from '../lib/catalog-game'
 import { useAdvancedFilters } from '../lib/use-advanced-filters'
@@ -180,7 +181,19 @@ export default function RosterPage({
   return (
     <div className="catalog-page">
       <ToolbarPortal>
-        <ToolbarSearch value={query} onChange={setQuery} placeholder="Filter roster" />
+        <ToolbarSearch
+          value={query}
+          onChange={setQuery}
+          placeholder="Filter roster"
+          addon={
+            <FilterToolbarSplit
+              open={advanced.filtersOpen}
+              count={advanced.activeFilterCount}
+              onToggle={advanced.toggleFilters}
+              onClear={advanced.clearFilters}
+            />
+          }
+        />
         <SelectMenu
           value={sort}
           options={SORTS}
@@ -232,8 +245,7 @@ export default function RosterPage({
           disabled={!favoriteTags.length}
           title={favoriteToolbarTitle(advanced.favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
-          onClick={advanced.cycleFavoritesFilter}
-          onContextMenu={advanced.cycleFavoritesFilter}
+          {...triStateMouseProps(advanced.cycleFavoritesFilter)}
         >
           <ThumbUpIcon />
         </button>
@@ -244,17 +256,10 @@ export default function RosterPage({
           disabled={!hatedTags.length}
           title={hatedToolbarTitle(advanced.hatedFilter, hatedTags.length > 0)}
           aria-label="Filter by hated tags"
-          onClick={advanced.cycleHatedFilter}
-          onContextMenu={advanced.cycleHatedFilter}
+          {...triStateMouseProps(advanced.cycleHatedFilter)}
         >
           <ThumbDownIcon />
         </button>
-        <FilterToolbarSplit
-          open={advanced.filtersOpen}
-          count={advanced.activeFilterCount}
-          onToggle={advanced.toggleFilters}
-          onClear={advanced.clearFilters}
-        />
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">

@@ -8,6 +8,10 @@ import {
 } from '../components/FilterChip'
 import { matchesLocalFilters, selectedChipIds, type LocalFilterGame } from './game-filters'
 import { useCatalogFilters } from './catalog-prefixes'
+import {
+  captureQuickFilterSnapshot,
+  type QuickFilterSnapshot
+} from './quick-filters'
 
 export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: HatedTag[]) {
   const filters = useCatalogFilters()
@@ -162,6 +166,17 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
     setTagType('or')
   }
 
+  const applyQuickFilter = useCallback((snapshot: QuickFilterSnapshot): void => {
+    const next = captureQuickFilterSnapshot(snapshot)
+    setPrefixState(next.prefixState)
+    setTagState(next.tagState)
+    setTagType(next.tagType)
+    setCreatorInput(next.creator)
+    setCreator(next.creator)
+    setFavoritesFilter(next.favoritesFilter)
+    setHatedFilter(next.hatedFilter)
+  }, [])
+
   const matches = useCallback(
     (game: LocalFilterGame): boolean =>
       matchesLocalFilters(game, {
@@ -196,6 +211,7 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
     toggleTag,
     setTagType,
     clearFilters,
+    applyQuickFilter,
     cycleFavoritesFilter,
     cycleHatedFilter,
     matches

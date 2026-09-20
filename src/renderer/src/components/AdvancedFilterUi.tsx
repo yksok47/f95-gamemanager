@@ -1,8 +1,9 @@
-import { useEffect, type JSX, type ReactNode } from 'react'
+import { useEffect, type JSX, type MouseEvent, type ReactNode } from 'react'
 import type { FavoriteTag, HatedTag } from '@shared/types'
 import type { AdvancedFilters } from '../lib/use-advanced-filters'
+import { isMiddleClick } from './FilterChip'
 import FilterShelf from './FilterShelf'
-import { ClearIcon, FilterIcon } from './ToolbarIcons'
+import { FilterIcon } from './ToolbarIcons'
 
 export function FilterToolbarSplit({
   open,
@@ -15,37 +16,35 @@ export function FilterToolbarSplit({
   onToggle: () => void
   onClear: () => void
 }): JSX.Element {
+  function clearIfActive(event: MouseEvent): void {
+    event.preventDefault()
+    if (count) onClear()
+  }
+
   return (
-    <div
-      className={['filter-split', open ? 'is-open' : '', count ? 'is-split' : '']
-        .filter(Boolean)
-        .join(' ')}
+    <button
+      className={open ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
+      type="button"
+      aria-pressed={open}
+      title={
+        count
+          ? `Filters (${count}). Right-click or middle-click to clear.`
+          : 'Filters'
+      }
+      aria-label={count ? `Filters, ${count} active` : 'Filters'}
+      onClick={onToggle}
+      onMouseDown={(event) => {
+        if (isMiddleClick(event)) event.preventDefault()
+      }}
+      onContextMenu={clearIfActive}
+      onAuxClick={(event) => {
+        if (!isMiddleClick(event)) return
+        clearIfActive(event)
+      }}
     >
-      <button
-        className={open ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
-        type="button"
-        aria-pressed={open}
-        title={count ? `Filters (${count})` : 'Filters'}
-        aria-label={count ? `Filters, ${count} active` : 'Filters'}
-        onClick={onToggle}
-      >
-        <FilterIcon />
-      </button>
-      {count ? (
-        <button
-          className="ghost-btn icon-btn filter-split-clear"
-          type="button"
-          title="Clear filters"
-          aria-label="Clear filters"
-          onClick={onClear}
-        >
-          <span className="filter-split-count">{count}</span>
-          <span className="filter-split-x">
-            <ClearIcon />
-          </span>
-        </button>
-      ) : null}
-    </div>
+      <FilterIcon />
+      {count ? <span className="icon-btn-badge">{count}</span> : null}
+    </button>
   )
 }
 
@@ -111,6 +110,7 @@ export function LocalAdvancedFilters({
         onTagType={advanced.setTagType}
         onTagQuery={advanced.setTagQuery}
         onCreatorInput={advanced.setCreatorInput}
+        onApplyQuickFilter={advanced.applyQuickFilter}
       />
     </FilterOverlay>
   )
