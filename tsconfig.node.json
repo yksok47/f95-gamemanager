@@ -8,6 +8,7 @@
   ],
   "exclude": [
     "src/**/*.test.ts",
+    "src/main/rpgmaker/lz-string-mv.fixture.js",
     "src/main/f95/parser/test-harness.ts",
     "src/main/f95/parser/propagate-samples.ts",
     "src/main/f95/parser/update-samples.ts",

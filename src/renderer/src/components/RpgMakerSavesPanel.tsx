@@ -7,6 +7,7 @@ import { formatBytes } from '../lib/downloads'
 import { RPG_CLOUD_FOLDER, filesForSaveFolder, useCloudSavesForThread } from '../lib/cloud-saves'
 import { usePlaySessions } from '../lib/library'
 import GameCloudSaves from './GameCloudSaves'
+import RpgMakerSaveEditorDialog from './RpgMakerSaveEditorDialog'
 
 type RpgMakerSavesPanelProps = {
   files: GameLibraryFile[]
@@ -29,6 +30,7 @@ export default function RpgMakerSavesPanel({
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [cloudOpen, setCloudOpen] = useState(false)
+  const [editing, setEditing] = useState<RpgMakerSaveFile | null>(null)
   const sessions = usePlaySessions()
   const selectedFile = installed.find((file) => file.id === fileId) || installed[0] || files[0] || null
   const activeId = selectedFile?.id || ''
@@ -284,6 +286,19 @@ export default function RpgMakerSavesPanel({
                   <button
                     className="ghost-btn"
                     type="button"
+                    disabled={busy || playing}
+                    title={playing ? 'Stop the game before editing saves.' : undefined}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setEditing(save)
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="ghost-btn"
+                    type="button"
                     disabled={busy}
                     onClick={(event) => {
                       event.preventDefault()
@@ -312,6 +327,16 @@ export default function RpgMakerSavesPanel({
         onOpenChange={setCloudOpen}
         cloud={cloud}
       />
+      {editing ? (
+        <RpgMakerSaveEditorDialog
+          fileId={activeId}
+          threadId={threadId}
+          title={title}
+          save={editing}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+        />
+      ) : null}
     </div>
   )
 }

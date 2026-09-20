@@ -665,6 +665,31 @@ export type RpgMakerInfo = {
   message?: string
 }
 
+/** Compression used by the RPG Maker MV/MZ save we decoded. */
+export type RpgMakerSaveCodec = 'json' | 'lz-mv' | 'lz-modern' | 'zlib' | 'deflate' | 'gzip'
+
+export type RpgMakerSaveEditKind = 'Boolean' | 'Integer' | 'Number' | 'String' | 'Null'
+
+export type RpgMakerSaveEditVar = {
+  path: string[]
+  displayName: string
+  type: RpgMakerSaveEditKind
+  value: boolean | number | string | null
+  editable: boolean
+}
+
+export type RpgMakerSaveEditPatch = {
+  path: string[]
+  value: boolean | number | string
+}
+
+export type RpgMakerSaveEditorData = {
+  path: string
+  name: string
+  codec: RpgMakerSaveCodec
+  variables: RpgMakerSaveEditVar[]
+}
+
 /**
  * Per-version history for a game (survives uninstall/remove of that build).
  * Entries may be unplayed — e.g. versions discovered when refreshing metadata.

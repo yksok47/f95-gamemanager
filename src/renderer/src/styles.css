@@ -6440,6 +6440,16 @@ body.is-save-dragging * {
   color: inherit;
 }
 
+.save-editor-str {
+  width: 100%;
+  max-width: 280px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #0b0d12;
+  color: inherit;
+}
+
 .save-editor-empty {
   margin: 12px;
 }

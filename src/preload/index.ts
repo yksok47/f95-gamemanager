@@ -19,6 +19,9 @@ import type {
   IdentifiedSaveFolder,
   RenpySaveEditPatch,
   RenpySaveEditorData,
+  RpgMakerInfo,
+  RpgMakerSaveEditPatch,
+  RpgMakerSaveEditorData,
   LibraryStorageScan,
   LibraryStorageStats,
   LibraryImportCandidate,
@@ -31,7 +34,6 @@ import type {
   RenpyInfoScope,
   RenpyStatus,
   RenpyToolId,
-  RpgMakerInfo,
   RosterGame,
   Subscription,
   ThreadDetails,
@@ -444,6 +446,21 @@ const api = {
       ipcRenderer.invoke('rpgmaker:openSaves', fileId, threadId, title, which),
     showSave: (fileId: string, threadId: number, savePath: string, title = ''): Promise<void> =>
       ipcRenderer.invoke('rpgmaker:showSave', fileId, threadId, savePath, title),
+    readSaveEditor: (
+      fileId: string,
+      threadId: number,
+      savePath: string,
+      title = ''
+    ): Promise<RpgMakerSaveEditorData> =>
+      ipcRenderer.invoke('rpgmaker:readSaveEditor', fileId, threadId, savePath, title),
+    applySaveEditor: (
+      fileId: string,
+      threadId: number,
+      savePath: string,
+      patches: RpgMakerSaveEditPatch[],
+      title = ''
+    ): Promise<RpgMakerInfo> =>
+      ipcRenderer.invoke('rpgmaker:applySaveEditor', fileId, threadId, savePath, patches, title),
     deleteSaves: (fileId: string, threadId: number, savePaths: string[], title = ''): Promise<RpgMakerInfo> =>
       ipcRenderer.invoke('rpgmaker:deleteSaves', fileId, threadId, savePaths, title)
   },

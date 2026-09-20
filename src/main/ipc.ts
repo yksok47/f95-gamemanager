@@ -57,9 +57,11 @@ import { getGameNote, setGameNote } from './game-notes-store'
 import { applyCatalogGamesToRoster, listRoster, removeFromRoster, toggleRoster } from './roster-store'
 import { listPlaySessions, stopPlaySession } from './play-sessions'
 import {
+  applyRpgMakerSaveEditor,
   deleteRpgMakerSaves,
   getRpgMakerInfo,
   openRpgMakerSaves,
+  readRpgMakerSaveEditor,
   showRpgMakerSave
 } from './rpgmaker/saves'
 import {
@@ -1287,6 +1289,35 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle(
+    'rpgmaker:readSaveEditor',
+    async (_event, fileId: string, threadId: number, savePath: string, title?: string) => {
+      try {
+        return await readRpgMakerSaveEditor(
+          { fileId: String(fileId || ''), threadId: Number(threadId), title: String(title || '') },
+          String(savePath)
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'rpgmaker:applySaveEditor',
+    async (_event, fileId: string, threadId: number, savePath: string, patches: unknown, title?: string) => {
+      try {
+        return await applyRpgMakerSaveEditor(
+          { fileId: String(fileId || ''), threadId: Number(threadId), title: String(title || '') },
+          String(savePath),
+          Array.isArray(patches) ? patches : []
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
 
   ipcMain.handle(
     'rpgmaker:deleteSaves',

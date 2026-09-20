@@ -2,7 +2,7 @@ import { copyFile, mkdir, readdir, rm, stat, utimes, writeFile } from 'fs/promis
 import { basename, dirname, join, resolve, sep } from 'path'
 import { app, shell } from 'electron'
 import { engineKind } from '@shared/engines'
-import type { RpgMakerInfo, RpgMakerSaveFile, RpgMakerSaveKind } from '@shared/types'
+import type { RpgMakerInfo, RpgMakerSaveEditPatch, RpgMakerSaveEditorData, RpgMakerSaveFile, RpgMakerSaveKind } from '@shared/types'
 import { mapLimit } from '../disk-usage'
 import { getGameFile } from '../game-files-store'
 import { findRpgMakerWww, rpgMakerSaveDirFromWww } from '../launch'
@@ -14,7 +14,8 @@ import {
   rpgMakerSaveFileBytes,
   wipeRpgMakerSaveDirs
 } from './save-disk'
-import { recordLocalSaveDeletes, recordLocalSaveFolderCleared } from '../cloud-saves/local-manifest'
+import { recordLocalSaveDeletes, recordLocalSaveEdit, recordLocalSaveFolderCleared } from '../cloud-saves/local-manifest'
+import { applySaveEditor, readSaveEditor } from './save-edit'
 
 const MTIME_SKEW_MS = 1000
 const UNSTABLE_MS = 2000
@@ -366,6 +367,42 @@ export async function showRpgMakerSave(
   assertManagedSave(info, savePath)
   if (!pathExists(savePath)) throw new Error('That save is missing.')
   shell.showItemInFolder(savePath)
+}
+
+export async function readRpgMakerSaveEditor(
+  input: { fileId?: string; threadId: number; title?: string },
+  savePath: string
+): Promise<RpgMakerSaveEditorData> {
+  const info = await getRpgMakerInfo(input)
+  assertManagedSave(info, savePath)
+  if (!pathExists(savePath)) throw new Error('That save is missing.')
+  return readSaveEditor(savePath)
+}
+
+export async function applyRpgMakerSaveEditor(
+  input: { fileId?: string; threadId: number; title?: string },
+  savePath: string,
+  patches: RpgMakerSaveEditPatch[]
+): Promise<RpgMakerInfo> {
+  const info = await getRpgMakerInfo(input)
+  assertManagedSave(info, savePath)
+  if (!pathExists(savePath)) throw new Error('That save is missing.')
+  await applySaveEditor(savePath, patches)
+  const next = await getRpgMakerInfo(input)
+  if (next.backupPath) {
+    await recordLocalSaveEdit(next.backupPath, basename(savePath), {
+      threadId: input.threadId,
+      title: input.title,
+      folderKey: 'rpgmaker'
+    }).catch(() => undefined)
+  }
+  const threadId = Number(input.threadId)
+  if (threadId) {
+    void import('../cloud-saves/sync')
+      .then(({ scheduleCloudSyncForThread }) => scheduleCloudSyncForThread(threadId))
+      .catch((error) => console.warn('Could not sync cloud saves', error))
+  }
+  return next
 }
 
 export async function deleteRpgMakerSaves(
