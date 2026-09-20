@@ -11,6 +11,7 @@ import type {
   CloudSaveGameDetail,
   CloudSaveGameSummary,
   CloudSaveSyncStatus,
+  CloudUserDataSyncStatus,
   DownloadRecord,
   GameFileContext,
   GameLibraryFile,
@@ -138,7 +139,14 @@ const api = {
   gameNotes: {
     get: (threadId: number): Promise<string> => ipcRenderer.invoke('gameNotes:get', threadId),
     set: (threadId: number, text: string): Promise<string> =>
-      ipcRenderer.invoke('gameNotes:set', threadId, text)
+      ipcRenderer.invoke('gameNotes:set', threadId, text),
+    onChange: (listener: (notes: Record<string, string>) => void): (() => void) => {
+      const wrapped = (_event: unknown, notes: Record<string, string>): void => listener(notes)
+      ipcRenderer.on('game-notes:changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('game-notes:changed', wrapped)
+      }
+    }
   },
   settings: {
     get: (): Promise<AppSettings> => ipcRenderer.invoke('settings:get'),
@@ -147,7 +155,14 @@ const api = {
     pickFolder: (currentPath?: string): Promise<string | null> =>
       ipcRenderer.invoke('settings:pickFolder', currentPath),
     userDataPath: (): Promise<string> => ipcRenderer.invoke('settings:userDataPath'),
-    openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData')
+    openUserData: (): Promise<void> => ipcRenderer.invoke('settings:openUserData'),
+    onChange: (listener: (settings: AppSettings) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: AppSettings): void => listener(next)
+      ipcRenderer.on('settings:changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('settings:changed', wrapped)
+      }
+    }
   },
   cloudSaves: {
     account: (): Promise<CloudSaveAccount> => ipcRenderer.invoke('cloudSaves:account'),
@@ -184,6 +199,17 @@ const api = {
       ipcRenderer.on('cloud-saves:inventory-changed', wrapped)
       return () => {
         ipcRenderer.removeListener('cloud-saves:inventory-changed', wrapped)
+      }
+    }
+  },
+  cloudUserData: {
+    status: (): Promise<CloudUserDataSyncStatus> => ipcRenderer.invoke('cloudUserData:status'),
+    sync: (): Promise<CloudUserDataSyncStatus> => ipcRenderer.invoke('cloudUserData:sync'),
+    onStatus: (listener: (status: CloudUserDataSyncStatus) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: CloudUserDataSyncStatus): void => listener(next)
+      ipcRenderer.on('cloud-user-data:status', wrapped)
+      return () => {
+        ipcRenderer.removeListener('cloud-user-data:status', wrapped)
       }
     }
   },

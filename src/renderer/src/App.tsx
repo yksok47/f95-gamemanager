@@ -164,7 +164,8 @@ export default function App(): JSX.Element {
     catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
     cloudSavesEnabled: false,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
-    cloudSaveIncludeAutoQuick: true
+    cloudSaveIncludeAutoQuick: true,
+    cloudUserDataEnabled: false
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
@@ -295,6 +296,10 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     return window.api.roster.onChange(setRoster)
+  }, [])
+
+  useEffect(() => {
+    return window.api.settings.onChange(setSettings)
   }, [])
 
   const handleCancelDownload = useCallback(async (id: string): Promise<void> => {

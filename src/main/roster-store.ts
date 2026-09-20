@@ -6,6 +6,8 @@ import { catalogTimestamp } from '@shared/updates'
 import { uniqueScreenUrls } from './f95/catalog'
 import { getAppPaths } from './paths'
 import { sendToRenderer } from './windows'
+import { notifyUserDataChanged } from './cloud-user-data/notify'
+import { tombstoneRoster, touchRoster } from './cloud-user-data/state'
 
 type RosterFile = {
   version: 1
@@ -153,10 +155,14 @@ export async function toggleRoster(game: CatalogGame): Promise<RosterGame[]> {
   const index = games.findIndex((item) => item.threadId === next.threadId)
   if (index >= 0) {
     games.splice(index, 1)
+    await tombstoneRoster(next.threadId)
   } else {
     games.push(next)
+    await touchRoster(next.threadId)
   }
-  return writeStore(games)
+  const listed = await writeStore(games)
+  notifyUserDataChanged('data')
+  return listed
 }
 
 export async function removeFromRoster(threadId: number): Promise<RosterGame[]> {
@@ -165,7 +171,14 @@ export async function removeFromRoster(threadId: number): Promise<RosterGame[]> 
     throw new Error('Invalid thread id.')
   }
   const games = (await readStore()).filter((game) => game.threadId !== id)
-  return writeStore(games)
+  await tombstoneRoster(id)
+  const listed = await writeStore(games)
+  notifyUserDataChanged('data')
+  return listed
+}
+
+export async function replaceRoster(games: RosterGame[]): Promise<void> {
+  await writeStore(games)
 }
 
 /** Refresh stored roster snapshots when catalog rows are already in hand. */

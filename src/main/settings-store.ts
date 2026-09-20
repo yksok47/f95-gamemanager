@@ -18,6 +18,7 @@ import {
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { normalizeExtraDirs } from './extra-library-dirs'
 import { getAppPaths } from './paths'
+import { sendToRenderer } from './windows'
 
 let loaded: AppSettings | null = null
 
@@ -171,6 +172,7 @@ function emptySettings(): AppSettings {
     cloudSavesEnabled: false,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
     cloudSaveIncludeAutoQuick: true,
+    cloudUserDataEnabled: false,
     ...defaultFolders()
   }
 }
@@ -202,7 +204,8 @@ function normalizeSettings(value: unknown): AppSettings {
     cloudSavesEnabled: Boolean(raw.cloudSavesEnabled),
     cloudSaveKeepCount: normalizeCloudSaveKeepCount(raw.cloudSaveKeepCount),
     cloudSaveIncludeAutoQuick:
-      typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true
+      typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true,
+    cloudUserDataEnabled: Boolean(raw.cloudUserDataEnabled)
   }
 }
 
@@ -233,6 +236,7 @@ async function writeStore(settings: AppSettings): Promise<void> {
   const file = getAppPaths().settingsFile
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify(settings, null, 2), 'utf8')
+  sendToRenderer('settings:changed', settings)
 }
 
 export function getDownloadsDirSync(): string {

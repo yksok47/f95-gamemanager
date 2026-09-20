@@ -39,8 +39,19 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
         setReady(true)
       })
 
+    const stop = window.api.gameNotes.onChange((notes) => {
+      if (cancelled) return
+      if (saveTimer.current) return
+      if (textRef.current !== lastSaved.current) return
+      const incoming = notes[String(threadId)] ?? ''
+      if (incoming === lastSaved.current) return
+      setText(incoming)
+      lastSaved.current = incoming
+    })
+
     return () => {
       cancelled = true
+      stop()
       if (saveTimer.current) clearTimeout(saveTimer.current)
       if (savedClearTimer.current) clearTimeout(savedClearTimer.current)
       const pending = textRef.current

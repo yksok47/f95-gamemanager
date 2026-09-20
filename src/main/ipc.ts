@@ -107,6 +107,15 @@ import {
   scanExternalLibraries
 } from './library-import'
 import { getSettings, saveSettings } from './settings-store'
+import { portableSettingKeysChanged } from './cloud-user-data/snapshot'
+import { bumpSettingTimes } from './cloud-user-data/state'
+import {
+  getCloudUserDataStatus,
+  notifyUserDataChanged,
+  notifyUserDataEnabled,
+  notifyUserDataSession,
+  syncCloudUserData
+} from './cloud-user-data/sync'
 import {
   getCloudSaveAccount,
   signInCloudSaves,
@@ -488,6 +497,13 @@ export function registerIpc(): void {
       } else if (before.p2pUploadLimitKBps !== settings.p2pUploadLimitKBps) {
         applyP2pUploadLimit()
       }
+      const changedKeys = portableSettingKeysChanged(before, settings)
+      if (changedKeys.length) await bumpSettingTimes(changedKeys)
+      if (before.cloudUserDataEnabled !== settings.cloudUserDataEnabled) {
+        notifyUserDataEnabled(settings.cloudUserDataEnabled)
+      } else if (changedKeys.length) {
+        notifyUserDataChanged('settings')
+      }
       return settings
     } catch (error) {
       throw toIpcError(error)
@@ -524,7 +540,9 @@ export function registerIpc(): void {
 
   ipcMain.handle('cloudSaves:signIn', async (_event, openBrowser?: boolean) => {
     try {
-      return await signInCloudSaves(openBrowser !== false)
+      const account = await signInCloudSaves(openBrowser !== false)
+      notifyUserDataSession()
+      return account
     } catch (error) {
       throw toIpcError(error)
     }
@@ -534,6 +552,7 @@ export function registerIpc(): void {
     try {
       const account = await signOutCloudSaves()
       clearDriveCaches()
+      notifyUserDataSession()
       return account
     } catch (error) {
       throw toIpcError(error)
@@ -585,6 +604,16 @@ export function registerIpc(): void {
   ipcMain.handle('cloudSaves:deleteAll', async () => {
     try {
       await deleteAllCloudSaves()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('cloudUserData:status', () => getCloudUserDataStatus())
+
+  ipcMain.handle('cloudUserData:sync', async () => {
+    try {
+      return await syncCloudUserData()
     } catch (error) {
       throw toIpcError(error)
     }

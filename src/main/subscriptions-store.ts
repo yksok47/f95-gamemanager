@@ -18,6 +18,8 @@ import { pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@sha
 import { parseGameTitle, sleep } from './f95/parse'
 import { getAppPaths } from './paths'
 import { sendToRenderer } from './windows'
+import { notifyUserDataChanged } from './cloud-user-data/notify'
+import { tombstoneSubscription, touchSubscription } from './cloud-user-data/state'
 
 let loaded: Subscription[] | null = null
 const METADATA_CHECK_VERSION = 1
@@ -306,12 +308,16 @@ export async function upsertSubscription(entry: Subscription): Promise<Subscript
     })
   }
   await writeStore(games)
+  await touchSubscription(entry.threadId)
+  notifyUserDataChanged('data')
   return listSubscriptions()
 }
 
 export async function removeSubscription(threadId: number): Promise<Subscription[]> {
   const games = (await readStore()).filter((game) => game.threadId !== threadId)
   await writeStore(games)
+  await tombstoneSubscription(threadId)
+  notifyUserDataChanged('data')
   return listSubscriptions()
 }
 
@@ -323,6 +329,7 @@ export async function addSubscriptions(entries: Subscription[]): Promise<{
   const known = new Set(games.map((game) => game.threadId))
   let added = 0
   let alreadyFollowed = 0
+  const addedIds: number[] = []
 
   for (const entry of entries) {
     if (known.has(entry.threadId)) {
@@ -332,9 +339,12 @@ export async function addSubscriptions(entries: Subscription[]): Promise<{
     games.push({ ...emptyDetails(), ...entry })
     known.add(entry.threadId)
     added += 1
+    addedIds.push(entry.threadId)
   }
 
   await writeStore(games)
+  await Promise.all(addedIds.map((id) => touchSubscription(id)))
+  if (added) notifyUserDataChanged('data')
   return { added, alreadyFollowed }
 }
 
@@ -434,6 +444,8 @@ export async function setSubscriptionArchived(
   }
   game.archived = Boolean(archived)
   await writeStore(games)
+  await touchSubscription(threadId)
+  notifyUserDataChanged('data')
   return listSubscriptions()
 }
 
@@ -451,6 +463,8 @@ export async function setSubscriptionRarity(
   }
   game.rarity = rarity
   await writeStore(games)
+  await touchSubscription(threadId)
+  notifyUserDataChanged('data')
   return listSubscriptions()
 }
 
@@ -477,6 +491,8 @@ export async function setSubscriptionVersionStatus(
   }
   game.playedVersions = setVersionPlayStatus(game.playedVersions || [], key, status)
   await writeStore(games)
+  await touchSubscription(threadId)
+  notifyUserDataChanged('data')
   return listSubscriptions()
 }
 
@@ -489,6 +505,7 @@ export async function recordSubscriptionPlay(threadId: number, version: string):
   game.lastPlayedAt = at
   game.playedVersions = touchVersionPlayStat(game.playedVersions || [], version || game.lastPlayedVersion, at)
   await writeStore(games)
+  notifyUserDataChanged('playtime')
 }
 
 export async function addSubscriptionPlaytime(
@@ -505,6 +522,7 @@ export async function addSubscriptionPlaytime(
   const key = (version || game.lastPlayedVersion || '').trim()
   game.playedVersions = addVersionPlaytime(game.playedVersions || [], key, deltaMs, at)
   await writeStore(games)
+  notifyUserDataChanged('playtime')
 }
 
 function sameScreens(left?: string[], right?: string[]): boolean {
@@ -659,4 +677,8 @@ export async function applyCatalogGames(
   }
 
   return matched
+}
+
+export async function replaceSubscriptions(games: Subscription[]): Promise<void> {
+  await writeStore(games)
 }

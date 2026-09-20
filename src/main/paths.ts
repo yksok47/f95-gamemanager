@@ -21,6 +21,8 @@ export function getAppPaths(): {
   gameNotesFile: string
   saveFoldersFile: string
   cloudSaveManifestsDir: string
+  cloudUserDataStateFile: string
+  cloudUserDataApplyFile: string
   libraryImportsFile: string
   renpyOptionsFile: string
   rosterFile: string
@@ -44,6 +46,8 @@ export function getAppPaths(): {
     gameNotesFile: join(userData, 'game-notes.json'),
     saveFoldersFile: join(userData, 'save-folders.json'),
     cloudSaveManifestsDir: join(userData, 'cloud-save-manifests'),
+    cloudUserDataStateFile: join(userData, 'cloud-user-data.json'),
+    cloudUserDataApplyFile: join(userData, 'cloud-user-data-apply.json'),
     libraryImportsFile: join(userData, 'library-imports.json'),
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),

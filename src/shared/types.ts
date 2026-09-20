@@ -178,6 +178,14 @@ export type CloudSaveGameDetail = {
   syncedNames: string[]
 }
 
+export type CloudUserDataSyncStatus = {
+  running: boolean
+  lastError: string | null
+  lastRunAt: number | null
+  lastRevision: number | null
+  pending: boolean
+}
+
 export type AppSettings = {
   favoriteTags: FavoriteTag[]
   hatedTags: HatedTag[]
@@ -208,6 +216,11 @@ export type AppSettings = {
   cloudSaveKeepCount: CloudSaveKeepCount
   /** Auto and quick saves are synced even when they exceed the slot limit. */
   cloudSaveIncludeAutoQuick: boolean
+  /**
+   * OFF by default. Sync followed games, ratings, notes, playtime, and portable
+   * preferences through Google Drive when signed in. Paths and installed files stay local.
+   */
+  cloudUserDataEnabled: boolean
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

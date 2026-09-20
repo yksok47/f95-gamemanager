@@ -6,6 +6,7 @@ import type {
   CloudSaveGameSummary,
   CloudSaveKeepCount,
   CloudSaveSyncStatus,
+  CloudUserDataSyncStatus,
   FavoriteTag,
   HatedTag
 } from '@shared/types'
@@ -456,6 +457,86 @@ function keepCountLabel(count: CloudSaveKeepCount): string {
   return count === 0 ? 'Unlimited' : String(count)
 }
 
+function UserDataSyncPanel({
+  enabled,
+  signedIn,
+  saving,
+  persist
+}: {
+  enabled: boolean
+  signedIn: boolean
+  saving: boolean
+  persist: (next: Partial<AppSettings>) => Promise<void>
+}): JSX.Element {
+  const [sync, setSync] = useState<CloudUserDataSyncStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.cloudUserData.status().then((next) => {
+      if (!cancelled) setSync(next)
+    })
+    const stop = window.api.cloudUserData.onStatus((next) => {
+      if (!cancelled) setSync(next)
+    })
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [])
+
+  async function syncNow(): Promise<void> {
+    setBusy(true)
+    try {
+      setSync(await window.api.cloudUserData.sync())
+    } catch (err) {
+      notifyCaught(err, 'Could not sync user data.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const running = Boolean(sync?.running)
+  const canSync = enabled && signedIn && !saving && !running && !busy
+
+  return (
+    <>
+      <Switch
+        checked={enabled}
+        disabled={saving}
+        onChange={(checked) => void persist({ cloudUserDataEnabled: checked })}
+        label="Enable Google Drive user data sync"
+      />
+      <p className="muted download-meta">
+        Optional. When on and signed in, followed games, ratings, notes, playtime, and preferences
+        sync through this app’s hidden Drive folder. Library folders, installs, and archives stay on
+        this PC. Settings upload right away; playtime uploads about once a minute.
+      </p>
+      <div className="folder-field">
+        <span className="filter-label">User data</span>
+        <div className="folder-path-row">
+          <button className="ghost-btn" type="button" disabled={!canSync} onClick={() => void syncNow()}>
+            {running || busy ? 'Syncing…' : 'Sync now'}
+          </button>
+        </div>
+        {sync?.lastRunAt && !running ? (
+          <p className="muted download-meta">
+            {sync.lastError
+              ? `Last sync failed. ${sync.lastError}`
+              : sync.pending
+                ? 'Changes are waiting to upload.'
+                : `Last synced${sync.lastRevision ? ` (revision ${sync.lastRevision})` : ''}.`}
+          </p>
+        ) : running ? (
+          <p className="muted download-meta">Syncing user data…</p>
+        ) : !signedIn ? (
+          <p className="muted download-meta">Sign in with Google above to use user data sync.</p>
+        ) : null}
+      </div>
+    </>
+  )
+}
+
 function CloudSavesPanel({
   settings,
   saving,
@@ -690,7 +771,7 @@ function CloudSavesPanel({
         <p className="muted download-meta">
           {account.signedIn
             ? `Signed in as ${account.email || 'Google Drive'}.`
-            : 'Sign in to store saves in this app’s hidden Drive app-data folder. They will not show up in your normal Drive files.'}
+            : 'Sign in to store saves and optional user data in this app’s hidden Drive app-data folder. They will not show up in your normal Drive files.'}
         </p>
         <div className="folder-path-row">
           {account.signedIn ? (
@@ -718,6 +799,13 @@ function CloudSavesPanel({
           </>
         ) : null}
       </div>
+
+      <UserDataSyncPanel
+        enabled={Boolean(settings.cloudUserDataEnabled)}
+        signedIn={account.signedIn}
+        saving={saving}
+        persist={persist}
+      />
 
       <div className="folder-field">
         <span className="filter-label" id="cloud-keep-count-label">

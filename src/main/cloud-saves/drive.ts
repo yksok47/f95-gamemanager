@@ -8,6 +8,8 @@ const FOLDER_MIME = 'application/vnd.google-apps.folder'
 const APP_DATA_SPACE = 'appDataFolder'
 const ROOT_NAME = 'F95 Game Manager Saves'
 const ROOT_FLAG = 'cloud-saves-root'
+const USER_DATA_ROOT_NAME = 'F95 Game Manager Data'
+const USER_DATA_ROOT_FLAG = 'cloud-user-data'
 const FILE_FIELDS = 'id,name,mimeType,modifiedTime,size,md5Checksum,parents,appProperties'
 const MAX_INFLIGHT = 6
 const RETRY_STATUSES = new Set([403, 429, 500, 502, 503, 504])
@@ -25,12 +27,14 @@ export type DriveFile = {
 
 const folderCache = new Map<string, string>()
 let rootIdPromise: Promise<string> | null = null
+let userDataRootIdPromise: Promise<string> | null = null
 let inflight = 0
 const waiters: Array<() => void> = []
 
 export function clearDriveCaches(): void {
   folderCache.clear()
   rootIdPromise = null
+  userDataRootIdPromise = null
 }
 
 function folderCacheKey(parentId: string, name: string): string {
@@ -221,11 +225,11 @@ async function findOrCreateFolder(
   return (await createFolder(name, parentId, appProperties)).id
 }
 
-async function resolveRootId(): Promise<string> {
+async function resolveAppFolder(name: string, flag: string, failMessage: string): Promise<string> {
   const url = new URL(`${DRIVE_API}/files`)
   url.searchParams.set(
     'q',
-    `appProperties has { key='f95gm' and value='${ROOT_FLAG}' } and mimeType = '${FOLDER_MIME}' and trashed = false`
+    `appProperties has { key='f95gm' and value='${flag}' } and mimeType = '${FOLDER_MIME}' and trashed = false`
   )
   url.searchParams.set('fields', `files(${FILE_FIELDS})`)
   url.searchParams.set('spaces', APP_DATA_SPACE)
@@ -238,23 +242,39 @@ async function resolveRootId(): Promise<string> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      name: ROOT_NAME,
+      name,
       mimeType: FOLDER_MIME,
       parents: [APP_DATA_SPACE],
-      appProperties: { f95gm: ROOT_FLAG }
+      appProperties: { f95gm: flag }
     })
   })
   const file = parseFile(created)
-  if (!file) throw new Error('Could not create the Google Drive saves folder.')
+  if (!file) throw new Error(failMessage)
   return file.id
 }
 
 export async function getDriveRootId(): Promise<string> {
-  rootIdPromise ??= resolveRootId().catch((error) => {
+  rootIdPromise ??= resolveAppFolder(
+    ROOT_NAME,
+    ROOT_FLAG,
+    'Could not create the Google Drive saves folder.'
+  ).catch((error) => {
     rootIdPromise = null
     throw error
   })
   return rootIdPromise
+}
+
+export async function getUserDataRootId(): Promise<string> {
+  userDataRootIdPromise ??= resolveAppFolder(
+    USER_DATA_ROOT_NAME,
+    USER_DATA_ROOT_FLAG,
+    'Could not create the Google Drive user-data folder.'
+  ).catch((error) => {
+    userDataRootIdPromise = null
+    throw error
+  })
+  return userDataRootIdPromise
 }
 
 export async function getGameFolderId(threadId: number, title?: string): Promise<string> {
@@ -326,7 +346,7 @@ async function uploadMultipart(input: {
   body: Buffer
   mimeType: string
   failMessage: string
-}): Promise<void> {
+}): Promise<string | undefined> {
   const boundary = `f95gm_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`
   const meta = JSON.stringify(input.meta)
   const prefix = Buffer.from(
@@ -339,10 +359,11 @@ async function uploadMultipart(input: {
     headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
     body: asBody(payload)
   })
+  const json = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } }
   if (!res.ok) {
-    const json = (await res.json().catch(() => ({}))) as { error?: { message?: string } }
     throw new Error(json.error?.message || input.failMessage)
   }
+  return typeof json.id === 'string' && json.id ? json.id : undefined
 }
 
 export async function uploadDriveFile(input: {
@@ -401,20 +422,20 @@ export async function uploadDriveBytes(input: {
   body: Buffer
   mimeType?: string
   existingId?: string
-}): Promise<void> {
+}): Promise<{ id: string }> {
   const mime = input.mimeType || 'application/octet-stream'
   if (input.existingId) {
     await uploadMultipart({
-      url: `${DRIVE_UPLOAD}/files/${encodeURIComponent(input.existingId)}?uploadType=multipart`,
+      url: `${DRIVE_UPLOAD}/files/${encodeURIComponent(input.existingId)}?uploadType=multipart&fields=id`,
       method: 'PATCH',
       meta: { mimeType: mime },
       body: input.body,
       mimeType: mime,
       failMessage: `Could not update ${input.name} on Google Drive.`
     })
-    return
+    return { id: input.existingId }
   }
-  await uploadMultipart({
+  const id = await uploadMultipart({
     url: `${DRIVE_UPLOAD}/files?uploadType=multipart&fields=id`,
     method: 'POST',
     meta: { name: input.name, parents: [input.parentId], mimeType: mime },
@@ -422,4 +443,6 @@ export async function uploadDriveBytes(input: {
     mimeType: mime,
     failMessage: `Could not upload ${input.name} to Google Drive.`
   })
+  if (!id) throw new Error(`Could not upload ${input.name} to Google Drive.`)
+  return { id }
 }

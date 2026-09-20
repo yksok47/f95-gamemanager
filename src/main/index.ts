@@ -9,6 +9,7 @@ import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url
 import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, SAVE_THUMB_SCHEME } from "./renpy/save-meta";
 import { getSettings } from "./settings-store";
+import { startCloudUserDataSync, flushCloudUserDataSync } from "./cloud-user-data/sync";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
 import {
   cleanupStaleAppUpdates,
@@ -84,6 +85,9 @@ app.whenReady().then(async () => {
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
+  void startCloudUserDataSync().catch((error) =>
+    console.warn("Could not start user-data sync", error)
+  );
   if (settings.p2pEnabled) {
     void onP2pEnabledChanged(true).catch((error) =>
       console.warn("[p2p] resume on startup failed", error)
@@ -100,6 +104,9 @@ app.whenReady().then(async () => {
     );
     await flushPlaySessions().catch((error) =>
       console.warn("Could not save playtime on quit", error)
+    );
+    await flushCloudUserDataSync().catch((error) =>
+      console.warn("Could not sync user data on quit", error)
     );
     await destroyWebTorrent().catch((error) =>
       console.warn("[p2p] destroy on quit failed", error)
@@ -142,6 +149,8 @@ app.on("before-quit", (event) => {
     .catch((error) => console.warn("Could not persist downloads on quit", error))
     .then(() => flushPlaySessions())
     .catch((error) => console.warn("Could not save playtime on quit", error))
+    .then(() => flushCloudUserDataSync())
+    .catch((error) => console.warn("Could not sync user data on quit", error))
     .then(() => destroyWebTorrent())
     .catch((error) => console.warn("[p2p] destroy on quit failed", error))
     .then(() => clearF95ImageCache())
