@@ -131,12 +131,14 @@ function registerWebRequest(): void {
   registered = true
 
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    const cdn = maybeRedirectCdnImageRequest(details)
-    if (cdn) {
-      callback({ redirectURL: cdn })
-      return
-    }
+    // Live forum HTML is subject to f95zone CSP, which does not allow f95-img:.
+    // Only the app renderer should rewrite CDN <img> tags onto the cache protocol.
     if (!isGuestContentsId(details.webContentsId)) {
+      const cdn = maybeRedirectCdnImageRequest(details)
+      if (cdn) {
+        callback({ redirectURL: cdn })
+        return
+      }
       callback({})
       return
     }

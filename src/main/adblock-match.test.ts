@@ -3,6 +3,7 @@ import { FiltersEngine } from '@ghostery/adblocker'
 import { EXTRA_FILTERS } from './adblock-filters'
 import {
   isExecutableDownload,
+  isForumHost,
   isKnownFileHost,
   isLikelyFileCdn,
   matchNetworkRequest,
@@ -107,6 +108,49 @@ describe('shouldBlockPopup', () => {
       })
     ).toBe(true)
   })
+
+  test('allows socials and image hosts from a forum thread', () => {
+    expect(
+      shouldBlockPopup({
+        url: 'https://discord.gg/invite',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        engines
+      })
+    ).toBe(false)
+    expect(
+      shouldBlockPopup({
+        url: 'https://www.patreon.com/creator',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        engines
+      })
+    ).toBe(false)
+    expect(
+      shouldBlockPopup({
+        url: 'https://pixhost.to/show/1/abc.jpg',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        engines
+      })
+    ).toBe(false)
+  })
+
+  test('still blocks ad networks opened from a forum thread', () => {
+    expect(
+      shouldBlockPopup({
+        url: 'https://syndication.exoclick.com/splash',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        engines
+      })
+    ).toBe(true)
+  })
+})
+
+describe('isForumHost', () => {
+  test('matches f95zone forum and CDN hosts', () => {
+    expect(isForumHost('f95zone.to')).toBe(true)
+    expect(isForumHost('www.f95zone.to')).toBe(true)
+    expect(isForumHost('attachments.f95zone.to')).toBe(true)
+    expect(isForumHost('pixeldrain.com')).toBe(false)
+  })
 })
 
 describe('shouldBlockDownload', () => {
@@ -172,6 +216,37 @@ describe('matchNetworkRequest', () => {
       matchNetworkRequest({
         url: 'https://ads.example.net/banner.js',
         pageUrl: 'https://datanodes.to/file',
+        resourceType: 'script',
+        engines: [ads]
+      }).cancel
+    ).toBe(true)
+  })
+
+  test('keeps thread images even when a list would match the host', () => {
+    const imageAds = FiltersEngine.parse('||pixhost.to^')
+    expect(
+      matchNetworkRequest({
+        url: 'https://pixhost.to/show/pic.jpg',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        resourceType: 'image',
+        engines: [imageAds]
+      }).cancel
+    ).toBe(false)
+    expect(
+      matchNetworkRequest({
+        url: 'https://attachments.f95zone.to/data/cover.jpg',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
+        resourceType: 'image',
+        engines: [ads]
+      }).cancel
+    ).toBe(false)
+  })
+
+  test('still cancels ad scripts on a forum thread', () => {
+    expect(
+      matchNetworkRequest({
+        url: 'https://ads.example.net/banner.js',
+        pageUrl: 'https://f95zone.to/threads/game.123/',
         resourceType: 'script',
         engines: [ads]
       }).cancel

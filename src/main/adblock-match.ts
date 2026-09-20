@@ -1,5 +1,8 @@
 import { Request, type FiltersEngine, type RequestType } from '@ghostery/adblocker'
 
+/** Forum pages opened in a guest window — socials and image hosts are real clicks, not popunders. */
+export const FORUM_HOST_SUFFIXES = ['f95zone.com', 'f95zone.ninja', 'f95zone.to']
+
 /** File lockers used on F95 download rows — popups to these stay allowed. */
 export const FILE_HOST_SUFFIXES = [
   '1fichier.com',
@@ -13,9 +16,7 @@ export const FILE_HOST_SUFFIXES = [
   'ddownload.com',
   'dropbox.com',
   'dropboxusercontent.com',
-  'f95zone.com',
-  'f95zone.ninja',
-  'f95zone.to',
+  ...FORUM_HOST_SUFFIXES,
   'file-upload.com',
   'filehn.com',
   'gofile.io',
@@ -97,6 +98,18 @@ export function isKnownFileHost(hostname: string): boolean {
   return hostMatches(hostname, FILE_HOST_SUFFIXES)
 }
 
+export function isForumHost(hostname: string): boolean {
+  return hostMatches(hostname, FORUM_HOST_SUFFIXES)
+}
+
+function pageHostname(pageUrl: string): string {
+  try {
+    return new URL(pageUrl).hostname
+  } catch {
+    return ''
+  }
+}
+
 export function isLikelyFileCdn(hostname: string): boolean {
   return hostMatches(hostname, FILE_CDN_SUFFIXES)
 }
@@ -149,12 +162,17 @@ function popupIsAllowedTarget(url: string, pageUrl: string): boolean {
   return false
 }
 
-/** Guest `window.open` — block ad-network URLs and unknown third-party popunders. */
+/**
+ * Guest `window.open` — block ad-network URLs. Unknown third-party targets are
+ * treated as popunders on file lockers, but not on forum threads (socials,
+ * screenshot hosts, creator sites).
+ */
 export function shouldBlockPopup({ url, pageUrl, engines }: PopupCheck): boolean {
   const blocked = engineMatch(engines, url, pageUrl, 'other')
   if (blocked.match) return true
   if (blocked.exception) return false
   if (popupIsAllowedTarget(url, pageUrl)) return false
+  if (isForumHost(pageHostname(pageUrl))) return false
   return true
 }
 
@@ -197,6 +215,14 @@ export function matchNetworkRequest({
   engines
 }: NetworkCheck): NetworkDecision {
   if (resourceType === 'mainFrame') return { cancel: false }
+  // Screenshots in threads are often on third-party image hosts. EasyList is
+  // too aggressive there; guest windows also cannot use the f95-img cache.
+  if (
+    (resourceType === 'image' || resourceType === 'media') &&
+    (isForumHost(pageHostname(pageUrl)) || isForumHost(pageHostname(url)))
+  ) {
+    return { cancel: false }
+  }
   const type = (resourceType || 'other') as RequestType
   const result = engineMatch(engines, url, pageUrl, type)
   if (result.redirectURL) return { cancel: false, redirectURL: result.redirectURL }
