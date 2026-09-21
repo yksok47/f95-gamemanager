@@ -4,12 +4,17 @@ import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, ty
 import { engineFromTitle } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import {
+  addVersionAlias,
   addVersionPlaytime,
+  canonicalVersionName,
   catalogTimestamp,
   ensureKnownVersion,
   isRelativeDate,
+  mergeVersionNames,
   normalizeVersionPlayStats,
+  removeVersionAlias,
   setVersionPlayStatus,
+  setVersionReleasedAt,
   touchVersionPlayStat
 } from '@shared/updates'
 import { uniqueScreenUrls } from './f95/catalog'
@@ -496,6 +501,84 @@ export async function setSubscriptionVersionStatus(
   return listSubscriptions()
 }
 
+async function mutatePlayedVersions(
+  threadId: number,
+  mutate: (playedVersions: Subscription['playedVersions']) => Subscription['playedVersions']
+): Promise<Subscription[]> {
+  const games = await readStore()
+  const game = games.find((item) => item.threadId === threadId)
+  if (!game) {
+    throw new Error('That game is not in the followed list.')
+  }
+  game.playedVersions = mutate(game.playedVersions || [])
+  const lastPlayed = (game.lastPlayedVersion || '').trim()
+  if (lastPlayed) {
+    game.lastPlayedVersion =
+      canonicalVersionName(lastPlayed, game.playedVersions) || game.lastPlayedVersion
+  }
+  await writeStore(games)
+  await touchSubscription(threadId)
+  notifyUserDataChanged('data')
+  return listSubscriptions()
+}
+
+export async function setSubscriptionVersionReleasedAt(
+  threadId: number,
+  version: string,
+  releasedAt: number
+): Promise<Subscription[]> {
+  const key = (version || '').trim()
+  if (!key) {
+    throw new Error('Missing version.')
+  }
+  return mutatePlayedVersions(threadId, (playedVersions) =>
+    setVersionReleasedAt(playedVersions, key, releasedAt)
+  )
+}
+
+export async function addSubscriptionVersionAlias(
+  threadId: number,
+  version: string,
+  alias: string
+): Promise<Subscription[]> {
+  const key = (version || '').trim()
+  const name = (alias || '').trim()
+  if (!key || !name) {
+    throw new Error('Missing version.')
+  }
+  return mutatePlayedVersions(threadId, (playedVersions) => addVersionAlias(playedVersions, key, name))
+}
+
+export async function removeSubscriptionVersionAlias(
+  threadId: number,
+  version: string,
+  alias: string
+): Promise<Subscription[]> {
+  const key = (version || '').trim()
+  const name = (alias || '').trim()
+  if (!key || !name) {
+    throw new Error('Missing version.')
+  }
+  return mutatePlayedVersions(threadId, (playedVersions) =>
+    removeVersionAlias(playedVersions, key, name)
+  )
+}
+
+export async function mergeSubscriptionVersions(
+  threadId: number,
+  canonical: string,
+  sources: string[]
+): Promise<Subscription[]> {
+  const keep = (canonical || '').trim()
+  const extra = Array.isArray(sources) ? sources.map((item) => (item || '').trim()).filter(Boolean) : []
+  if (!keep || extra.length < 1) {
+    throw new Error('Pick at least two versions to merge.')
+  }
+  return mutatePlayedVersions(threadId, (playedVersions) =>
+    mergeVersionNames(playedVersions, keep, extra)
+  )
+}
+
 export async function recordSubscriptionPlay(threadId: number, version: string): Promise<void> {
   const games = await readStore()
   const game = games.find((item) => item.threadId === threadId)
@@ -613,7 +696,8 @@ function applyCatalogGameFields(game: Subscription, incoming: CatalogGame, check
         prev.releasedAt !== item.releasedAt ||
         prev.lastPlayedAt !== item.lastPlayedAt ||
         prev.playtimeMs !== item.playtimeMs ||
-        prev.status !== item.status
+        prev.status !== item.status ||
+        (prev.aliases || []).join('\0') !== (item.aliases || []).join('\0')
       )
     })
   ) {

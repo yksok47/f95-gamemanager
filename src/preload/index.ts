@@ -99,6 +99,30 @@ const api = {
       status: VersionPlayStatus
     ): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:setVersionStatus', threadId, version, status),
+    setVersionReleasedAt: (
+      threadId: number,
+      version: string,
+      releasedAt: number
+    ): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:setVersionReleasedAt', threadId, version, releasedAt),
+    addVersionAlias: (
+      threadId: number,
+      version: string,
+      alias: string
+    ): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:addVersionAlias', threadId, version, alias),
+    removeVersionAlias: (
+      threadId: number,
+      version: string,
+      alias: string
+    ): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:removeVersionAlias', threadId, version, alias),
+    mergeVersions: (
+      threadId: number,
+      canonical: string,
+      sources: string[]
+    ): Promise<Subscription[]> =>
+      ipcRenderer.invoke('subscriptions:mergeVersions', threadId, canonical, sources),
     sync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:sync'),
     cancelSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:cancelSync'),
     startSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:startSync'),

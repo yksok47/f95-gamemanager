@@ -53,7 +53,8 @@ import {
   compareLibraryFilesByVersion,
   mergeVersionPlayStats,
   usableVersion,
-  versionPlayStatsFromFiles
+  versionPlayStatsFromFiles,
+  versionStatHasName
 } from '@shared/updates'
 import EngineBadge from '../components/EngineBadge'
 import LibraryPresenceIcons from '../components/LibraryPresenceIcons'
@@ -68,6 +69,7 @@ import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import UncensorInstallButton from '../components/UncensorInstallButton'
 import UncensorRemoveButton from '../components/UncensorRemoveButton'
 import LibraryFileTagsDialog from '../components/LibraryFileTagsDialog'
+import VersionManagerDialog from '../components/VersionManagerDialog'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
@@ -481,6 +483,8 @@ function GameDetailsPage({
   const [removeAllBusy, setRemoveAllBusy] = useState(false)
   const [tagEditFile, setTagEditFile] = useState<GameLibraryFile | null>(null)
   const [tagEditBusy, setTagEditBusy] = useState(false)
+  const [versionManagerOpen, setVersionManagerOpen] = useState(false)
+  const [versionManagerBusy, setVersionManagerBusy] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -501,6 +505,7 @@ function GameDetailsPage({
     setLightbox(null)
     setOpenVersions({})
     setVersionsExpanded(false)
+    setVersionManagerOpen(false)
     setCoverBroken(!summary.coverUrl)
     setFullCoverReady(false)
     setReviewPage(1)
@@ -1179,7 +1184,10 @@ function GameDetailsPage({
       if (!next || names.includes(next)) return
       names.push(next)
     }
-    for (const item of playedVersions) add(item.version)
+    for (const item of playedVersions) {
+      add(item.version)
+      for (const alias of item.aliases || []) add(alias)
+    }
     add(version)
     for (const entry of changelog) add(entry.version)
     for (const file of files) add(file.packageTags?.version || file.version)
@@ -1205,7 +1213,7 @@ function GameDetailsPage({
         : null) || playedVersions[0]
     const lastPlayed =
       (lastPlayedVersionKey
-        ? playedVersions.find((item) => item.version === lastPlayedVersionKey)
+        ? playedVersions.find((item) => versionStatHasName(item, lastPlayedVersionKey))
         : null) ||
       [...playedVersions]
         .filter((item) => item.lastPlayedAt)
@@ -1499,6 +1507,54 @@ function GameDetailsPage({
       await window.api.subscriptions.setVersionStatus(summary.threadId, versionName, status)
     } catch (err) {
       notifyCaught(err, 'Could not update version status.')
+    }
+  }
+
+  async function setVersionReleasedAt(versionName: string, releasedAt: number): Promise<void> {
+    if (!subscribed) return
+    setVersionManagerBusy(true)
+    try {
+      await window.api.subscriptions.setVersionReleasedAt(summary.threadId, versionName, releasedAt)
+    } catch (err) {
+      notifyCaught(err, 'Could not update that release date.')
+    } finally {
+      setVersionManagerBusy(false)
+    }
+  }
+
+  async function addVersionAlias(versionName: string, alias: string): Promise<void> {
+    if (!subscribed) return
+    setVersionManagerBusy(true)
+    try {
+      await window.api.subscriptions.addVersionAlias(summary.threadId, versionName, alias)
+    } catch (err) {
+      notifyCaught(err, 'Could not add that version name.')
+    } finally {
+      setVersionManagerBusy(false)
+    }
+  }
+
+  async function removeVersionAlias(versionName: string, alias: string): Promise<void> {
+    if (!subscribed) return
+    setVersionManagerBusy(true)
+    try {
+      await window.api.subscriptions.removeVersionAlias(summary.threadId, versionName, alias)
+    } catch (err) {
+      notifyCaught(err, 'Could not remove that version name.')
+    } finally {
+      setVersionManagerBusy(false)
+    }
+  }
+
+  async function mergePlayedVersions(canonical: string, sources: string[]): Promise<void> {
+    if (!subscribed) return
+    setVersionManagerBusy(true)
+    try {
+      await window.api.subscriptions.mergeVersions(summary.threadId, canonical, sources)
+    } catch (err) {
+      notifyCaught(err, 'Could not merge those versions.')
+    } finally {
+      setVersionManagerBusy(false)
     }
   }
 
@@ -2612,17 +2668,26 @@ function GameDetailsPage({
               <section className="played-versions">
                 <div className="played-versions-header">
                   <h2>Versions</h2>
-                  {hiddenVersionCount ? (
+                  <div className="played-versions-actions">
+                    {hiddenVersionCount ? (
+                      <button
+                        className="ghost-btn played-versions-toggle"
+                        type="button"
+                        onClick={() => setVersionsExpanded((value) => !value)}
+                      >
+                        {versionsExpanded
+                          ? 'Show less'
+                          : `Show ${hiddenVersionCount} more`}
+                      </button>
+                    ) : null}
                     <button
                       className="ghost-btn played-versions-toggle"
                       type="button"
-                      onClick={() => setVersionsExpanded((value) => !value)}
+                      onClick={() => setVersionManagerOpen(true)}
                     >
-                      {versionsExpanded
-                        ? 'Show less'
-                        : `Show ${hiddenVersionCount} more`}
+                      Manage versions
                     </button>
-                  ) : null}
+                  </div>
                 </div>
                 <ul className="played-versions-list">
                   {visibleVersions.map((item) => {
@@ -2633,9 +2698,10 @@ function GameDetailsPage({
                         : ''
                     ].filter(Boolean)
                     const isLatest =
+                      Boolean(item.version) &&
                       (latestVersionKey
-                        ? item.version === latestVersionKey
-                        : item.version === playedVersions[0]?.version) && Boolean(item.version)
+                        ? versionStatHasName(item, latestVersionKey)
+                        : item.version === playedVersions[0]?.version)
                     const status = effectiveVersionStatus(item)
                     const isUnplayedLatest = isLatest && status === 'unplayed'
                     const statusItems = versionStatusMenuItems(item)
@@ -2657,6 +2723,11 @@ function GameDetailsPage({
                       >
                         <strong className="played-versions-version">
                           {item.version || 'Unknown'}
+                          {item.aliases?.length ? (
+                            <span className="muted played-versions-aliases">
+                              {item.aliases.join(' · ')}
+                            </span>
+                          ) : null}
                         </strong>
                         <span className="muted">{parts.join(' · ') || '—'}</span>
                         <div className="played-versions-aside">
@@ -2796,6 +2867,20 @@ function GameDetailsPage({
               if (!tagEditBusy) setTagEditFile(null)
             }}
             onSave={(tags) => void saveFileTags(tagEditFile.id, tags)}
+          />
+        ) : null}
+        {versionManagerOpen ? (
+          <VersionManagerDialog
+            versions={playedVersions}
+            canEdit={subscribed}
+            busy={versionManagerBusy}
+            onClose={() => {
+              if (!versionManagerBusy) setVersionManagerOpen(false)
+            }}
+            onSetReleasedAt={setVersionReleasedAt}
+            onAddAlias={addVersionAlias}
+            onRemoveAlias={removeVersionAlias}
+            onMerge={mergePlayedVersions}
           />
         ) : null}
         </div>

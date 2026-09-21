@@ -1,9 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  addVersionAlias,
+  addVersionPlaytime,
+  canonicalVersionName,
+  ensureKnownVersion,
   gameUpdateState,
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
+  latestOverviewVersion,
   libraryFileVersion,
+  mergeVersionNames,
+  mergeVersionPlayStats,
+  normalizeVersionPlayStats,
+  removeVersionAlias,
+  setVersionReleasedAt,
   shouldListOnUpdatesPage
 } from './updates'
 import type { GameLibraryFile, VersionPlayStat } from './types'
@@ -193,5 +203,131 @@ describe('latestInstalledLibraryFile', () => {
         ]
       })?.id
     ).toBe('new')
+  })
+})
+
+describe('version aliases', () => {
+  test('normalize collapses aliased names and sums their playtimes', () => {
+    const stats = normalizeVersionPlayStats([
+      { version: '0.9', releasedAt: 2_000_000_000_000, lastPlayedAt: 50, playtimeMs: 2_000, aliases: ['v0.9'] },
+      { version: 'v0.9', releasedAt: 0, lastPlayedAt: 80, playtimeMs: 1_000 }
+    ])
+    expect(stats).toHaveLength(1)
+    expect(stats[0]?.version).toBe('0.9')
+    expect(stats[0]?.aliases).toEqual(['v0.9'])
+    expect(stats[0]?.playtimeMs).toBe(3_000)
+    expect(stats[0]?.lastPlayedAt).toBe(80)
+    expect(stats[0]?.releasedAt).toBe(2_000_000_000_000)
+  })
+
+  test('mergeVersionPlayStats folds file rows using aliases from the other list', () => {
+    const merged = mergeVersionPlayStats(
+      [
+        { version: '0.9', releasedAt: 0, lastPlayedAt: 10, playtimeMs: 2_000 },
+        { version: 'v0.9', releasedAt: 0, lastPlayedAt: 20, playtimeMs: 1_000 }
+      ],
+      [{ version: '0.9', releasedAt: 1_700_000_000_000, lastPlayedAt: 0, playtimeMs: 0, aliases: ['v0.9'] }]
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.version).toBe('0.9')
+    expect(merged[0]?.aliases).toEqual(['v0.9'])
+    expect(merged[0]?.playtimeMs).toBe(3_000)
+    expect(merged[0]?.releasedAt).toBe(1_700_000_000_000)
+  })
+
+  test('mergeVersionPlayStats does not double-count the same version from two sources', () => {
+    const merged = mergeVersionPlayStats(
+      [{ version: '1.0', releasedAt: 0, lastPlayedAt: 1, playtimeMs: 8_000 }],
+      [{ version: '1.0', releasedAt: 0, lastPlayedAt: 1, playtimeMs: 8_000 }]
+    )
+    expect(merged).toHaveLength(1)
+    expect(merged[0]?.playtimeMs).toBe(8_000)
+  })
+
+  test('addVersionAlias merges an existing row into the canonical name', () => {
+    const stats = addVersionAlias(
+      [
+        { version: '0.9', releasedAt: 100, lastPlayedAt: 10, playtimeMs: 2_000 },
+        { version: 'Chapter 9', releasedAt: 0, lastPlayedAt: 20, playtimeMs: 4_000 }
+      ],
+      '0.9',
+      'Chapter 9'
+    )
+    expect(stats).toHaveLength(1)
+    expect(stats[0]?.version).toBe('0.9')
+    expect(stats[0]?.aliases).toEqual(['Chapter 9'])
+    expect(stats[0]?.playtimeMs).toBe(6_000)
+  })
+
+  test('mergeVersionNames keeps the chosen name and sums playtimes', () => {
+    const stats = mergeVersionNames(
+      [
+        { version: '0.9', releasedAt: 100, lastPlayedAt: 1, playtimeMs: 2_000 },
+        { version: 'v0.9', releasedAt: 0, lastPlayedAt: 2, playtimeMs: 1_000 }
+      ],
+      'v0.9',
+      ['0.9']
+    )
+    expect(stats).toHaveLength(1)
+    expect(stats[0]?.version).toBe('v0.9')
+    expect(stats[0]?.aliases).toEqual(['0.9'])
+    expect(stats[0]?.playtimeMs).toBe(3_000)
+  })
+
+  test('removeVersionAlias drops a name without splitting playtime back out', () => {
+    const stats = removeVersionAlias(
+      [{ version: '0.9', releasedAt: 0, lastPlayedAt: 1, playtimeMs: 3_000, aliases: ['v0.9'] }],
+      '0.9',
+      'v0.9'
+    )
+    expect(stats[0]?.aliases).toBeUndefined()
+    expect(stats[0]?.playtimeMs).toBe(3_000)
+  })
+
+  test('setVersionReleasedAt overwrites the stored date', () => {
+    const stats = setVersionReleasedAt(
+      [{ version: '0.9', releasedAt: 1_700_000_000_000, lastPlayedAt: 0, playtimeMs: 0 }],
+      '0.9',
+      1_700_000_009_000
+    )
+    expect(stats[0]?.releasedAt).toBe(1_700_000_009_000)
+  })
+
+  test('ensureKnownVersion does not recreate a name that is already an alias', () => {
+    const stats = ensureKnownVersion(
+      [{ version: '0.9', releasedAt: 1_700_000_000_000, lastPlayedAt: 0, playtimeMs: 0, aliases: ['v0.9'] }],
+      'v0.9',
+      1_700_000_000_200
+    )
+    expect(stats).toHaveLength(1)
+    expect(stats[0]?.version).toBe('0.9')
+    expect(stats[0]?.releasedAt).toBe(1_700_000_000_000)
+  })
+
+  test('playtime recorded against an alias is stored on the canonical version', () => {
+    const stats = addVersionPlaytime(
+      [{ version: '0.9', releasedAt: 0, lastPlayedAt: 1, playtimeMs: 1_000, aliases: ['v0.9'] }],
+      'v0.9',
+      500,
+      20
+    )
+    expect(stats).toHaveLength(1)
+    expect(stats[0]?.version).toBe('0.9')
+    expect(stats[0]?.playtimeMs).toBe(1_500)
+    expect(stats[0]?.lastPlayedAt).toBe(20)
+  })
+
+  test('latest overview version matches a catalog name that is only an alias', () => {
+    expect(
+      latestOverviewVersion(
+        [{ version: '0.9', releasedAt: 100, lastPlayedAt: 0, playtimeMs: 0, aliases: ['v0.9'] }],
+        'v0.9'
+      )
+    ).toBe('0.9')
+    expect(
+      canonicalVersionName('v0.9', [
+        { version: '0.9', releasedAt: 0, lastPlayedAt: 0, playtimeMs: 0, aliases: ['v0.9'] }
+      ])
+    ).toBe('0.9')
   })
 })

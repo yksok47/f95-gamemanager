@@ -716,6 +716,8 @@ export type VersionPlayStatus = 'unplayed' | 'played' | 'skipped'
 
 export type VersionPlayStat = {
   version: string
+  /** Other names that should count as this version (playtime is combined). */
+  aliases?: string[]
   /** F95 / catalog release (or thread-update) time for this version, when known. */
   releasedAt: number
   lastPlayedAt: number

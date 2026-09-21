@@ -142,6 +142,10 @@ import {
   setSubscriptionArchived,
   setSubscriptionRarity,
   setSubscriptionVersionStatus,
+  setSubscriptionVersionReleasedAt,
+  addSubscriptionVersionAlias,
+  removeSubscriptionVersionAlias,
+  mergeSubscriptionVersions,
   subscriptionFromCatalog,
   upsertSubscription
 } from './subscriptions-store'
@@ -377,6 +381,50 @@ export function registerIpc(): void {
     async (_event, threadId: number, version: string, status: VersionPlayStatus) => {
       try {
         return await setSubscriptionVersionStatus(threadId, version, status)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'subscriptions:setVersionReleasedAt',
+    async (_event, threadId: number, version: string, releasedAt: number) => {
+      try {
+        return await setSubscriptionVersionReleasedAt(threadId, version, Number(releasedAt) || 0)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'subscriptions:addVersionAlias',
+    async (_event, threadId: number, version: string, alias: string) => {
+      try {
+        return await addSubscriptionVersionAlias(threadId, version, alias)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'subscriptions:removeVersionAlias',
+    async (_event, threadId: number, version: string, alias: string) => {
+      try {
+        return await removeSubscriptionVersionAlias(threadId, version, alias)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'subscriptions:mergeVersions',
+    async (_event, threadId: number, canonical: string, sources: string[]) => {
+      try {
+        return await mergeSubscriptionVersions(threadId, canonical, sources)
       } catch (error) {
         throw toIpcError(error)
       }

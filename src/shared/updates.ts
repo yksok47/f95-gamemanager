@@ -60,32 +60,96 @@ function statusAfterPlay(previous?: VersionPlayStatus): VersionPlayStatus | unde
   return previous === 'played' ? 'played' : undefined
 }
 
-export function normalizeVersionPlayStats(value: unknown): VersionPlayStat[] {
-  if (!Array.isArray(value)) return []
-  const byVersion = new Map<string, VersionPlayStat>()
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue
-    const raw = item as Partial<VersionPlayStat>
-    const version = typeof raw.version === 'string' ? raw.version.trim() : ''
-    const releasedAt = readReleasedAt(raw.releasedAt)
-    const lastPlayedAt = Number(raw.lastPlayedAt) || 0
-    const playtimeMs = Math.max(0, Math.round(Number(raw.playtimeMs) || 0))
-    const status = readVersionStatus(raw.status)
-    if (!version && !releasedAt && !lastPlayedAt && !playtimeMs && !status) continue
-    const prev = byVersion.get(version)
-    const nextStatus = mergeVersionStatus(prev?.status, status)
-    byVersion.set(version, {
-      version,
-      // Keep the earliest known release time for this version.
-      releasedAt: prev?.releasedAt && releasedAt
-        ? Math.min(prev.releasedAt, releasedAt)
-        : (prev?.releasedAt || releasedAt),
-      lastPlayedAt: Math.max(prev?.lastPlayedAt || 0, lastPlayedAt),
-      playtimeMs: Math.max(prev?.playtimeMs || 0, playtimeMs),
-      ...(nextStatus ? { status: nextStatus } : {})
-    })
+function uniqueVersionNames(values: Iterable<unknown> | null | undefined): string[] {
+  const names: string[] = []
+  if (!values) return names
+  for (const value of values) {
+    const name = usableVersion(value)
+    if (name && !names.includes(name)) names.push(name)
   }
-  return sortVersionPlayStats([...byVersion.values()])
+  return names
+}
+
+function earliestReleasedAt(left: number, right: number): number {
+  if (left && right) return Math.min(left, right)
+  return left || right
+}
+
+function statusRank(status?: VersionPlayStatus): number {
+  if (status === 'played') return 3
+  if (status === 'skipped') return 2
+  if (status === 'unplayed') return 1
+  return 0
+}
+
+/** When folding distinct names into one version, keep the strongest attention state. */
+function preferAttentionStatus(
+  left?: VersionPlayStatus,
+  right?: VersionPlayStatus
+): VersionPlayStatus | undefined {
+  return statusRank(right) > statusRank(left) ? right : left
+}
+
+function presentVersionPlayStat(stat: VersionPlayStat): VersionPlayStat {
+  const aliases = uniqueVersionNames(stat.aliases).filter((name) => name !== stat.version)
+  return {
+    version: stat.version,
+    releasedAt: stat.releasedAt,
+    lastPlayedAt: stat.lastPlayedAt,
+    playtimeMs: stat.playtimeMs,
+    ...(aliases.length ? { aliases } : {}),
+    ...(stat.status ? { status: stat.status } : {})
+  }
+}
+
+function parseVersionPlayStat(item: unknown): VersionPlayStat | null {
+  if (!item || typeof item !== 'object') return null
+  const raw = item as Partial<VersionPlayStat>
+  const version = typeof raw.version === 'string' ? raw.version.trim() : ''
+  const releasedAt = readReleasedAt(raw.releasedAt)
+  const lastPlayedAt = Number(raw.lastPlayedAt) || 0
+  const playtimeMs = Math.max(0, Math.round(Number(raw.playtimeMs) || 0))
+  const status = readVersionStatus(raw.status)
+  const aliases = uniqueVersionNames(raw.aliases)
+  if (!version && !releasedAt && !lastPlayedAt && !playtimeMs && !status && !aliases.length) return null
+  return presentVersionPlayStat({
+    version,
+    releasedAt,
+    lastPlayedAt,
+    playtimeMs,
+    aliases,
+    ...(status ? { status } : {})
+  })
+}
+
+/** Same version string from overlapping sources: keep max playtime so we do not double-count. */
+function combineSameVersion(left: VersionPlayStat, right: VersionPlayStat): VersionPlayStat {
+  const nextStatus = mergeVersionStatus(left.status, right.status)
+  return presentVersionPlayStat({
+    version: right.version || left.version,
+    releasedAt: earliestReleasedAt(left.releasedAt || 0, right.releasedAt || 0),
+    lastPlayedAt: Math.max(left.lastPlayedAt || 0, right.lastPlayedAt || 0),
+    playtimeMs: Math.max(left.playtimeMs || 0, right.playtimeMs || 0),
+    aliases: [...(left.aliases || []), ...(right.aliases || [])],
+    ...(nextStatus ? { status: nextStatus } : {})
+  })
+}
+
+/** Distinct names the user treated as one version: add their playtimes together. */
+function combineAliasedVersions(
+  canonical: string,
+  left: VersionPlayStat,
+  right: VersionPlayStat
+): VersionPlayStat {
+  const nextStatus = preferAttentionStatus(left.status, right.status)
+  return presentVersionPlayStat({
+    version: canonical,
+    releasedAt: earliestReleasedAt(left.releasedAt || 0, right.releasedAt || 0),
+    lastPlayedAt: Math.max(left.lastPlayedAt || 0, right.lastPlayedAt || 0),
+    playtimeMs: (left.playtimeMs || 0) + (right.playtimeMs || 0),
+    aliases: [...(left.aliases || []), ...(right.aliases || []), left.version, right.version],
+    ...(nextStatus ? { status: nextStatus } : {})
+  })
 }
 
 export function sortVersionPlayStats(stats: VersionPlayStat[]): VersionPlayStat[] {
@@ -100,34 +164,164 @@ export function sortVersionPlayStats(stats: VersionPlayStat[]): VersionPlayStat[
   })
 }
 
+function pickCanonicalVersion(names: Set<string>, stats: VersionPlayStat[]): string {
+  const claimants = stats.filter((item) => names.has(usableVersion(item.version)))
+  if (!claimants.length) return [...names].sort((left, right) => left.localeCompare(right))[0] || ''
+  let bestScore = -1
+  const ranked: VersionPlayStat[] = []
+  for (const item of claimants) {
+    const score = (item.aliases || []).filter((alias) => names.has(usableVersion(alias))).length
+    if (score > bestScore) {
+      bestScore = score
+      ranked.length = 0
+      ranked.push(item)
+    } else if (score === bestScore) {
+      ranked.push(item)
+    }
+  }
+  return sortVersionPlayStats(ranked)[0]?.version || [...names][0] || ''
+}
+
+function collectAliasMap(stats: VersionPlayStat[]): Map<string, string> {
+  const parent = new Map<string, string>()
+  function find(name: string): string {
+    const current = parent.get(name) || name
+    if (current === name) return name
+    const root = find(current)
+    parent.set(name, root)
+    return root
+  }
+  function addName(name: string): void {
+    if (!name || parent.has(name)) return
+    parent.set(name, name)
+  }
+  function union(left: string, right: string): void {
+    const rootLeft = find(left)
+    const rootRight = find(right)
+    if (rootLeft === rootRight) return
+    parent.set(rootRight, rootLeft)
+  }
+
+  for (const stat of stats) {
+    const version = usableVersion(stat.version)
+    if (version) addName(version)
+    for (const alias of stat.aliases || []) {
+      const name = usableVersion(alias)
+      if (!name) continue
+      addName(name)
+      if (version) union(version, name)
+    }
+  }
+
+  const groups = new Map<string, string[]>()
+  for (const name of parent.keys()) {
+    const root = find(name)
+    const group = groups.get(root)
+    if (group) group.push(name)
+    else groups.set(root, [name])
+  }
+
+  const map = new Map<string, string>()
+  for (const names of groups.values()) {
+    const canonical = pickCanonicalVersion(new Set(names), stats)
+    for (const name of names) map.set(name, canonical)
+  }
+  return map
+}
+
+function collapseAliasedStats(stats: VersionPlayStat[], map: Map<string, string>): VersionPlayStat[] {
+  const byExact = new Map<string, VersionPlayStat>()
+  for (const item of stats) {
+    const parsed = parseVersionPlayStat(item)
+    if (!parsed) continue
+    const prev = byExact.get(parsed.version)
+    byExact.set(parsed.version, prev ? combineSameVersion(prev, parsed) : parsed)
+  }
+
+  const byCanonical = new Map<string, VersionPlayStat>()
+  for (const item of byExact.values()) {
+    const canonical = map.get(item.version) || item.version
+    const aligned =
+      item.version === canonical
+        ? item
+        : presentVersionPlayStat({
+            ...item,
+            version: canonical,
+            aliases: [...(item.aliases || []), item.version]
+          })
+    const prev = byCanonical.get(canonical)
+    byCanonical.set(canonical, prev ? combineAliasedVersions(canonical, prev, aligned) : aligned)
+  }
+
+  for (const [name, canonical] of map) {
+    if (name === canonical) continue
+    const row = byCanonical.get(canonical)
+    if (!row) continue
+    const aliases = uniqueVersionNames([...(row.aliases || []), name]).filter((item) => item !== canonical)
+    if (aliases.length !== (row.aliases?.length || 0)) {
+      byCanonical.set(canonical, presentVersionPlayStat({ ...row, aliases }))
+    }
+  }
+
+  return [...byCanonical.values()].map((item) => presentVersionPlayStat(item))
+}
+
+function mergeCollapsedLists(lists: VersionPlayStat[][]): VersionPlayStat[] {
+  const byVersion = new Map<string, VersionPlayStat>()
+  for (const list of lists) {
+    for (const item of list) {
+      const prev = byVersion.get(item.version)
+      byVersion.set(item.version, prev ? combineSameVersion(prev, item) : item)
+    }
+  }
+  return sortVersionPlayStats([...byVersion.values()].map((item) => presentVersionPlayStat(item)))
+}
+
+export function versionStatHasName(stat: VersionPlayStat, version: string | undefined | null): boolean {
+  const key = usableVersion(version)
+  if (!key) return false
+  if (usableVersion(stat.version) === key) return true
+  return (stat.aliases || []).some((alias) => usableVersion(alias) === key)
+}
+
+export function canonicalVersionName(
+  version: string | undefined | null,
+  stats: VersionPlayStat[]
+): string {
+  const key = usableVersion(version)
+  if (!key) return ''
+  return collectAliasMap(stats).get(key) || key
+}
+
+export function normalizeVersionPlayStats(value: unknown): VersionPlayStat[] {
+  if (!Array.isArray(value)) return []
+  const parsed: VersionPlayStat[] = []
+  for (const item of value) {
+    const next = parseVersionPlayStat(item)
+    if (next) parsed.push(next)
+  }
+  return sortVersionPlayStats(collapseAliasedStats(parsed, collectAliasMap(parsed)))
+}
+
 /** Merge version play rows; for each version keep release/play maxes appropriately. */
 export function mergeVersionPlayStats(
   ...lists: Array<Iterable<VersionPlayStat> | null | undefined>
 ): VersionPlayStat[] {
-  const byVersion = new Map<string, VersionPlayStat>()
+  const parsedLists: VersionPlayStat[][] = []
+  const all: VersionPlayStat[] = []
   for (const list of lists) {
     if (!list) continue
+    const parsed: VersionPlayStat[] = []
     for (const item of list) {
-      const version = (item.version || '').trim()
-      const releasedAt = readReleasedAt(item.releasedAt)
-      const lastPlayedAt = Number(item.lastPlayedAt) || 0
-      const playtimeMs = Math.max(0, Math.round(Number(item.playtimeMs) || 0))
-      const status = readVersionStatus(item.status)
-      if (!version && !releasedAt && !lastPlayedAt && !playtimeMs && !status) continue
-      const prev = byVersion.get(version)
-      const nextStatus = mergeVersionStatus(prev?.status, status)
-      byVersion.set(version, {
-        version,
-        releasedAt: prev?.releasedAt && releasedAt
-          ? Math.min(prev.releasedAt, releasedAt)
-          : (prev?.releasedAt || releasedAt),
-        lastPlayedAt: Math.max(prev?.lastPlayedAt || 0, lastPlayedAt),
-        playtimeMs: Math.max(prev?.playtimeMs || 0, playtimeMs),
-        ...(nextStatus ? { status: nextStatus } : {})
-      })
+      const next = parseVersionPlayStat(item)
+      if (!next) continue
+      parsed.push(next)
+      all.push(next)
     }
+    parsedLists.push(parsed)
   }
-  return sortVersionPlayStats([...byVersion.values()])
+  const map = collectAliasMap(all)
+  return mergeCollapsedLists(parsedLists.map((list) => collapseAliasedStats(list, map)))
 }
 
 export function versionPlayStatsFromFiles(
@@ -157,6 +351,15 @@ export function versionPlayStatsFromFiles(
   return sortVersionPlayStats([...byVersion.values()])
 }
 
+function findVersionIndex(list: VersionPlayStat[], version: string): number {
+  const key = usableVersion(version) || version.trim()
+  if (!key) return -1
+  const canonical = canonicalVersionName(key, list)
+  return list.findIndex(
+    (item) => item.version === canonical || item.version === key || versionStatHasName(item, key)
+  )
+}
+
 /** Record a known game version (may be unplayed) with its release/update date. */
 export function ensureKnownVersion(
   list: VersionPlayStat[],
@@ -167,7 +370,7 @@ export function ensureKnownVersion(
   const at = readReleasedAt(releasedAt)
   if (!key) return normalizeVersionPlayStats(list)
   const next = normalizeVersionPlayStats(list)
-  const index = next.findIndex((item) => item.version === key)
+  const index = findVersionIndex(next, key)
   if (index >= 0) {
     if (at && !next[index].releasedAt) {
       next[index] = { ...next[index], releasedAt: at }
@@ -186,9 +389,71 @@ export function setVersionPlayStatus(
   const key = usableVersion(version)
   if (!key) return normalizeVersionPlayStats(list)
   const next = ensureKnownVersion(list, key)
-  const index = next.findIndex((item) => item.version === key)
+  const index = findVersionIndex(next, key)
   if (index < 0) return next
   next[index] = { ...next[index], status }
+  return sortVersionPlayStats(next)
+}
+
+export function setVersionReleasedAt(
+  list: VersionPlayStat[],
+  version: string | undefined | null,
+  releasedAt: number | string | undefined | null
+): VersionPlayStat[] {
+  const key = usableVersion(version)
+  if (!key) return normalizeVersionPlayStats(list)
+  const next = ensureKnownVersion(list, key)
+  const index = findVersionIndex(next, key)
+  if (index < 0) return next
+  next[index] = { ...next[index], releasedAt: readReleasedAt(releasedAt) }
+  return sortVersionPlayStats(next)
+}
+
+/** Fold other version names into `canonical`, summing playtime of distinct rows. */
+export function mergeVersionNames(
+  list: VersionPlayStat[],
+  canonical: string | undefined | null,
+  sources: Iterable<string> | null | undefined
+): VersionPlayStat[] {
+  const keep = usableVersion(canonical)
+  const extra = uniqueVersionNames(sources).filter((name) => name !== keep)
+  if (!keep || !extra.length) return normalizeVersionPlayStats(list)
+  const next = ensureKnownVersion(list, keep)
+  const index = findVersionIndex(next, keep)
+  const target =
+    index >= 0 ? next[index] : { version: keep, releasedAt: 0, lastPlayedAt: 0, playtimeMs: 0 }
+  const patched = [...next]
+  const merged = presentVersionPlayStat({
+    ...target,
+    version: keep,
+    aliases: [...(target.aliases || []), ...extra]
+  })
+  if (index >= 0) patched[index] = merged
+  else patched.push(merged)
+  return normalizeVersionPlayStats(patched)
+}
+
+export function addVersionAlias(
+  list: VersionPlayStat[],
+  version: string | undefined | null,
+  alias: string | undefined | null
+): VersionPlayStat[] {
+  return mergeVersionNames(list, version, [alias || ''])
+}
+
+export function removeVersionAlias(
+  list: VersionPlayStat[],
+  version: string | undefined | null,
+  alias: string | undefined | null
+): VersionPlayStat[] {
+  const key = usableVersion(version)
+  const name = usableVersion(alias)
+  if (!key || !name) return normalizeVersionPlayStats(list)
+  const next = normalizeVersionPlayStats(list)
+  const index = findVersionIndex(next, key)
+  if (index < 0) return next
+  const aliases = (next[index].aliases || []).filter((item) => usableVersion(item) !== name)
+  next[index] = presentVersionPlayStat({ ...next[index], aliases })
   return sortVersionPlayStats(next)
 }
 
@@ -197,9 +462,10 @@ export function touchVersionPlayStat(
   version: string,
   at = Date.now()
 ): VersionPlayStat[] {
-  const key = version.trim()
+  const trimmed = version.trim()
   const next = normalizeVersionPlayStats(list)
-  const index = next.findIndex((item) => item.version === key)
+  const key = canonicalVersionName(trimmed, next) || trimmed
+  const index = findVersionIndex(next, key)
   if (index >= 0) {
     const status = statusAfterPlay(next[index].status)
     next[index] = {
@@ -220,14 +486,14 @@ export function addVersionPlaytime(
   at = Date.now()
 ): VersionPlayStat[] {
   if (!Number.isFinite(deltaMs) || deltaMs <= 0) return normalizeVersionPlayStats(list)
-  const key = version.trim()
+  const trimmed = version.trim()
   const next = normalizeVersionPlayStats(list)
-  const index = next.findIndex((item) => item.version === key)
+  const key = canonicalVersionName(trimmed, next) || trimmed
+  const index = findVersionIndex(next, key)
   if (index >= 0) {
     const status = statusAfterPlay(next[index].status)
     next[index] = {
       ...next[index],
-      version: key,
       lastPlayedAt: Math.max(next[index].lastPlayedAt, at),
       playtimeMs: next[index].playtimeMs + Math.round(deltaMs),
       ...(status ? { status } : {})
@@ -274,10 +540,17 @@ function asLatestInstalledHint(
   return hint
 }
 
-function libraryFileMatchesVersion(file: VersionedLibraryFile, version: string): boolean {
+function libraryFileMatchesVersion(
+  file: VersionedLibraryFile,
+  version: string,
+  stats?: VersionPlayStat[] | null
+): boolean {
   const key = libraryFileVersion(file)
   if (!key || !version) return false
-  return key === version || compareGameVersions(key, version) === 0
+  if (key === version || compareGameVersions(key, version) === 0) return true
+  if (!stats?.length) return false
+  const canonical = canonicalVersionName(version, stats)
+  return Boolean(canonical) && canonicalVersionName(key, stats) === canonical
 }
 
 /** Same pick as the overview Versions list: catalog latest, else newest `releasedAt`. */
@@ -288,7 +561,10 @@ export function latestOverviewVersion(
   const sorted = sortVersionPlayStats(stats)
   const catalog = usableVersion(catalogVersion)
   if (catalog) {
-    const match = sorted.find((item) => item.version === catalog)
+    const canonical = canonicalVersionName(catalog, sorted)
+    const match = sorted.find(
+      (item) => item.version === catalog || item.version === canonical || versionStatHasName(item, catalog)
+    )
     if (match) return match.version
   }
   return sorted[0]?.version || catalog || ''
@@ -321,7 +597,7 @@ export function latestInstalledLibraryFile<T extends GameLibraryFile>(
     if (item.version && !keys.includes(item.version)) keys.push(item.version)
   }
   for (const key of keys) {
-    const matches = installed.filter((file) => libraryFileMatchesVersion(file, key))
+    const matches = installed.filter((file) => libraryFileMatchesVersion(file, key, ordered))
     if (matches.length) return [...matches].sort(compareLibraryFilesByVersion).at(-1) ?? null
   }
   return [...installed].sort(compareLibraryFilesByVersion).at(-1) ?? null
@@ -341,6 +617,27 @@ export function formatUpdateDate(at: number | undefined | null): string {
   const ms = catalogTimestamp(at)
   if (!ms) return ''
   return new Date(ms).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+export function dateInputFromReleasedAt(at: number | string | undefined | null): string {
+  const ms = catalogTimestamp(at)
+  if (!ms) return ''
+  const date = new Date(ms)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+export function releasedAtFromDateInput(value: string | undefined | null): number {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return 0
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed)
+  if (!match) return 0
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0, 0)
+  const ms = date.getTime()
+  return Number.isFinite(ms) ? ms : 0
 }
 
 export function formatPlaytime(ms: number): string {
@@ -420,7 +717,9 @@ export function gameUpdateState(input: {
 
   let unplayedUpdate = false
   if (latest) {
-    const latestStat = (input.playedVersions || []).find((item) => item.version === latest)
+    const latestStat = (input.playedVersions || []).find(
+      (item) => item.version === latest || versionStatHasName(item, latest)
+    )
     if (latestStat) {
       const status = effectiveVersionStatus(latestStat)
       if (status === 'skipped') {
@@ -442,7 +741,9 @@ function latestVersionStatus(
 ): VersionPlayStatus | null {
   const latest = usableVersion(input.latestVersion)
   if (!latest) return null
-  const latestStat = (input.playedVersions || []).find((item) => item.version === latest)
+  const latestStat = (input.playedVersions || []).find(
+    (item) => item.version === latest || versionStatHasName(item, latest)
+  )
   if (!latestStat) return null
   return effectiveVersionStatus(latestStat)
 }
