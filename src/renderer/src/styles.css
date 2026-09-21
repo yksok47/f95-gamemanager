@@ -6922,7 +6922,8 @@ body.is-save-dragging * {
 
 .p2p-tag-popup {
   position: fixed;
-  z-index: 80;
+  /* Above .app-confirm-overlay (12000) so kind/OS/version menus stay usable in dialogs. */
+  z-index: 12100;
   max-width: min(360px, calc(100vw - 16px));
   padding: 6px;
   border-radius: 12px;
@@ -7213,17 +7214,26 @@ body.is-save-dragging * {
 }
 
 .p2p-tag-popup-version .p2p-version-ratchet-fade-top {
-  background: linear-gradient(to bottom, var(--bg-raised), transparent);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg-raised) 45%, transparent),
+    transparent
+  );
 }
 
 .p2p-tag-popup-version .p2p-version-ratchet-fade-bottom {
-  background: linear-gradient(to top, var(--bg-raised), transparent);
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--bg-raised) 45%, transparent),
+    transparent
+  );
 }
 
 .p2p-version-ratchet {
   --ratchet-item-h: 30px;
-  --ratchet-visible: 5;
-  --ratchet-pad: 60px;
+  --ratchet-visible: 9;
+  --ratchet-pad: 120px;
+  --ratchet-fade: 28px;
   position: relative;
   width: 100%;
   height: calc(var(--ratchet-item-h) * var(--ratchet-visible));
@@ -7250,19 +7260,27 @@ body.is-save-dragging * {
   position: absolute;
   left: 0;
   right: 0;
-  height: var(--ratchet-pad);
+  height: var(--ratchet-fade);
   pointer-events: none;
   z-index: 2;
 }
 
 .p2p-version-ratchet-fade-top {
   top: 0;
-  background: linear-gradient(to bottom, var(--bg), transparent);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bg) 45%, transparent),
+    transparent
+  );
 }
 
 .p2p-version-ratchet-fade-bottom {
   bottom: 0;
-  background: linear-gradient(to top, var(--bg), transparent);
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--bg) 45%, transparent),
+    transparent
+  );
 }
 
 .p2p-version-ratchet-scroller {
@@ -8030,6 +8048,10 @@ body.is-save-dragging * {
 
 .storage-import-dialog .p2p-approve-panel {
   margin: 0;
+}
+
+.library-file-tags-dialog {
+  width: min(640px, 100%);
 }
 
 .storage-identify-results > .muted {

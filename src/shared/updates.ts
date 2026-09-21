@@ -1,5 +1,19 @@
 import { compareGameVersions } from './engines'
-import type { VersionPlayStat, VersionPlayStatus } from './types'
+import {
+  isInstallableLibraryPackage,
+  type GameLibraryFile,
+  type VersionPlayStat,
+  type VersionPlayStatus
+} from './types'
+
+type VersionedLibraryFile = {
+  version?: string
+  packageTags?: { version?: string } | null
+  installedAt?: number | null
+  downloadedAt?: number
+  lastPlayedAt?: number | null
+  playtimeMs?: number
+}
 
 export function usableVersion(value: unknown): string {
   const version =
@@ -117,11 +131,16 @@ export function mergeVersionPlayStats(
 }
 
 export function versionPlayStatsFromFiles(
-  files: Array<{ version?: string; lastPlayedAt?: number | null; playtimeMs?: number }>
+  files: Array<{
+    version?: string
+    packageTags?: { version?: string } | null
+    lastPlayedAt?: number | null
+    playtimeMs?: number
+  }>
 ): VersionPlayStat[] {
   const byVersion = new Map<string, VersionPlayStat>()
   for (const file of files) {
-    const version = (file.version || '').trim()
+    const version = libraryFileVersion(file)
     const lastPlayedAt = Number(file.lastPlayedAt) || 0
     const playtimeMs = Math.max(0, Math.round(Number(file.playtimeMs) || 0))
     if (!lastPlayedAt && !playtimeMs) continue
@@ -227,6 +246,85 @@ export function isNewerGameVersion(
   const current = usableVersion(baseline)
   if (!next || !current) return false
   return compareGameVersions(next, current) > 0
+}
+
+/** Approved package version wins over a stale thread/catalog version on the file. */
+export function libraryFileVersion(file: VersionedLibraryFile): string {
+  return usableVersion(file.packageTags?.version) || usableVersion(file.version)
+}
+
+export function compareLibraryFilesByVersion(a: VersionedLibraryFile, b: VersionedLibraryFile): number {
+  const versions = compareGameVersions(libraryFileVersion(a), libraryFileVersion(b))
+  if (versions) return versions
+  const installed = (a.installedAt || 0) - (b.installedAt || 0)
+  if (installed) return installed
+  return (a.downloadedAt || 0) - (b.downloadedAt || 0)
+}
+
+export type LatestInstalledHint = {
+  catalogVersion?: string | null
+  playedVersions?: VersionPlayStat[] | null
+}
+
+function asLatestInstalledHint(
+  hint?: string | LatestInstalledHint | null
+): LatestInstalledHint {
+  if (!hint) return {}
+  if (typeof hint === 'string') return { catalogVersion: hint }
+  return hint
+}
+
+function libraryFileMatchesVersion(file: VersionedLibraryFile, version: string): boolean {
+  const key = libraryFileVersion(file)
+  if (!key || !version) return false
+  return key === version || compareGameVersions(key, version) === 0
+}
+
+/** Same pick as the overview Versions list: catalog latest, else newest `releasedAt`. */
+export function latestOverviewVersion(
+  stats: VersionPlayStat[],
+  catalogVersion?: string | null
+): string {
+  const sorted = sortVersionPlayStats(stats)
+  const catalog = usableVersion(catalogVersion)
+  if (catalog) {
+    const match = sorted.find((item) => item.version === catalog)
+    if (match) return match.version
+  }
+  return sorted[0]?.version || catalog || ''
+}
+
+/** Highest installed game version, using the overview Versions order when stats exist. */
+export function latestInstalledLibraryFile<T extends GameLibraryFile>(
+  files: T[],
+  hint?: string | LatestInstalledHint | null
+): T | null {
+  const installed = files.filter(
+    (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
+  )
+  if (!installed.length) return null
+  const { catalogVersion, playedVersions } = asLatestInstalledHint(hint)
+  const stats = mergeVersionPlayStats(
+    playedVersions,
+    installed.map((file) => ({
+      version: libraryFileVersion(file),
+      releasedAt: 0,
+      lastPlayedAt: file.lastPlayedAt || 0,
+      playtimeMs: file.playtimeMs || 0
+    }))
+  )
+  const ordered = sortVersionPlayStats(stats)
+  const keys: string[] = []
+  const overview = latestOverviewVersion(ordered, catalogVersion)
+  if (overview) keys.push(overview)
+  for (const item of ordered) {
+    if (item.version && !keys.includes(item.version)) keys.push(item.version)
+  }
+  for (const key of keys) {
+    const matches = installed.filter((file) => libraryFileMatchesVersion(file, key))
+    if (matches.length) return [...matches].sort(compareLibraryFilesByVersion).at(-1) ?? null
+  }
+  return [...installed].sort(compareLibraryFilesByVersion).at(-1) ?? null
 }
 
 export function catalogTimestamp(value: number | string | undefined | null): number {

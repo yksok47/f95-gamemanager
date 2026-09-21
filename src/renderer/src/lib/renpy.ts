@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { GameLibraryFile, RenpyInfo, RenpyInfoScope, RenpyStatus } from '@shared/types'
+import { compareLibraryFilesByVersion } from '@shared/updates'
 import { notifyError } from '../components/ErrorNotifications'
 
 export function formatBytes(size: number): string {
@@ -21,7 +22,13 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
   const fallbackTitle = options.title || ''
   const threadId = options.threadId || 0
   const scope = options.scope ?? 'full'
-  const installed = useMemo(() => files.filter((file) => file.isInstalled), [files])
+  const installed = useMemo(
+    () =>
+      [...files.filter((file) => file.isInstalled)].sort(
+        (a, b) => -compareLibraryFilesByVersion(a, b)
+      ),
+    [files]
+  )
   const sources = options.installedOnly || installed.length ? installed : files
   const [fileId, setFileId] = useState(sources[0]?.id || '')
   const [info, setInfo] = useState<RenpyInfo | null>(null)

@@ -367,6 +367,8 @@ const api = {
       ipcRenderer.invoke('library:removeArchive', id),
     removeVersion: (id: string): Promise<GameLibraryFile[]> =>
       ipcRenderer.invoke('library:removeVersion', id),
+    updateTags: (id: string, tags: PackageInstallTags): Promise<GameLibraryFile> =>
+      ipcRenderer.invoke('library:updateTags', id, tags),
     onChange: (listener: (items: GameLibraryFile[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: GameLibraryFile[]): void => listener(items)
       ipcRenderer.on('library:changed', wrapped)

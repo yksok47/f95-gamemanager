@@ -101,14 +101,68 @@ export function compareGameVersions(a: string, b: string): number {
   return 0
 }
 
+const VERSION_SYNONYMS: Record<string, string> = {
+  ch: 'chapter',
+  chap: 'chapter',
+  chapter: 'chapter',
+  up: 'update',
+  upd: 'update',
+  update: 'update',
+  ep: 'episode',
+  episode: 'episode',
+  pt: 'part',
+  part: 'part',
+  rev: 'revision',
+  revision: 'revision',
+  ver: '',
+  version: '',
+  v: ''
+}
+
 function versionParts(raw: string): Array<{ n: number; s: string }> {
-  return raw
-    .replace(/^[vV]/, '')
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((part) => {
-      const match = part.match(/^(\d+)(.*)$/)
-      if (match) return { n: Number(match[1]), s: match[2] }
-      return { n: 0, s: part }
-    })
+  const parts: Array<{ n: number; s: string }> = []
+  for (const token of splitVersionTokens(raw.replace(/^[vV](?=\d)/, ''))) {
+    const match = token.match(/^(\d+)(.*)$/)
+    if (match) {
+      parts.push({ n: Number(match[1]), s: '' })
+      const extra = canonicalizeVersionToken(match[2])
+      if (extra) parts.push({ n: 0, s: extra })
+      continue
+    }
+    const text = canonicalizeVersionToken(token)
+    if (text) parts.push({ n: 0, s: text })
+  }
+  return parts
+}
+
+function splitVersionTokens(raw: string): string[] {
+  const tokens: string[] = []
+  let buf = ''
+  let digit: boolean | null = null
+  for (const char of raw) {
+    const isDigit = char >= '0' && char <= '9'
+    const isLetter = (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z')
+    if (!isDigit && !isLetter) {
+      if (buf) tokens.push(buf)
+      buf = ''
+      digit = null
+      continue
+    }
+    if (buf && digit !== null && digit !== isDigit) {
+      tokens.push(buf)
+      buf = char
+      digit = isDigit
+      continue
+    }
+    buf += char
+    digit = isDigit
+  }
+  if (buf) tokens.push(buf)
+  return tokens
+}
+
+function canonicalizeVersionToken(value: string): string {
+  const key = value.trim().toLowerCase()
+  if (!key) return ''
+  return Object.prototype.hasOwnProperty.call(VERSION_SYNONYMS, key) ? VERSION_SYNONYMS[key] : key
 }

@@ -37,7 +37,7 @@ import {
   type ContentKindId
 } from '@shared/types'
 import type { PackageInstallTags, P2pTransferProgress } from '@shared/p2p'
-import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
+import { engineKind, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import {
   formatPlaytime,
@@ -47,6 +47,10 @@ import {
   effectiveVersionStatus,
   gameUpdateState,
   isRelativeDate,
+  latestInstalledLibraryFile,
+  latestOverviewVersion,
+  libraryFileVersion,
+  compareLibraryFilesByVersion,
   mergeVersionPlayStats,
   usableVersion,
   versionPlayStatsFromFiles
@@ -63,6 +67,7 @@ import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { MoreMenu, SplitButton, type MenuItem } from '../components/MenuPopover'
 import UncensorInstallButton from '../components/UncensorInstallButton'
 import UncensorRemoveButton from '../components/UncensorRemoveButton'
+import LibraryFileTagsDialog from '../components/LibraryFileTagsDialog'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
@@ -474,6 +479,8 @@ function GameDetailsPage({
   const [ignoreBusy, setIgnoreBusy] = useState(false)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [removeAllBusy, setRemoveAllBusy] = useState(false)
+  const [tagEditFile, setTagEditFile] = useState<GameLibraryFile | null>(null)
+  const [tagEditBusy, setTagEditBusy] = useState(false)
   const [reviewPage, setReviewPage] = useState(1)
   const [reviewItems, setReviewItems] = useState<ThreadReview[]>([])
   const [reviewsTotalPages, setReviewsTotalPages] = useState(1)
@@ -505,6 +512,8 @@ function GameDetailsPage({
     setThreadIdCopied(false)
     setIgnoreBusy(false)
     setArchiveBusy(false)
+    setTagEditFile(null)
+    setTagEditBusy(false)
     applyModalOffset(0, 0)
 
     async function load(): Promise<void> {
@@ -1146,18 +1155,6 @@ function GameDetailsPage({
     }
   }, [lightbox, gallery.length])
 
-  const latestInstalled = useMemo(() => {
-    const installed = files.filter(
-      (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
-    )
-    if (!installed.length) return null
-    return [...installed].sort((a, b) => {
-      const versions = compareGameVersions(a.version, b.version)
-      if (versions) return versions
-      return (a.installedAt || 0) - (b.installedAt || 0)
-    }).at(-1) ?? null
-  }, [files])
-
   const lastPlayedFile = useMemo(() => {
     return files
       .filter((file) => file.lastPlayedAt)
@@ -1175,13 +1172,36 @@ function GameDetailsPage({
     () => mergeVersionPlayStats(versionPlayStatsFromFiles(files), summary.playedVersions),
     [files, summary.playedVersions]
   )
+  const tagVersionSuggestions = useMemo(() => {
+    const names: string[] = []
+    const add = (name?: string): void => {
+      const next = (name || '').trim()
+      if (!next || names.includes(next)) return
+      names.push(next)
+    }
+    for (const item of playedVersions) add(item.version)
+    add(version)
+    for (const entry of changelog) add(entry.version)
+    for (const file of files) add(file.packageTags?.version || file.version)
+    return names
+  }, [changelog, files, playedVersions, version])
+  const latestInstalled = useMemo(
+    () =>
+      latestInstalledLibraryFile(files, {
+        catalogVersion: version,
+        playedVersions
+      }),
+    [files, version, playedVersions]
+  )
+  const latestInstalledVersion = latestInstalled ? libraryFileVersion(latestInstalled) : ''
   const latestVersionKey = usableVersion(version)
   const lastPlayedVersionKey = usableVersion(lastPlayedVersion)
   const collapsedVersions = useMemo(() => {
     if (!playedVersions.length) return []
+    const latestKey = latestOverviewVersion(playedVersions, latestVersionKey)
     const latest =
-      (latestVersionKey
-        ? playedVersions.find((item) => item.version === latestVersionKey)
+      (latestKey
+        ? playedVersions.find((item) => item.version === latestKey)
         : null) || playedVersions[0]
     const lastPlayed =
       (lastPlayedVersionKey
@@ -1211,7 +1231,7 @@ function GameDetailsPage({
   )
   const updates = gameUpdateState({
     latestVersion: version,
-    installedVersion: latestInstalled?.version,
+    installedVersion: latestInstalledVersion,
     lastPlayedVersion,
     playedVersions
   })
@@ -1227,11 +1247,7 @@ function GameDetailsPage({
     if (!candidates.length) return null
     return (
       [...candidates]
-        .sort((a, b) => {
-          const versions = compareGameVersions(a.version, b.version)
-          if (versions) return versions
-          return (a.downloadedAt || 0) - (b.downloadedAt || 0)
-        })
+        .sort(compareLibraryFilesByVersion)
         .at(-1) ?? null
     )
   }, [files, latestInstalled])
@@ -1247,7 +1263,11 @@ function GameDetailsPage({
     return LIBRARY_FILE_SECTION_ORDER.flatMap((kind) => {
       const items = buckets.get(kind)
       if (!items?.length) return []
-      return [{ kind, label: CONTENT_KIND_LABELS[kind], items }]
+      return [{
+        kind,
+        label: CONTENT_KIND_LABELS[kind],
+        items: [...items].sort((a, b) => -compareLibraryFilesByVersion(a, b))
+      }]
     })
   }, [files])
 
@@ -1558,7 +1578,13 @@ function GameDetailsPage({
   }
 
   function moreMenuItems(file: GameLibraryFile): MenuItem[] {
-    const items: MenuItem[] = []
+    const items: MenuItem[] = [
+      {
+        id: 'edit-tags',
+        label: 'Change version / OS',
+        onClick: () => setTagEditFile(file)
+      }
+    ]
     if (file.hasArchive) {
       items.push({
         id: 'show-archive',
@@ -1579,6 +1605,18 @@ function GameDetailsPage({
       })
     }
     return items
+  }
+
+  async function saveFileTags(fileId: string, tags: PackageInstallTags): Promise<void> {
+    setTagEditBusy(true)
+    try {
+      await window.api.library.updateTags(fileId, tags)
+      setTagEditFile(null)
+    } catch (err) {
+      notifyCaught(err, 'Could not update version or OS for that file.')
+    } finally {
+      setTagEditBusy(false)
+    }
   }
 
   function onProseClick(event: MouseEvent<HTMLDivElement>): void {
@@ -1888,7 +1926,7 @@ function GameDetailsPage({
                 <div className="details-sub-row">
                   {updates.updateAvailable ? (
                     <span className="details-pill details-pill-update">
-                      Update from {latestInstalled?.version}
+                      Update from {latestInstalledVersion}
                     </span>
                   ) : null}
                   {updates.unplayedUpdate && lastPlayedVersion ? (
@@ -1978,7 +2016,7 @@ function GameDetailsPage({
                 ) : null}
                 {latestInstalled && !sessionFor(latestInstalled.id) ? (
                   <button className="primary-btn" type="button" onClick={() => void playLatest()}>
-                    Play{latestInstalled.version ? ` ${latestInstalled.version}` : ''}
+                    Play{latestInstalledVersion ? ` ${latestInstalledVersion}` : ''}
                   </button>
                 ) : null}
                 {latestInstalled && updates.updateAvailable ? (
@@ -1996,7 +2034,7 @@ function GameDetailsPage({
                     type="button"
                     onClick={() => void installFile(pendingInstall.id)}
                   >
-                    Install{pendingInstall.version ? ` ${pendingInstall.version}` : ''}
+                    Install{libraryFileVersion(pendingInstall) ? ` ${libraryFileVersion(pendingInstall)}` : ''}
                   </button>
                 ) : filesReady && !hasLocalCopy ? (
                   <button className="primary-btn" type="button" onClick={openDownloadsTab}>
@@ -2749,6 +2787,17 @@ function GameDetailsPage({
             document.body
           )
         : null}
+        {tagEditFile ? (
+          <LibraryFileTagsDialog
+            file={tagEditFile}
+            versions={tagVersionSuggestions}
+            busy={tagEditBusy}
+            onClose={() => {
+              if (!tagEditBusy) setTagEditFile(null)
+            }}
+            onSave={(tags) => void saveFileTags(tagEditFile.id, tags)}
+          />
+        ) : null}
         </div>
         </div>
         </div>

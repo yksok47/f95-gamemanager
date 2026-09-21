@@ -140,7 +140,7 @@ export default function LibraryPage({
     [subscriptions]
   )
   const libraryByThread = useMemo(
-    () => withSavePresence(summarizeLibrary(files), saveIds),
+    () => withSavePresence(summarizeLibrary(files, subscriptions), saveIds),
     [files, saveIds]
   )
   const installedGames = useMemo(

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 
 import { confirm } from './ConfirmDialog'
 import { notifyCaught } from './ErrorNotifications'
 import type { GameLibraryFile, RpgMakerInfo, RpgMakerSaveFile } from '@shared/types'
-import { formatDateTime } from '@shared/updates'
+import { compareLibraryFilesByVersion, formatDateTime } from '@shared/updates'
 import { formatBytes } from '../lib/downloads'
 import { RPG_CLOUD_FOLDER, filesForSaveFolder, useCloudSavesForThread } from '../lib/cloud-saves'
 import { usePlaySessions } from '../lib/library'
@@ -28,7 +28,13 @@ export default function RpgMakerSavesPanel({
   threadId,
   title = ''
 }: RpgMakerSavesPanelProps): JSX.Element {
-  const installed = useMemo(() => files.filter((file) => file.isInstalled), [files])
+  const installed = useMemo(
+    () =>
+      [...files.filter((file) => file.isInstalled)].sort(
+        (a, b) => -compareLibraryFilesByVersion(a, b)
+      ),
+    [files]
+  )
   const [fileId, setFileId] = useState(installed[0]?.id || files[0]?.id || '')
   const [info, setInfo] = useState<RpgMakerInfo | null>(null)
   const [busy, setBusy] = useState(false)

@@ -369,7 +369,7 @@ export type GameLibraryFile = {
    */
   uncensorInstallable?: boolean
   screens?: string[]
-  /** OS / content kind / version chosen when the file was approved into the library. */
+  /** OS / content kind / version chosen when the file was approved, or later edited. */
   packageTags?: PackageTagHint
 }
 

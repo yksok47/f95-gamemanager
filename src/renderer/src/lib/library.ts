@@ -12,8 +12,15 @@ import {
   isRenpyUncensorPackage
 } from '@shared/types'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
-import { compareGameVersions, engineKind } from '@shared/engines'
-import { mergeVersionPlayStats, versionPlayStatsFromFiles } from '@shared/updates'
+import { engineKind } from '@shared/engines'
+import {
+  compareLibraryFilesByVersion,
+  latestInstalledLibraryFile,
+  libraryFileVersion,
+  mergeVersionPlayStats,
+  versionPlayStatsFromFiles,
+  type LatestInstalledHint
+} from '@shared/updates'
 import type { ThreadDownloadProgress } from './downloads'
 
 export type GameLibraryStatus = {
@@ -65,7 +72,24 @@ export function libraryExclusiveKind(
   return null
 }
 
-export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibraryStatus> {
+function versionHintByThread(
+  hints?: Iterable<{ threadId: number; version?: string; playedVersions?: VersionPlayStat[] }>
+): Map<number, LatestInstalledHint> {
+  const map = new Map<number, LatestInstalledHint>()
+  if (!hints) return map
+  for (const hint of hints) {
+    map.set(hint.threadId, {
+      catalogVersion: hint.version,
+      playedVersions: hint.playedVersions
+    })
+  }
+  return map
+}
+
+export function summarizeLibrary(
+  files: GameLibraryFile[],
+  hints?: Iterable<{ threadId: number; version?: string; playedVersions?: VersionPlayStat[] }>
+): Map<number, GameLibraryStatus> {
   const byThread = new Map<number, GameLibraryFile[]>()
   for (const file of files) {
     const list = byThread.get(file.threadId)
@@ -73,22 +97,16 @@ export function summarizeLibrary(files: GameLibraryFile[]): Map<number, GameLibr
     else byThread.set(file.threadId, [file])
   }
 
+  const versionHints = versionHintByThread(hints)
   const result = new Map<number, GameLibraryStatus>()
   for (const [threadId, items] of byThread) {
-    const installed = items.filter(
-      (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
-    )
-    const latest = [...installed].sort((a, b) => {
-      const versions = compareGameVersions(a.version, b.version)
-      if (versions) return versions
-      return (a.installedAt || 0) - (b.installedAt || 0)
-    }).at(-1)
+    const latest = latestInstalledLibraryFile(items, versionHints.get(threadId))
     const status: GameLibraryStatus = {
       hasArchive: items.some(
         (file) => file.hasArchive && isInstallableLibraryPackage(file.packageTags)
       ),
-      isInstalled: installed.length > 0,
-      installedVersion: latest?.version || null,
+      isInstalled: Boolean(latest),
+      installedVersion: latest ? libraryFileVersion(latest) || latest.version || null : null,
       engine: items.find((file) => file.engine)?.engine || null,
       installPercent: items.find((file) => file.installPercent != null)?.installPercent ?? null,
       hasSaves: false
@@ -119,11 +137,7 @@ export function listUncensorPatchTargets(
       if (kind && kind !== 'renpy') return false
       return !gameHasInstalledPatch(file, patch)
     })
-    .sort((a, b) => {
-      const versions = compareGameVersions(a.version, b.version)
-      if (versions) return versions
-      return (a.installedAt || 0) - (b.installedAt || 0)
-    })
+    .sort(compareLibraryFilesByVersion)
 }
 
 export function gamesWithPatchInstalled(
@@ -217,6 +231,9 @@ export function useIdentifiedSaveThreadIds(): Set<number> {
 
 export function useLibraryByThread(): Map<number, GameLibraryStatus> {
   const [files, setFiles] = useState<GameLibraryFile[]>([])
+  const [subscriptions, setSubscriptions] = useState<
+    Array<{ threadId: number; version?: string; playedVersions?: VersionPlayStat[] }>
+  >([])
   const saveIds = useIdentifiedSaveThreadIds()
 
   useEffect(() => {
@@ -231,7 +248,22 @@ export function useLibraryByThread(): Map<number, GameLibraryStatus> {
     }
   }, [])
 
-  return useMemo(() => withSavePresence(summarizeLibrary(files), saveIds), [files, saveIds])
+  useEffect(() => {
+    let cancelled = false
+    void window.api.subscriptions.list().then((items) => {
+      if (!cancelled) setSubscriptions(items)
+    })
+    const stop = window.api.subscriptions.onChange(setSubscriptions)
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [])
+
+  return useMemo(
+    () => withSavePresence(summarizeLibrary(files, subscriptions), saveIds),
+    [files, saveIds, subscriptions]
+  )
 }
 
 export function useLibraryFiles(): GameLibraryFile[] {
@@ -268,14 +300,10 @@ export function groupLibraryGames(
   const games: LibraryGame[] = []
   for (const [threadId, items] of byThread) {
     const sub = followed.get(threadId)
-    const installed = [
-      ...items.filter((file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags))
-    ].sort((a, b) => {
-      const versions = compareGameVersions(a.version, b.version)
-      if (versions) return versions
-      return (a.installedAt || 0) - (b.installedAt || 0)
+    const latestInstalled = latestInstalledLibraryFile(items, {
+      catalogVersion: sub?.version,
+      playedVersions: sub?.playedVersions
     })
-    const latestInstalled = installed.at(-1)
     const newest = [...items].sort((a, b) => b.downloadedAt - a.downloadedAt)[0]
     const lastPlayed = [...items].sort((a, b) => (a.lastPlayedAt || 0) - (b.lastPlayedAt || 0)).at(-1)
     const coverUrl =
@@ -291,7 +319,7 @@ export function groupLibraryGames(
       threadId,
       title: items.map((file) => file.title).find((value) => value?.trim()) || sub?.title || newest.title,
       creator: items.map((file) => file.creator).find((value) => value?.trim()) || sub?.creator || '',
-      version: latestInstalled?.version || newest.version,
+      version: (latestInstalled && libraryFileVersion(latestInstalled)) || newest.version,
       coverUrl,
       rating: Math.max(0, ...items.map((file) => file.rating || 0), sub?.rating || 0),
       likes: maxLikeCount(...items.map((file) => file.likes), sub?.likes),

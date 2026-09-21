@@ -2,7 +2,9 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, resolve, sep } from 'path'
 import type { BrowserWindow } from 'electron'
 import { shell } from 'electron'
-import { compareGameVersions, engineKind, normalizeEngine } from '@shared/engines'
+import { engineKind, normalizeEngine } from '@shared/engines'
+import { compareLibraryFilesByVersion, latestInstalledLibraryFile, libraryFileVersion, type LatestInstalledHint } from '@shared/updates'
+import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
 import type { GameFileContext, GameLibraryFile, InstalledPatchRef } from '@shared/types'
 import {
   asPackageTagHint,
@@ -41,7 +43,8 @@ import {
   getDownloadsDirSync,
   getExtraArchiveDirsSync,
   getExtraLibraryDirsSync,
-  getLibraryDirSync
+  getLibraryDirSync,
+  getMetadataApiEnabledSync
 } from './settings-store'
 import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { uniqueScreenUrls } from './f95/catalog'
@@ -49,6 +52,8 @@ import { lookupGame } from './f95/lookup'
 import { listSubscriptions, recordSubscriptionPlay } from './subscriptions-store'
 import { pathExists, resolveLongPath, toFsPath } from './win-path'
 import { sendToRenderer } from './windows'
+import { signMessageBytes } from './p2p/identity'
+import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
 import {
   pauseTorrentsForArchive,
   resumeTorrentsByIds,
@@ -909,11 +914,7 @@ export function listUncensorPatchTargets(
       if (kind && kind !== 'renpy') return false
       return !gameHasInstalledPatch(file, patch)
     })
-    .sort((a, b) => {
-      const versions = compareGameVersions(a.version, b.version)
-      if (versions) return versions
-      return (a.installedAt || 0) - (b.installedAt || 0)
-    })
+    .sort(compareLibraryFilesByVersion)
 }
 
 /**
@@ -1133,16 +1134,11 @@ async function resolvePlayableExe(
   return picked
 }
 
-export function latestInstalledFile(files: GameLibraryFile[]): GameLibraryFile | null {
-  const installed = files.filter(
-    (file) => file.isInstalled && isInstallableLibraryPackage(file.packageTags)
-  )
-  if (!installed.length) return null
-  return [...installed].sort((a, b) => {
-    const versions = compareGameVersions(a.version, b.version)
-    if (versions) return versions
-    return (a.installedAt || 0) - (b.installedAt || 0)
-  }).at(-1) ?? null
+export function latestInstalledFile(
+  files: GameLibraryFile[],
+  hint?: string | LatestInstalledHint | null
+): GameLibraryFile | null {
+  return latestInstalledLibraryFile(files, hint)
 }
 
 export async function playGameFile(
@@ -1163,10 +1159,11 @@ export async function playGameFile(
   if (getPlaySession(file.id)) return present(file)
   await syncRpgMakerForFile(file, 'merge')
   const launched = await launchExecutable(exe)
+  const playVersion = libraryFileVersion(file) || file.version
   startPlaySession({
     fileId: file.id,
     threadId: file.threadId,
-    version: file.version,
+    version: playVersion,
     pid: launched.pid,
     installPath: file.installPath || dirname(exe),
     backupSaves: usesRpgMakerSaves(file)
@@ -1176,7 +1173,7 @@ export async function playGameFile(
   const current = files.find((item) => item.id === file.id)
   if (current) current.lastPlayedAt = file.lastPlayedAt
   await writeStore(files)
-  await recordSubscriptionPlay(file.threadId, file.version)
+  await recordSubscriptionPlay(file.threadId, playVersion)
   broadcast()
   return present(file)
 }
@@ -1186,7 +1183,12 @@ export async function playLatestGameFile(
   parent?: BrowserWindow | null,
   engineHint?: string
 ): Promise<GameLibraryFile> {
-  const latest = latestInstalledFile(await listGameFiles(threadId))
+  const files = await listGameFiles(threadId)
+  const sub = (await listSubscriptions()).find((game) => game.threadId === threadId)
+  const latest = latestInstalledFile(files, {
+    catalogVersion: sub?.version,
+    playedVersions: sub?.playedVersions
+  })
   if (!latest) throw new Error('No installed version is available to play.')
   return playGameFile(latest.id, parent, engineHint)
 }
@@ -1290,6 +1292,52 @@ async function getFile(id: string): Promise<{ files: StoredGameFile[]; file: Sto
   return { files, file }
 }
 
+async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
+  if (!getMetadataApiEnabledSync() || !contentHash) return
+  const ts = Math.floor(Date.now() / 1000)
+  const msg = buildInstallClaimMessage(contentHash, ts, tags)
+  const { seederPubkey, signature } = await signMessageBytes(msg)
+  await reportPackageInstall(contentHash, {
+    seederPubkey,
+    ts,
+    signature,
+    tags
+  })
+}
+
+/** Update OS / content kind / version on a file already in the library. */
+export async function updateGameFileTags(
+  id: string,
+  tags: PackageInstallTags
+): Promise<GameLibraryFile> {
+  if (installing.has(id)) throw new Error('That version is still being installed.')
+  const normalized = normalizePackageInstallTags(tags)
+  const { files, file } = await getFile(id)
+  file.packageTags = {
+    os: normalized.os,
+    contentKind: normalized.contentKind,
+    version: normalized.version
+  }
+  file.version = normalized.version
+  await writeStore(files)
+  broadcast()
+  void reportInstallTags(file.hash, normalized).catch((error) => {
+    console.warn('[library] could not report updated package tags', error)
+  })
+  const installPath = file.installPath
+  if (installPath && pathExists(installPath)) {
+    const dest = installDest(file)
+    if (!installLayoutMatches(installPath, dest)) {
+      try {
+        return await relocateGameInstall(id)
+      } catch (error) {
+        console.warn('[library] could not move install folder after tag change', error)
+      }
+    }
+  }
+  return present(file)
+}
+
 export async function uninstallGameFile(id: string): Promise<GameLibraryFile> {
   if (installing.has(id)) throw new Error('That version is still being installed.')
   await stopPlaySession(id)
@@ -1377,7 +1425,7 @@ export async function adoptRunningLibrarySessions(): Promise<void> {
     startPlaySession({
       fileId: file.id,
       threadId: file.threadId,
-      version: file.version,
+      version: libraryFileVersion(file) || file.version,
       pid: found.pid,
       installPath: file.installPath,
       backupSaves: usesRpgMakerSaves(file)

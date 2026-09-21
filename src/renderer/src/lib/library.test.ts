@@ -147,6 +147,85 @@ describe('summarizeLibrary', () => {
     expect(status?.installPercent).toBeNull()
   })
 
+  test('play/status use the highest installed version when several copies exist', () => {
+    const status = summarizeLibrary([
+      libraryFile({
+        id: 'old',
+        threadId: 1,
+        isInstalled: true,
+        installPath: 'C:\\games\\old',
+        installedAt: 200,
+        version: '0.4'
+      }),
+      libraryFile({
+        id: 'new',
+        threadId: 1,
+        isInstalled: true,
+        installPath: 'C:\\games\\new',
+        installedAt: 50,
+        version: '0.5'
+      })
+    ]).get(1)
+    expect(status?.isInstalled).toBe(true)
+    expect(status?.installedVersion).toBe('0.5')
+  })
+
+  test('treats Chapter 2 Update 4 as older than Ch.2 Up.5', () => {
+    const status = summarizeLibrary([
+      libraryFile({
+        id: 'old',
+        threadId: 1,
+        isInstalled: true,
+        installPath: 'C:\\games\\old',
+        installedAt: 200,
+        version: 'Chapter 2 Update 4'
+      }),
+      libraryFile({
+        id: 'new',
+        threadId: 1,
+        isInstalled: true,
+        installPath: 'C:\\games\\new',
+        installedAt: 50,
+        version: 'Ch.2 Up.5'
+      })
+    ]).get(1)
+    expect(status?.installedVersion).toBe('Ch.2 Up.5')
+  })
+
+  test('uses overview release dates when they are provided', () => {
+    const status = summarizeLibrary(
+      [
+        libraryFile({
+          id: 'old',
+          threadId: 1,
+          isInstalled: true,
+          installPath: 'C:\\games\\old',
+          installedAt: 200,
+          version: 'Final Cut'
+        }),
+        libraryFile({
+          id: 'new',
+          threadId: 1,
+          isInstalled: true,
+          installPath: 'C:\\games\\new',
+          installedAt: 50,
+          version: '0.9'
+        })
+      ],
+      [
+        {
+          threadId: 1,
+          version: '0.9',
+          playedVersions: [
+            { version: '0.9', releasedAt: 2000, lastPlayedAt: 0, playtimeMs: 0 },
+            { version: 'Final Cut', releasedAt: 1000, lastPlayedAt: 0, playtimeMs: 0 }
+          ]
+        }
+      ]
+    ).get(1)
+    expect(status?.installedVersion).toBe('0.9')
+  })
+
   test('defaults hasSaves to false until save folders are merged', () => {
     const status = summarizeLibrary([
       libraryFile({ id: 'a', threadId: 1, hasArchive: true })

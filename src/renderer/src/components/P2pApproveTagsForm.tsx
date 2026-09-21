@@ -86,8 +86,9 @@ const KIND_OPTIONS = ([
 }))
 
 const RATCHET_ITEM_H = 30
-const RATCHET_VISIBLE = 5
+const RATCHET_VISIBLE = 9
 const RATCHET_PAD = Math.floor((RATCHET_VISIBLE - 1) / 2) * RATCHET_ITEM_H
+const RATCHET_FADE = 28
 const RATCHET_SETTLE_MS = 120
 
 const KIND_ITEM_H = 56
@@ -508,7 +509,8 @@ function VersionRatchet({ options, value, onPick, onCollapse }: VersionRatchetPr
         {
           ['--ratchet-item-h']: `${RATCHET_ITEM_H}px`,
           ['--ratchet-visible']: String(RATCHET_VISIBLE),
-          ['--ratchet-pad']: `${RATCHET_PAD}px`
+          ['--ratchet-pad']: `${RATCHET_PAD}px`,
+          ['--ratchet-fade']: `${RATCHET_FADE}px`
         } as CSSProperties
       }
     >

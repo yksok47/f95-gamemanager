@@ -51,7 +51,8 @@ import {
   removeGameVersion,
   showGameArchive,
   showGameInstall,
-  uninstallGameFile
+  uninstallGameFile,
+  updateGameFileTags
 } from './game-files-store'
 import { getGameNote, setGameNote } from './game-notes-store'
 import { applyCatalogGamesToRoster, listRoster, removeFromRoster, toggleRoster } from './roster-store'
@@ -1039,6 +1040,14 @@ export function registerIpc(): void {
   ipcMain.handle('library:removeVersion', async (_event, id: string) => {
     try {
       return await removeGameVersion(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:updateTags', async (_event, id: string, tags: unknown) => {
+    try {
+      return await updateGameFileTags(String(id), tags as PackageInstallTags)
     } catch (error) {
       throw toIpcError(error)
     }
