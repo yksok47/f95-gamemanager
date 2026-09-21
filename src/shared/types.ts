@@ -551,8 +551,15 @@ export type RenpySaveFile = {
   thumbnailUrl?: string
 }
 
-/** In-place pickle kinds from the Ren'Py save log (protocol 4/5). */
-export type RenpySaveEditKind = 'bool' | 'BININT1' | 'BININT2' | 'BININT'
+/** Pickle kinds from the Ren'Py save log (protocol 4/5). */
+export type RenpySaveEditKind =
+  | 'bool'
+  | 'BININT1'
+  | 'BININT2'
+  | 'BININT'
+  | 'SHORT_BINUNICODE'
+  | 'BINUNICODE'
+  | 'BINUNICODE8'
 
 export type RenpySaveEditVar = {
   name: string
@@ -569,7 +576,7 @@ export type RenpySaveEditVar = {
 export type RenpySaveEditPatch = {
   pos: number
   kind: RenpySaveEditKind
-  value: boolean | number
+  value: boolean | number | string
 }
 
 export type RenpySaveEditorData = {

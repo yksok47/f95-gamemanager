@@ -84,7 +84,7 @@ export default function RenpySaveEditorDialog({
 
   const editableCount = rows.filter((row) => row.editable).length
 
-  function setRowValue(index: number, value: boolean | number): void {
+  function setRowValue(index: number, value: boolean | number | string): void {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, value } : row)))
   }
 
@@ -97,7 +97,16 @@ export default function RenpySaveEditorDialog({
       if (!before || sameValue(before.value, row.value)) continue
       if (row.kind === 'bool' && typeof row.value === 'boolean') {
         out.push({ pos: row.pos, kind: 'bool', value: row.value })
-      } else if (row.kind !== 'bool' && typeof row.value === 'number' && Number.isInteger(row.value)) {
+      } else if (
+        (row.kind === 'BININT1' || row.kind === 'BININT2' || row.kind === 'BININT') &&
+        typeof row.value === 'number' &&
+        Number.isInteger(row.value)
+      ) {
+        out.push({ pos: row.pos, kind: row.kind, value: row.value })
+      } else if (
+        (row.kind === 'SHORT_BINUNICODE' || row.kind === 'BINUNICODE' || row.kind === 'BINUNICODE8') &&
+        typeof row.value === 'string'
+      ) {
         out.push({ pos: row.pos, kind: row.kind, value: row.value })
       }
     }
@@ -193,7 +202,7 @@ export default function RenpySaveEditorDialog({
               {visible.length === rows.length
                 ? `${rows.length} variable${rows.length === 1 ? '' : 's'}`
                 : `${visible.length} of ${rows.length} variables`}
-              {editableCount ? ` · ${editableCount} editable (booleans and integers)` : ''}
+              {editableCount ? ` · ${editableCount} editable (booleans, integers, and strings)` : ''}
             </p>
             {error ? <p className="save-editor-error">{error}</p> : null}
             <div className="save-editor-table-wrap">
@@ -221,7 +230,8 @@ export default function RenpySaveEditorDialog({
                             />
                             {row.value === true ? 'True' : 'False'}
                           </label>
-                        ) : row.editable && row.kind ? (
+                        ) : row.editable &&
+                          (row.kind === 'BININT1' || row.kind === 'BININT2' || row.kind === 'BININT') ? (
                           <input
                             className="save-editor-int"
                             type="number"
@@ -242,6 +252,22 @@ export default function RenpySaveEditorDialog({
                                 delete next[index]
                                 return next
                               })
+                            }}
+                          />
+                        ) : row.editable &&
+                          (row.kind === 'SHORT_BINUNICODE' ||
+                            row.kind === 'BINUNICODE' ||
+                            row.kind === 'BINUNICODE8') ? (
+                          <input
+                            className="save-editor-str"
+                            type="text"
+                            value={drafts[index] ?? (typeof row.value === 'string' ? row.value : '')}
+                            maxLength={row.max}
+                            disabled={saving}
+                            onChange={(event) => {
+                              const text = event.target.value
+                              setDrafts((current) => ({ ...current, [index]: text }))
+                              setRowValue(index, text)
                             }}
                           />
                         ) : (

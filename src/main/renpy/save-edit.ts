@@ -8,13 +8,24 @@ import { genops } from './pickle-ops'
 
 const LOG_LIMITS = { maxCompressed: 32 * 1024 * 1024, maxUncompressed: 32 * 1024 * 1024 }
 const COPY_LIMITS = { maxCompressed: 64 * 1024 * 1024, maxUncompressed: 64 * 1024 * 1024 }
+const MAX_STRING_EDIT = 4096
 
-const FIXED_WIDTH: Record<Exclude<RenpySaveEditKind, 'bool'>, { width: number; offset: number; min: number; max: number }> =
-  {
-    BININT1: { width: 1, offset: 1, min: 0, max: 255 },
-    BININT2: { width: 2, offset: 1, min: 0, max: 65535 },
-    BININT: { width: 4, offset: 1, min: -2147483648, max: 2147483647 }
-  }
+type IntKind = 'BININT1' | 'BININT2' | 'BININT'
+type StringKind = 'SHORT_BINUNICODE' | 'BINUNICODE' | 'BINUNICODE8'
+
+const INT_WIDTH: Record<IntKind, { offset: number; min: number; max: number }> = {
+  BININT1: { offset: 1, min: 0, max: 255 },
+  BININT2: { offset: 1, min: 0, max: 65535 },
+  BININT: { offset: 1, min: -2147483648, max: 2147483647 }
+}
+
+function isIntKind(kind: RenpySaveEditKind): kind is IntKind {
+  return kind === 'BININT1' || kind === 'BININT2' || kind === 'BININT'
+}
+
+function isStringKind(kind: RenpySaveEditKind): kind is StringKind {
+  return kind === 'SHORT_BINUNICODE' || kind === 'BINUNICODE' || kind === 'BINUNICODE8'
+}
 
 const CRC_TABLE = new Uint32Array(256)
 for (let i = 0; i < 256; i++) {
@@ -54,7 +65,7 @@ function makeRow(name: string, opcode: string, arg: unknown, pos: number): Renpy
     }
   }
   if (opcode === 'BININT1' || opcode === 'BININT2' || opcode === 'BININT') {
-    const spec = FIXED_WIDTH[opcode]
+    const spec = INT_WIDTH[opcode]
     return {
       name,
       displayName: displayName(name),
@@ -71,14 +82,17 @@ function makeRow(name: string, opcode: string, arg: unknown, pos: number): Renpy
     return { name, displayName: displayName(name), type: 'None', value: null, pos, editable: false, kind: null }
   }
   if (opcode === 'SHORT_BINUNICODE' || opcode === 'BINUNICODE' || opcode === 'BINUNICODE8') {
+    const text = typeof arg === 'string' ? arg : String(arg ?? '')
+    const tooLong = text.length > MAX_STRING_EDIT
     return {
       name,
       displayName: displayName(name),
       type: 'String',
-      value: typeof arg === 'string' ? arg : String(arg ?? ''),
+      value: text,
       pos,
-      editable: false,
-      kind: null
+      editable: !tooLong,
+      kind: tooLong ? null : opcode,
+      max: MAX_STRING_EDIT
     }
   }
   return {
@@ -113,24 +127,82 @@ export function parseStoreVariables(logBytes: Buffer): RenpySaveEditVar[] {
   return rows
 }
 
+function unicodeSpan(buf: Buffer, pos: number, kind: StringKind): number {
+  if (kind === 'SHORT_BINUNICODE') {
+    if (buf[pos] !== 0x8c) throw new Error('That save changed on disk. Reload and try again.')
+    return 2 + buf[pos + 1]
+  }
+  if (kind === 'BINUNICODE') {
+    if (buf[pos] !== 0x58) throw new Error('That save changed on disk. Reload and try again.')
+    return 5 + buf.readUInt32LE(pos + 1)
+  }
+  if (buf[pos] !== 0x8d) throw new Error('That save changed on disk. Reload and try again.')
+  return 9 + Number(buf.readBigUInt64LE(pos + 1))
+}
+
+function encodeUnicode(text: string, prefer: StringKind): Buffer {
+  const data = Buffer.from(text, 'utf8')
+  const len = data.length
+  if (prefer === 'SHORT_BINUNICODE' && len <= 255) {
+    return Buffer.concat([Buffer.from([0x8c, len]), data])
+  }
+  if ((prefer === 'SHORT_BINUNICODE' || prefer === 'BINUNICODE') && len <= 0xffffffff) {
+    const head = Buffer.alloc(5)
+    head[0] = 0x58
+    head.writeUInt32LE(len, 1)
+    return Buffer.concat([head, data])
+  }
+  const head = Buffer.alloc(9)
+  head[0] = 0x8d
+  head.writeBigUInt64LE(BigInt(len), 1)
+  return Buffer.concat([head, data])
+}
+
+function bumpFrames(buf: Buffer, splicePos: number, delta: number): void {
+  if (!delta) return
+  for (const op of genops(buf)) {
+    if (op.name !== 'FRAME' || typeof op.arg !== 'number') continue
+    const payloadStart = op.pos + 9
+    const payloadEnd = payloadStart + op.arg
+    if (splicePos < payloadStart || splicePos >= payloadEnd) continue
+    const next = op.arg + delta
+    if (next < 0) throw new Error('Invalid pickle frame size.')
+    buf.writeBigUInt64LE(BigInt(next), op.pos + 1)
+  }
+}
+
 export function applySavePatches(logBytes: Buffer, patches: RenpySaveEditPatch[]): Buffer {
   const rows = parseStoreVariables(logBytes)
   const byPos = new Map(rows.map((row) => [row.pos, row]))
-  const buf = Buffer.from(logBytes)
   for (const patch of patches) {
     const row = byPos.get(patch.pos)
     if (!row || !row.editable || row.kind !== patch.kind) {
       throw new Error('That save changed on disk. Reload and try again.')
     }
+  }
+
+  let buf = Buffer.from(logBytes)
+  const ordered = [...patches].sort((a, b) => b.pos - a.pos)
+  for (const patch of ordered) {
+    const row = byPos.get(patch.pos)!
     if (patch.kind === 'bool') {
       if (typeof patch.value !== 'boolean') throw new Error('Boolean values must be true or false.')
       buf[patch.pos] = patch.value ? 0x88 : 0x89
       continue
     }
-    if (typeof patch.value !== 'number' || !Number.isInteger(patch.value)) {
+    if (isStringKind(patch.kind)) {
+      if (typeof patch.value !== 'string') throw new Error(`'${row.displayName}' needs text.`)
+      if (patch.value.length > MAX_STRING_EDIT) throw new Error('That text is too long to store in the save.')
+      const encoded = encodeUnicode(patch.value, patch.kind)
+      const oldLen = unicodeSpan(buf, patch.pos, patch.kind)
+      bumpFrames(buf, patch.pos, encoded.length - oldLen)
+      buf = Buffer.concat([buf.subarray(0, patch.pos), encoded, buf.subarray(patch.pos + oldLen)])
+      continue
+    }
+    if (!isIntKind(patch.kind) || typeof patch.value !== 'number' || !Number.isInteger(patch.value)) {
       throw new Error(`'${row.displayName}' needs a whole number.`)
     }
-    const spec = FIXED_WIDTH[patch.kind]
+    const spec = INT_WIDTH[patch.kind]
     if (patch.value < spec.min || patch.value > spec.max) {
       throw new Error(`'${row.displayName}' is out of range for its original storage (${spec.min}..${spec.max}).`)
     }
@@ -214,7 +286,15 @@ export async function readSaveEditor(filePath: string): Promise<RenpySaveEditorD
   }
 }
 
-const EDIT_KINDS = new Set<RenpySaveEditKind>(['bool', 'BININT1', 'BININT2', 'BININT'])
+const EDIT_KINDS = new Set<RenpySaveEditKind>([
+  'bool',
+  'BININT1',
+  'BININT2',
+  'BININT',
+  'SHORT_BINUNICODE',
+  'BINUNICODE',
+  'BINUNICODE8'
+])
 
 export function sanitizeSavePatches(patches: unknown): RenpySaveEditPatch[] {
   if (!Array.isArray(patches)) return []
@@ -229,8 +309,12 @@ export function sanitizeSavePatches(patches: unknown): RenpySaveEditPatch[] {
       out.push({ pos, kind: 'bool', value: rec.value })
       continue
     }
-    if (kind !== 'bool' && typeof rec.value === 'number' && Number.isInteger(rec.value)) {
-      out.push({ pos, kind: kind as Exclude<RenpySaveEditKind, 'bool'>, value: rec.value })
+    if (isStringKind(kind as RenpySaveEditKind) && typeof rec.value === 'string' && rec.value.length <= MAX_STRING_EDIT) {
+      out.push({ pos, kind: kind as StringKind, value: rec.value })
+      continue
+    }
+    if (isIntKind(kind as RenpySaveEditKind) && typeof rec.value === 'number' && Number.isInteger(rec.value)) {
+      out.push({ pos, kind: kind as IntKind, value: rec.value })
     }
   }
   return out
