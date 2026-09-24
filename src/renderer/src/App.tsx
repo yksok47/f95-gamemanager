@@ -35,9 +35,9 @@ import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload, collectThreadDownloads } from './lib/downloads'
 import { DownloadProgressProvider } from './lib/download-progress'
-import { hasLibraryCopy, useLibraryByThread, type LibraryGame } from './lib/library'
+import { useLibraryByThread, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
-import { shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
+import { latestKnownVersion, shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
 import { focusPageSearchOnHotkey } from './lib/page-search'
@@ -194,22 +194,11 @@ export default function App(): JSX.Element {
     ? p2pTransfers.filter((t) => isActiveP2pDownload(t, p2pSharedHashes)).length
     : 0
   const activeDownloadCount = downloads.filter(isActiveDownload).length + activeP2pCount
-  const uploadCount = p2pEnabled ? p2pShared.length : 0
   const libraryByThread = useLibraryByThread()
   const pendingDownloads = useMemo(
     () => collectThreadDownloads(downloads, p2pEnabled ? p2pTransfers : [], p2pSharedHashes),
     [downloads, p2pEnabled, p2pTransfers, p2pSharedHashes]
   )
-  const libraryCount = useMemo(() => {
-    let count = 0
-    for (const status of libraryByThread.values()) {
-      if (hasLibraryCopy(status)) count += 1
-    }
-    for (const threadId of pendingDownloads.keys()) {
-      if (!hasLibraryCopy(libraryByThread.get(threadId))) count += 1
-    }
-    return count
-  }, [libraryByThread, pendingDownloads])
   const rosterIds = useMemo(() => new Set(roster.map((game) => game.threadId)), [roster])
   const updatesCount = useMemo(
     () =>
@@ -219,7 +208,7 @@ export default function App(): JSX.Element {
           !game.archived &&
           shouldListOnUpdatesPage(
             {
-              latestVersion: game.version,
+              latestVersion: latestKnownVersion(game.version, game.playedVersions),
               installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
               lastPlayedVersion: game.lastPlayedVersion,
               playedVersions: game.playedVersions
@@ -593,12 +582,8 @@ export default function App(): JSX.Element {
         view={view}
         username={session.username}
         userId={session.userId}
-        followedCount={subscriptions.length}
         updatesCount={updatesCount}
-        rosterCount={roster.length}
-        libraryCount={libraryCount}
         downloadCount={activeDownloadCount}
-        uploadCount={uploadCount}
         showUploads={p2pEnabled}
         appUpdateAvailable={appUpdate.available}
         appUpdateVersion={appUpdate.latestVersion}

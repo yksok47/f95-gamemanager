@@ -514,6 +514,39 @@ export function isNewerGameVersion(
   return compareGameVersions(next, current) > 0
 }
 
+/** Keep the incoming name when it is the same or newer; never replace a newer name with an older one. */
+export function preferNewerVersion(
+  current: string | null | undefined,
+  incoming: string | null | undefined
+): string {
+  const currentText = typeof current === 'string' ? current.trim() : ''
+  const incomingText = typeof incoming === 'string' ? incoming.trim() : ''
+  const currentKey = usableVersion(currentText)
+  const incomingKey = usableVersion(incomingText)
+  if (!incomingKey) return currentText
+  if (!currentKey) return incomingText
+  return compareGameVersions(incomingKey, currentKey) >= 0 ? incomingText : currentText
+}
+
+/** Newest of the catalog field and recorded version history. */
+export function latestKnownVersion(
+  version: string | null | undefined,
+  stats?: VersionPlayStat[] | null
+): string {
+  let best = typeof version === 'string' ? version.trim() : ''
+  let bestKey = usableVersion(best)
+  for (const stat of stats || []) {
+    const name = typeof stat.version === 'string' ? stat.version.trim() : ''
+    const key = usableVersion(name)
+    if (!key) continue
+    if (!bestKey || compareGameVersions(key, bestKey) > 0) {
+      best = name
+      bestKey = key
+    }
+  }
+  return best
+}
+
 /** Approved package version wins over a stale thread/catalog version on the file. */
 export function libraryFileVersion(file: VersionedLibraryFile): string {
   return usableVersion(file.packageTags?.version) || usableVersion(file.version)

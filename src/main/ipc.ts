@@ -55,7 +55,13 @@ import {
   updateGameFileTags
 } from './game-files-store'
 import { getGameNote, setGameNote } from './game-notes-store'
-import { applyCatalogGamesToRoster, listRoster, removeFromRoster, toggleRoster } from './roster-store'
+import {
+  applyCatalogGamesToRoster,
+  listRoster,
+  removeFromRoster,
+  reorderRoster,
+  toggleRoster
+} from './roster-store'
 import { listPlaySessions, stopPlaySession } from './play-sessions'
 import {
   applyRpgMakerSaveEditor,
@@ -507,6 +513,15 @@ export function registerIpc(): void {
   ipcMain.handle('roster:remove', async (_event, threadId: number) => {
     try {
       return await removeFromRoster(Number(threadId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('roster:reorder', async (_event, threadIds: unknown) => {
+    try {
+      const ids = Array.isArray(threadIds) ? threadIds.map((id) => Number(id)) : []
+      return await reorderRoster(ids)
     } catch (error) {
       throw toIpcError(error)
     }

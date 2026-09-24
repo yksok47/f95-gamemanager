@@ -783,6 +783,8 @@ export type RosterGame = {
   screens: string[]
   engine?: string
   addedAt: number
+  /** Manual roster position. Lower values appear first. */
+  order?: number
 }
 
 export type ImportResult = {

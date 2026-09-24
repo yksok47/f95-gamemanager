@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
-  CatalogFilters,
   CatalogGame,
   CatalogPage as CatalogPageData,
   CatalogSort,
   FavoriteTag,
   HatedTag,
   GameRarity,
-  MatchMode,
   VersionPlayStat
 } from '@shared/types'
 import { DEFAULT_CATALOG_PAGE_SIZE, TAG_QUERY_LIMIT, type CatalogPageSize } from '@shared/types'
-import { FALLBACK_PREFIXES } from '@shared/prefixes'
 import {
-  cycleChipState,
-  cycleDirectionFromEvent,
   favoriteToolbarTitle,
   hatedToolbarTitle,
   toolbarTriStateClass,
-  triStateMouseProps,
-  type ChipCycleDirection,
-  type FilterChipState
+  triStateMouseProps
 } from '../components/FilterChip'
 import { FilterOverlay, FilterToolbarSplit } from '../components/AdvancedFilterUi'
 import FilterShelf from '../components/FilterShelf'
@@ -32,8 +25,7 @@ import CatalogPageTurn, {
   type CatalogPageTurnState,
   type PageTurnDirection
 } from '../components/CatalogPageTurn'
-import { selectTagsForQuery } from '../lib/favorites'
-import { captureQuickFilterSnapshot, type QuickFilterSnapshot } from '../lib/quick-filters'
+import { useAdvancedFilters } from '../lib/use-advanced-filters'
 import { PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../components/ToolbarIcons'
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
@@ -67,15 +59,6 @@ const SORTS: Array<{ value: CatalogSort; label: string }> = [
 /** First viewport of tiles; the rest wait until they scroll near. */
 const EAGER_CARDS = 12
 
-function selectedIds(
-  state: Record<number, FilterChipState>,
-  which: Exclude<FilterChipState, 'off'>
-): number[] {
-  return Object.entries(state)
-    .filter(([, value]) => value === which)
-    .map(([id]) => Number(id))
-}
-
 export default function CatalogPage({
   followedIds,
   archivedIds,
@@ -105,98 +88,47 @@ export default function CatalogPage({
   const turnLockRef = useRef(false)
   const turnRef = useRef<CatalogPageTurnState>(null)
   turnRef.current = turn
-  const [filters, setFilters] = useState<CatalogFilters>({ prefixes: FALLBACK_PREFIXES, tags: [] })
+  const advanced = useAdvancedFilters(favoriteTags, hatedTags, TAG_QUERY_LIMIT)
+  const {
+    filters,
+    filtersOpen,
+    prefixState,
+    tagState,
+    tagType,
+    tagQuery,
+    creatorInput,
+    creator,
+    favoritesFilter,
+    hatedFilter,
+    lockedFavoriteIds,
+    lockedHatedIds,
+    includePrefixes: prefixes,
+    excludePrefixes,
+    includeTags: includedTags,
+    excludeTags: excludedTags,
+    queryTagType,
+    activeFilterCount,
+    togglePrefix,
+    toggleTag,
+    setTagType,
+    setTagQuery,
+    setCreatorInput,
+    clearFilters,
+    applyQuickFilter,
+    cycleFavoritesFilter,
+    cycleHatedFilter,
+    closeFilters
+  } = advanced
+  const includeLimitReached = includedTags.length >= TAG_QUERY_LIMIT
+  const excludeLimitReached = excludedTags.length >= TAG_QUERY_LIMIT
   const [sort, setSort] = useState<CatalogSort>('date')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [prefixState, setPrefixState] = useState<Record<number, FilterChipState>>({})
-  const [tagState, setTagState] = useState<Record<number, FilterChipState>>({})
-  const [tagType, setTagType] = useState<MatchMode>('or')
-  const [tagQuery, setTagQuery] = useState('')
-  const [creatorInput, setCreatorInput] = useState('')
-  const [creator, setCreator] = useState('')
-  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
-  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
-
-  const prefixes = useMemo(() => selectedIds(prefixState, 'include'), [prefixState])
-  const excludePrefixes = useMemo(() => selectedIds(prefixState, 'exclude'), [prefixState])
-  const favoriteIds = useMemo(() => favoriteTags.map((tag) => tag.id), [favoriteTags])
-  const hatedIds = useMemo(() => hatedTags.map((tag) => tag.id), [hatedTags])
-  const appliedFavoriteIds = useMemo(
-    () => selectTagsForQuery(favoriteTags).map((tag) => tag.id),
-    [favoriteTags]
-  )
-  const appliedHatedIds = hatedIds
-  const lockedFavoriteIds = favoritesFilter === 'off' ? [] : appliedFavoriteIds
-  const lockedHatedIds = hatedFilter === 'off' ? [] : appliedHatedIds
-  const lockedFavoriteSet = useMemo(() => new Set(lockedFavoriteIds), [lockedFavoriteIds])
-  const lockedHatedSet = useMemo(() => new Set(lockedHatedIds), [lockedHatedIds])
-  const includedTags = useMemo(() => selectedIds(tagState, 'include'), [tagState])
-  const excludedTags = useMemo(() => selectedIds(tagState, 'exclude'), [tagState])
-  const includeLimitReached = includedTags.length >= TAG_QUERY_LIMIT
-  const excludeLimitReached = excludedTags.length >= TAG_QUERY_LIMIT
-  const queryTagType = favoritesFilter !== 'off' || hatedFilter !== 'off' ? 'or' : tagType
-  const activeFilterCount =
-    prefixes.length + excludePrefixes.length + includedTags.length + excludedTags.length + (creator ? 1 : 0)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 400)
     return () => window.clearTimeout(timer)
   }, [searchInput])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setCreator(creatorInput.trim()), 400)
-    return () => window.clearTimeout(timer)
-  }, [creatorInput])
-
-  useEffect(() => {
-    void window.api.catalog.filters().then(setFilters).catch(() => undefined)
-  }, [])
-
-  useEffect(() => {
-    if (favoritesFilter === 'off') return
-    const selected = new Set(appliedFavoriteIds)
-    setTagState((current) => {
-      const next = { ...current }
-      let changed = false
-      for (const id of favoriteIds) {
-        if (selected.has(id)) {
-          if (next[id] !== favoritesFilter) {
-            next[id] = favoritesFilter
-            changed = true
-          }
-        } else if (next[id]) {
-          delete next[id]
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-    setTagType('or')
-  }, [favoritesFilter, favoriteIds, appliedFavoriteIds])
-
-  useEffect(() => {
-    if (hatedFilter === 'off') return
-    const selected = new Set(appliedHatedIds)
-    setTagState((current) => {
-      const next = { ...current }
-      let changed = false
-      for (const id of hatedIds) {
-        if (selected.has(id)) {
-          if (next[id] !== hatedFilter) {
-            next[id] = hatedFilter
-            changed = true
-          }
-        } else if (next[id]) {
-          delete next[id]
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-    setTagType('or')
-  }, [hatedFilter, hatedIds, appliedHatedIds])
 
   function sessionForThread(threadId: number) {
     return sessions.find((session) => session.threadId === threadId) ?? null
@@ -262,8 +194,8 @@ export default function CatalogPage({
           prefixes: prefixes.length ? prefixes : undefined,
           excludePrefixes: excludePrefixes.length ? excludePrefixes : undefined,
           prefixType: 'and',
-          tags: includedTags.length ? includedTags : undefined,
-          excludeTags: excludedTags.length ? excludedTags : undefined,
+          tags: includedTags.length ? includedTags.slice(0, TAG_QUERY_LIMIT) : undefined,
+          excludeTags: excludedTags.length ? excludedTags.slice(0, TAG_QUERY_LIMIT) : undefined,
           tagType: queryTagType
         })
         if (cancelled) return
@@ -429,98 +361,6 @@ export default function CatalogPage({
     )
   }
 
-  function togglePrefix(id: number, direction: ChipCycleDirection = 'forward'): void {
-    setPrefixState((current) => {
-      const next = cycleChipState(current[id] ?? 'off', direction)
-      const copy = { ...current }
-      if (next === 'off') delete copy[id]
-      else copy[id] = next
-      return copy
-    })
-  }
-
-  function toggleTag(id: number, direction: ChipCycleDirection = 'forward'): void {
-    if (lockedFavoriteSet.has(id) || lockedHatedSet.has(id)) return
-    setTagState((current) => {
-      const currentState = current[id] ?? 'off'
-      if (currentState === 'off' && includeLimitReached && excludeLimitReached) return current
-      let next = cycleChipState(currentState, direction)
-      if (next === 'include' && includeLimitReached) {
-        next = cycleChipState(next, direction)
-      }
-      if (next === 'exclude' && excludeLimitReached) {
-        next = cycleChipState(next, direction)
-      }
-      if (next === currentState) return current
-      const copy = { ...current }
-      if (next === 'off') delete copy[id]
-      else copy[id] = next
-      return copy
-    })
-  }
-
-  function applyLockedTagFilters(
-    ids: number[],
-    appliedIds: number[],
-    state: FilterChipState
-  ): void {
-    const selected = new Set(appliedIds)
-    setTagState((current) => {
-      const next = { ...current }
-      for (const id of ids) {
-        if (state !== 'off' && selected.has(id)) next[id] = state
-        else delete next[id]
-      }
-      return next
-    })
-    if (state !== 'off') setTagType('or')
-  }
-
-  function cycleFavoritesFilter(event: MouseEvent): void {
-    event.preventDefault()
-    const next = cycleChipState(favoritesFilter, cycleDirectionFromEvent(event))
-    setFavoritesFilter(next)
-    applyLockedTagFilters(favoriteIds, appliedFavoriteIds, next)
-  }
-
-  function cycleHatedFilter(event: MouseEvent): void {
-    event.preventDefault()
-    const next = cycleChipState(hatedFilter, cycleDirectionFromEvent(event, 'reverse'))
-    setHatedFilter(next)
-    applyLockedTagFilters(hatedIds, appliedHatedIds, next)
-  }
-
-  function lockedTagState(): Record<number, FilterChipState> {
-    const next: Record<number, FilterChipState> = {}
-    if (favoritesFilter !== 'off') {
-      for (const id of appliedFavoriteIds) next[id] = favoritesFilter
-    }
-    if (hatedFilter !== 'off') {
-      for (const id of appliedHatedIds) next[id] = hatedFilter
-    }
-    return next
-  }
-
-  function clearFilters(): void {
-    setPrefixState({})
-    setTagQuery('')
-    setCreatorInput('')
-    setCreator('')
-    setTagState(lockedTagState())
-    setTagType('or')
-  }
-
-  function applyQuickFilter(snapshot: QuickFilterSnapshot): void {
-    const next = captureQuickFilterSnapshot(snapshot)
-    setPrefixState(next.prefixState)
-    setTagState(next.tagState)
-    setTagType(next.tagType)
-    setCreatorInput(next.creator)
-    setCreator(next.creator)
-    setFavoritesFilter(next.favoritesFilter)
-    setHatedFilter(next.hatedFilter)
-  }
-
   return (
     <div className="catalog-page">
       <ToolbarPortal>
@@ -532,7 +372,7 @@ export default function CatalogPage({
             <FilterToolbarSplit
               open={filtersOpen}
               count={activeFilterCount}
-              onToggle={() => setFiltersOpen((open) => !open)}
+              onToggle={advanced.toggleFilters}
               onClear={clearFilters}
             />
           }
@@ -547,8 +387,8 @@ export default function CatalogPage({
           className={toolbarTriStateClass(favoritesFilter)}
           type="button"
           aria-pressed={favoritesFilter === 'include'}
-          disabled={!favoriteIds.length}
-          title={favoriteToolbarTitle(favoritesFilter, favoriteIds.length > 0)}
+          disabled={!favoriteTags.length}
+          title={favoriteToolbarTitle(favoritesFilter, favoriteTags.length > 0)}
           aria-label="Filter by favorite tags"
           {...triStateMouseProps(cycleFavoritesFilter)}
         >
@@ -558,8 +398,8 @@ export default function CatalogPage({
           className={toolbarTriStateClass(hatedFilter)}
           type="button"
           aria-pressed={hatedFilter === 'include'}
-          disabled={!hatedIds.length}
-          title={hatedToolbarTitle(hatedFilter, hatedIds.length > 0)}
+          disabled={!hatedTags.length}
+          title={hatedToolbarTitle(hatedFilter, hatedTags.length > 0)}
           aria-label="Filter by hated tags"
           {...triStateMouseProps(cycleHatedFilter)}
         >
@@ -634,7 +474,7 @@ export default function CatalogPage({
         </div>
       </FooterPortal>
 
-      <FilterOverlay open={filtersOpen} onClose={() => setFiltersOpen(false)}>
+      <FilterOverlay open={filtersOpen} onClose={closeFilters}>
         <FilterShelf
           filters={filters}
           prefixState={prefixState}

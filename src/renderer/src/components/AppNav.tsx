@@ -10,12 +10,8 @@ type AppNavProps = {
   view: AppView
   username: string | null
   userId: string | null
-  followedCount: number
   updatesCount: number
-  rosterCount: number
-  libraryCount: number
   downloadCount: number
-  uploadCount?: number
   showUploads?: boolean
   appUpdateAvailable?: boolean
   appUpdateVersion?: string | null
@@ -43,12 +39,8 @@ export default function AppNav({
   view,
   username,
   userId,
-  followedCount,
   updatesCount,
-  rosterCount,
-  libraryCount,
   downloadCount,
-  uploadCount = 0,
   showUploads = false,
   appUpdateAvailable = false,
   appUpdateVersion = null,
@@ -85,15 +77,14 @@ export default function AppNav({
         <button
           className={view === 'followed' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
-          title={followedCount ? `Followed (${followedCount})` : 'Followed'}
-          aria-label={followedCount ? `Followed (${followedCount})` : 'Followed'}
+          title="Followed"
+          aria-label="Followed"
           onClick={() => onViewChange('followed')}
         >
           <span className="nav-btn-icon">
             <FollowedIcon />
           </span>
           <span className="nav-btn-label">Followed</span>
-          {followedCount ? <span className="icon-btn-badge nav-btn-count">{followedCount}</span> : null}
         </button>
         <button
           className={view === 'updates' ? 'nav-btn nav-btn-active' : 'nav-btn'}
@@ -111,28 +102,26 @@ export default function AppNav({
         <button
           className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
-          title={rosterCount ? `Roster (${rosterCount})` : 'Roster'}
-          aria-label={rosterCount ? `Roster (${rosterCount})` : 'Roster'}
+          title="Roster"
+          aria-label="Roster"
           onClick={() => onViewChange('roster')}
         >
           <span className="nav-btn-icon">
             <RosterIcon />
           </span>
           <span className="nav-btn-label">Roster</span>
-          {rosterCount ? <span className="icon-btn-badge nav-btn-count">{rosterCount}</span> : null}
         </button>
         <button
           className={view === 'library' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
-          title={libraryCount ? `Library (${libraryCount})` : 'Library'}
-          aria-label={libraryCount ? `Library (${libraryCount})` : 'Library'}
+          title="Library"
+          aria-label="Library"
           onClick={() => onViewChange('library')}
         >
           <span className="nav-btn-icon">
             <LibraryIcon />
           </span>
           <span className="nav-btn-label">Library</span>
-          {libraryCount ? <span className="icon-btn-badge nav-btn-count">{libraryCount}</span> : null}
         </button>
       </div>
       <ToolbarSlot />
@@ -167,11 +156,10 @@ export default function AppNav({
             className={view === 'uploads' ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
             type="button"
             title="Uploads"
-            aria-label={uploadCount ? `Uploads (${uploadCount})` : 'Uploads'}
+            aria-label="Uploads"
             onClick={() => onViewChange('uploads')}
           >
             <UploadIcon />
-            {uploadCount ? <span className="icon-btn-badge">{uploadCount}</span> : null}
           </button>
         ) : null}
         <button

@@ -94,14 +94,22 @@ function mergeSubscriptionPair(local: SyncedSubscription, remote: SyncedSubscrip
   }
 }
 
+function finiteOrder(value: unknown): number | null {
+  const order = Number(value)
+  return Number.isFinite(order) ? order : null
+}
+
 function mergeRosterPair(local: SyncedRosterGame, remote: SyncedRosterGame): SyncedRosterGame {
   const catalog = mergeCatalogFields(local, remote)
   const newerUser = remote.userUpdatedAt >= local.userUpdatedAt ? remote : local
+  const olderUser = newerUser === remote ? local : remote
+  const order = finiteOrder(newerUser.order) ?? finiteOrder(olderUser.order)
   return {
     ...newerUser,
     ...catalog,
     engine: catalog.engine || newerUser.engine || '',
     addedAt: Math.min(local.addedAt || newerUser.addedAt, remote.addedAt || newerUser.addedAt),
+    ...(order != null ? { order } : {}),
     userUpdatedAt: Math.max(local.userUpdatedAt, remote.userUpdatedAt)
   }
 }

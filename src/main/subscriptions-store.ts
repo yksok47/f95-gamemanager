@@ -10,7 +10,9 @@ import {
   catalogTimestamp,
   ensureKnownVersion,
   isRelativeDate,
+  latestKnownVersion,
   mergeVersionNames,
+  preferNewerVersion,
   normalizeVersionPlayStats,
   removeVersionAlias,
   setVersionPlayStatus,
@@ -25,12 +27,18 @@ import { getAppPaths } from './paths'
 import { sendToRenderer } from './windows'
 import { notifyUserDataChanged } from './cloud-user-data/notify'
 import { tombstoneSubscription, touchSubscription } from './cloud-user-data/state'
+import {
+  CATALOG_SCAN_VERSION,
+  catalogWatermarkFromStore,
+  watermarkFromHeadPage
+} from './catalog-scan'
 
 let loaded: Subscription[] | null = null
 const METADATA_CHECK_VERSION = 1
 let metadataCheckVersion = 0
 /** Newest catalog update timestamp we have continuously scanned down from. */
 let lastSeenCatalogUpdate = 0
+let catalogScanVersion = 0
 
 function isRarity(value: unknown): value is GameRarity {
   return typeof value === 'string' && GAME_RARITIES.includes(value as GameRarity)
@@ -160,6 +168,7 @@ type SubscriptionsFile = {
   games?: Subscription[]
   metadataCheckVersion?: number
   lastSeenCatalogUpdate?: number
+  catalogScanVersion?: number
 }
 
 async function readStore(): Promise<Subscription[]> {
@@ -169,32 +178,46 @@ async function readStore(): Promise<Subscription[]> {
     const parsed = JSON.parse(raw) as SubscriptionsFile | Subscription[]
     const stored = Array.isArray(parsed) ? parsed : (parsed.games ?? [])
     metadataCheckVersion = Array.isArray(parsed) ? 0 : (parsed.metadataCheckVersion ?? 0)
+    catalogScanVersion = Array.isArray(parsed) ? 0 : (parsed.catalogScanVersion ?? 0)
     lastSeenCatalogUpdate = Array.isArray(parsed)
       ? 0
-      : catalogTimestamp(parsed.lastSeenCatalogUpdate)
+      : catalogWatermarkFromStore(parsed.catalogScanVersion, parsed.lastSeenCatalogUpdate)
     const resetChecks = metadataCheckVersion < METADATA_CHECK_VERSION
-    loaded = stored.map((game) => ({
-      ...emptyDetails(),
-      ...game,
-      rarity: isRarity(game.rarity) ? game.rarity : 'regular',
-      tags: Array.isArray(game.tags) ? game.tags.filter((id) => Number.isFinite(id)) : [],
-      prefixes: Array.isArray(game.prefixes) ? game.prefixes.filter((id) => Number.isFinite(id)) : [],
-      engine: resolveEngine(game),
-      lastPlayedVersion: typeof game.lastPlayedVersion === 'string' ? game.lastPlayedVersion : '',
-      lastPlayedAt: Number(game.lastPlayedAt) || 0,
-      playtimeMs: Number(game.playtimeMs) || 0,
-      playedVersions: seedPlayedVersions(game),
-      checkedAt: resetChecks ? 0 : Number(game.checkedAt) || 0,
-      likes: saneLikeCount(game.likes),
-      views: saneViewCount(game.views),
-      screens: uniqueScreenUrls(game.screens),
-      timestamp: catalogTimestamp(game.timestamp),
-      updatedAt: isRelativeDate(game.updatedAt) ? '' : game.updatedAt || '',
-      archived: Boolean(game.archived)
-    }))
+    loaded = stored.map((game) => {
+      const playedVersions = seedPlayedVersions(game)
+      const version = latestKnownVersion(
+        typeof game.version === 'string' ? game.version : '',
+        playedVersions
+      )
+      return {
+        ...emptyDetails(),
+        ...game,
+        rarity: isRarity(game.rarity) ? game.rarity : 'regular',
+        tags: Array.isArray(game.tags) ? game.tags.filter((id) => Number.isFinite(id)) : [],
+        prefixes: Array.isArray(game.prefixes) ? game.prefixes.filter((id) => Number.isFinite(id)) : [],
+        engine: resolveEngine(game),
+        lastPlayedVersion: typeof game.lastPlayedVersion === 'string' ? game.lastPlayedVersion : '',
+        lastPlayedAt: Number(game.lastPlayedAt) || 0,
+        playtimeMs: Number(game.playtimeMs) || 0,
+        playedVersions,
+        version,
+        checkedAt: resetChecks ? 0 : Number(game.checkedAt) || 0,
+        likes: saneLikeCount(game.likes),
+        views: saneViewCount(game.views),
+        screens: uniqueScreenUrls(game.screens),
+        timestamp: catalogTimestamp(game.timestamp),
+        updatedAt: isRelativeDate(game.updatedAt) ? '' : game.updatedAt || '',
+        archived: Boolean(game.archived)
+      }
+    })
     const healed = loaded.some((game, index) => {
       const prev = stored[index]
-      return game.likes !== (Number(prev?.likes) || 0) || game.views !== (Number(prev?.views) || 0)
+      const prevVersion = typeof prev?.version === 'string' ? prev.version : ''
+      return (
+        game.likes !== (Number(prev?.likes) || 0) ||
+        game.views !== (Number(prev?.views) || 0) ||
+        game.version !== prevVersion
+      )
     })
     if (resetChecks || healed) {
       metadataCheckVersion = METADATA_CHECK_VERSION
@@ -203,6 +226,7 @@ async function readStore(): Promise<Subscription[]> {
   } catch {
     loaded = []
     metadataCheckVersion = METADATA_CHECK_VERSION
+    catalogScanVersion = 0
     lastSeenCatalogUpdate = 0
   }
   return loaded
@@ -218,6 +242,7 @@ async function writeStore(games: Subscription[]): Promise<void> {
       {
         games,
         metadataCheckVersion: METADATA_CHECK_VERSION,
+        catalogScanVersion,
         lastSeenCatalogUpdate
       },
       null,
@@ -238,6 +263,7 @@ async function persistMeta(): Promise<void> {
       {
         games,
         metadataCheckVersion: METADATA_CHECK_VERSION,
+        catalogScanVersion,
         lastSeenCatalogUpdate
       },
       null,
@@ -255,10 +281,11 @@ export async function getLastSeenCatalogUpdate(): Promise<number> {
 /** Raise the catalog scan watermark when coverage is continuous from the newest games. */
 export async function advanceLastSeenCatalogUpdate(timestamp: number): Promise<void> {
   const at = catalogTimestamp(timestamp)
-  if (!at || at <= lastSeenCatalogUpdate) return
+  if (!at) return
   await readStore()
   if (at <= lastSeenCatalogUpdate) return
   lastSeenCatalogUpdate = at
+  catalogScanVersion = CATALOG_SCAN_VERSION
   await persistMeta()
 }
 
@@ -283,7 +310,7 @@ export async function upsertSubscription(entry: Subscription): Promise<Subscript
       title: entry.title || games[index].title,
       creator: entry.creator || games[index].creator,
       coverUrl: entry.coverUrl || games[index].coverUrl,
-      version: entry.version || games[index].version,
+      version: preferNewerVersion(games[index].version, entry.version),
       rarity: entry.rarity ?? games[index].rarity ?? 'regular',
       tags: entry.tags?.length ? entry.tags : (games[index].tags ?? []),
       prefixes: entry.prefixes?.length ? entry.prefixes : (games[index].prefixes ?? []),
@@ -369,8 +396,8 @@ async function runEnrichment(): Promise<Subscription[]> {
     if (!needsDetails(game)) continue
     const details = await lookupGame(game.threadId, game.title, game.creator)
     if (!details) continue
-    const version = details.version || game.version
-    const timestamp = catalogTimestamp(details.timestamp) || game.timestamp
+    const version = preferNewerVersion(game.version, details.version)
+    const timestamp = Math.max(game.timestamp || 0, catalogTimestamp(details.timestamp) || 0)
     Object.assign(game, {
       title: details.title || game.title,
       creator: details.creator || game.creator,
@@ -412,8 +439,8 @@ export async function refreshSubscription(threadId: number): Promise<Subscriptio
     throw new Error('Could not refresh metadata from F95zone.')
   }
 
-  const version = details.version || current.version
-  const timestamp = catalogTimestamp(details.timestamp) || current.timestamp
+  const version = preferNewerVersion(current.version, details.version)
+  const timestamp = Math.max(current.timestamp || 0, catalogTimestamp(details.timestamp) || 0)
   games[index] = {
     ...current,
     title: details.title || current.title,
@@ -622,8 +649,9 @@ function sameIdList(left?: number[], right?: number[]): boolean {
 
 function applyCatalogGameFields(game: Subscription, incoming: CatalogGame, checkedAt: number): boolean {
   let changed = false
-  const version = (incoming.version || '').trim() || game.version
-  const timestamp = catalogTimestamp(incoming.timestamp) || game.timestamp
+  const version = preferNewerVersion(game.version, incoming.version)
+  const incomingTs = catalogTimestamp(incoming.timestamp)
+  const timestamp = incomingTs > (game.timestamp || 0) ? incomingTs : game.timestamp || 0
   const title = (incoming.title || '').trim() || game.title
   const creator = (incoming.creator || '').trim() || game.creator
   const coverUrl =
@@ -713,8 +741,10 @@ function applyCatalogGameFields(game: Subscription, incoming: CatalogGame, check
 
 export type ApplyCatalogGamesOptions = {
   /**
-   * When true, raise lastSeenCatalogUpdate if this page reaches back to the prior
-   * watermark (continuous coverage from the newest updates).
+   * When true, raise lastSeenCatalogUpdate if this page is a continuous prefix
+   * from the newest updates back to the previous watermark.
+   * A page with no previous watermark does not seed one: that would treat the
+   * single newest row as already scanned.
    */
   advanceLastSeen?: boolean
 }
@@ -744,20 +774,8 @@ export async function applyCatalogGames(
   if (changed) await writeStore(stored)
 
   if (options.advanceLastSeen) {
-    let newest = 0
-    let oldest = Number.POSITIVE_INFINITY
-    for (const game of games) {
-      const at = catalogTimestamp(game.timestamp)
-      if (!at) continue
-      if (at > newest) newest = at
-      if (at < oldest) oldest = at
-    }
-    if (newest && oldest !== Number.POSITIVE_INFINITY && oldest <= lastSeenCatalogUpdate) {
-      await advanceLastSeenCatalogUpdate(newest)
-    } else if (newest && lastSeenCatalogUpdate === 0) {
-      // First watermark: seed from the newest page without claiming deeper coverage.
-      await advanceLastSeenCatalogUpdate(newest)
-    }
+    const next = watermarkFromHeadPage(games, lastSeenCatalogUpdate)
+    if (next) await advanceLastSeenCatalogUpdate(next)
   }
 
   return matched

@@ -1,29 +1,30 @@
-import type { CatalogGame, FollowSyncStatus, Subscription } from '@shared/types'
+import type { FollowSyncStatus } from '@shared/types'
+import {
+  catalogPagePastTimestamp,
+  followedTimestampCutoff,
+  newestCatalogTimestamp
+} from './catalog-scan'
 import { fetchCatalog } from './f95/catalog'
 import { F95Error } from './f95/errors'
-import { fetchLatestRss, type RssGameUpdate } from './f95/rss'
 import { sleep } from './f95/parse'
 import {
   advanceLastSeenCatalogUpdate,
   applyCatalogGames,
   getLastSeenCatalogUpdate,
-  listSubscriptions,
-  refreshSubscription
+  listSubscriptions
 } from './subscriptions-store'
 import { sendToRenderer } from './windows'
 
-const RSS_POLL_MS = 5 * 60 * 1000
+const FOLLOW_POLL_MS = 5 * 60 * 1000
 const RATE_LIMIT_BACKOFF_MS = 45 * 60 * 1000
-const LOOKUP_DELAY_MS = 1000
 const CATALOG_PAGE_DELAY_MS = 500
-const STALE_MS = 24 * 60 * 60 * 1000
 
-type SyncMode = 'rss' | 'manual' | 'catchup'
+type SyncMode = 'manual' | 'catchup'
 
 let timer: ReturnType<typeof setTimeout> | null = null
 let started = false
 let chain: Promise<unknown> = Promise.resolve()
-let nextDelay = RSS_POLL_MS
+let nextDelay = FOLLOW_POLL_MS
 let cancelRequested = false
 
 const status: FollowSyncStatus = {
@@ -60,97 +61,57 @@ export function getFollowSyncStatus(): FollowSyncStatus {
   return { ...status }
 }
 
-function isStale(game: Subscription, now = Date.now()): boolean {
-  return !game.checkedAt || now - game.checkedAt >= STALE_MS
-}
-
-function rssNeedsRefresh(game: Subscription, update: RssGameUpdate, now = Date.now()): boolean {
-  if (!game.checkedAt) return true
-  if (update.timestamp && update.timestamp > game.checkedAt) return true
-  if (update.timestamp && update.timestamp > (game.timestamp || 0)) return true
-  return isStale(game, now)
-}
-
-async function refreshQueue(threadIds: number[]): Promise<number> {
-  status.pending = threadIds.length
-  status.checked = threadIds.length
-  broadcastStatus()
-
-  let updated = 0
-  for (const [index, threadId] of threadIds.entries()) {
-    if (wasCancelled()) break
-    try {
-      await refreshSubscription(threadId)
-      updated += 1
-    } catch (error) {
-      if (error instanceof F95Error && error.code === 'rate_limited') throw error
-      status.lastError = error instanceof Error ? error.message : 'Could not refresh a followed game.'
-    }
-    status.pending = Math.max(0, threadIds.length - index - 1)
-    status.updated = updated
-    broadcastStatus()
-    if (index < threadIds.length - 1 && !(await sleepUnlessCancelled(LOOKUP_DELAY_MS))) break
-  }
-
-  return updated
-}
-
 /**
  * After shutdown, walk date-sorted catalog pages from newest until past the
  * stored watermark (strictly older than last seen, so equal timestamps are included).
+ * With no watermark yet, walk until every followed game has been seen or until
+ * past the oldest followed timestamp — never stop just because the newest row
+ * is a game we already follow.
  */
 async function catalogCatchUp(): Promise<number> {
   const lastSeen = await getLastSeenCatalogUpdate()
+  const followed = lastSeen ? [] : await listSubscriptions()
+  const pendingIds = new Set(followed.map((game) => game.threadId))
+  const cutoff = followedTimestampCutoff(followed.map((game) => game.timestamp))
+
   let page = 1
   let matched = 0
   let newestOnTop = 0
-  let done = false
+  let covered = false
 
-  while (!done) {
+  while (true) {
     if (wasCancelled()) break
     const result = await fetchCatalog({ page, rows: 90, sort: 'date' })
     if (wasCancelled()) break
     if (!result.games.length) break
 
-    if (page === 1) {
-      for (const game of result.games) {
-        if (game.timestamp > newestOnTop) newestOnTop = game.timestamp
-      }
-    }
+    if (page === 1) newestOnTop = newestCatalogTimestamp(result.games)
 
-    if (!lastSeen) {
-      // First run: seed watermark from the top page; do not crawl the whole catalog.
-      matched += await applyCatalogGames(result.games)
-      done = true
-      break
-    }
+    matched += await applyCatalogGames(result.games)
 
-    const batch: CatalogGame[] = []
-    let sawOlder = false
-    for (const game of result.games) {
-      if (game.timestamp < lastSeen) {
-        sawOlder = true
-        break
-      }
-      batch.push(game)
+    let done = page >= result.totalPages
+    if (!done && lastSeen) {
+      done = catalogPagePastTimestamp(result.games, lastSeen)
+    } else if (!done) {
+      for (const game of result.games) pendingIds.delete(game.threadId)
+      const pastOldest = cutoff > 0 && catalogPagePastTimestamp(result.games, cutoff)
+      done = pendingIds.size === 0 || pastOldest
     }
-
-    if (batch.length) matched += await applyCatalogGames(batch)
 
     status.checked = matched
     status.updated = matched
-    status.pending = sawOlder || page >= result.totalPages ? 0 : 1
+    status.pending = done ? 0 : lastSeen ? 1 : pendingIds.size
     broadcastStatus()
 
-    if (sawOlder || page >= result.totalPages) {
-      done = true
-    } else {
-      page += 1
-      if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
+    if (done) {
+      covered = true
+      break
     }
+    page += 1
+    if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
   }
 
-  if (newestOnTop && !wasCancelled()) await advanceLastSeenCatalogUpdate(newestOnTop)
+  if (newestOnTop && covered && !wasCancelled()) await advanceLastSeenCatalogUpdate(newestOnTop)
   return matched
 }
 
@@ -163,11 +124,7 @@ async function catalogRefreshFollowed(): Promise<number> {
   if (!games.length) return 0
 
   const remaining = new Set(games.map((game) => game.threadId))
-  let oldestCutoff = 0
-  for (const game of games) {
-    const at = game.timestamp || 0
-    if (at > 0 && (oldestCutoff === 0 || at < oldestCutoff)) oldestCutoff = at
-  }
+  const cutoff = followedTimestampCutoff(games.map((game) => game.timestamp))
 
   let page = 1
   let found = 0
@@ -183,25 +140,18 @@ async function catalogRefreshFollowed(): Promise<number> {
     if (wasCancelled()) break
     if (!result.games.length) break
 
-    const batch: CatalogGame[] = []
-    let pastCutoff = false
+    await applyCatalogGames(result.games)
     for (const game of result.games) {
-      if (oldestCutoff > 0 && game.timestamp > 0 && game.timestamp < oldestCutoff) {
-        pastCutoff = true
-        break
-      }
-      batch.push(game)
       if (remaining.delete(game.threadId)) found += 1
     }
-
-    if (batch.length) await applyCatalogGames(batch)
 
     status.checked = found
     status.updated = found
     status.pending = remaining.size
     broadcastStatus()
 
-    if (pastCutoff || page >= result.totalPages || remaining.size === 0) break
+    const pastOldest = cutoff > 0 && catalogPagePastTimestamp(result.games, cutoff)
+    if (pastOldest || page >= result.totalPages || remaining.size === 0) break
     page += 1
     if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
   }
@@ -224,33 +174,12 @@ async function doRun(mode: SyncMode): Promise<FollowSyncStatus> {
       status.updated = await catalogCatchUp()
       status.checked = status.updated
       status.lastRunAt = Date.now()
-      nextDelay = RSS_POLL_MS
-    } else if (mode === 'manual') {
+      nextDelay = FOLLOW_POLL_MS
+    } else {
       status.updated = await catalogRefreshFollowed()
       status.checked = status.updated
       status.lastRunAt = Date.now()
-      nextDelay = RSS_POLL_MS
-    } else {
-      const games = await listSubscriptions()
-      if (wasCancelled()) {
-        status.lastRunAt = Date.now()
-      } else {
-        const updates = await fetchLatestRss()
-        if (wasCancelled()) {
-          status.lastRunAt = Date.now()
-        } else {
-          const followed = new Map(games.map((game) => [game.threadId, game]))
-          const queue = updates
-            .filter((update) => {
-              const game = followed.get(update.threadId)
-              return game ? rssNeedsRefresh(game, update) : false
-            })
-            .map((update) => update.threadId)
-          status.updated = await refreshQueue(queue)
-          status.lastRunAt = Date.now()
-        }
-      }
-      nextDelay = RSS_POLL_MS
+      nextDelay = FOLLOW_POLL_MS
     }
     status.cancelled = wasCancelled()
   } catch (error) {
@@ -305,7 +234,7 @@ function scheduleNext(): void {
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => {
     timer = null
-    void runFollowSync('rss').finally(scheduleNext)
+    void runFollowSync('catchup').finally(scheduleNext)
   }, nextDelay)
 }
 

@@ -23,7 +23,7 @@ import Switch from '../components/Switch'
 import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored'
+type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -119,6 +119,7 @@ export default function SettingsPage({
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: 'General' },
+    { id: 'directories', label: 'Directories' },
     { id: 'p2p', label: 'P2P' },
     { id: 'cloud', label: 'Cloud' },
     { id: 'tags', label: 'Favorite tags' },
@@ -150,6 +151,81 @@ export default function SettingsPage({
         {tab === 'general' ? (
           <div className="settings-tab-body">
             <AppUpdatePanel status={appUpdate} />
+            <div className="folder-field">
+              <div className="settings-slider-head">
+                <span className="filter-label" id="catalog-page-size-label">
+                  Catalog page size
+                </span>
+                <span className="settings-slider-value" aria-live="polite">
+                  {catalogPageSizeDraft}
+                </span>
+              </div>
+              <p className="muted download-meta">
+                How many titles to load at once when browsing the catalog.
+              </p>
+              <div className="settings-slider-control">
+                <input
+                  className="settings-slider"
+                  type="range"
+                  min={0}
+                  max={CATALOG_PAGE_SIZES.length - 1}
+                  step={1}
+                  value={Math.max(0, CATALOG_PAGE_SIZES.indexOf(catalogPageSizeDraft))}
+                  disabled={saving}
+                  aria-labelledby="catalog-page-size-label"
+                  aria-valuemin={CATALOG_PAGE_SIZES[0]}
+                  aria-valuemax={CATALOG_PAGE_SIZES[CATALOG_PAGE_SIZES.length - 1]}
+                  aria-valuenow={catalogPageSizeDraft}
+                  aria-valuetext={`${catalogPageSizeDraft} titles`}
+                  onChange={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.target.value)]
+                    if (next) setCatalogPageSizeDraft(next)
+                  }}
+                  onPointerUp={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
+                    if (next && next !== settings.catalogPageSize) {
+                      void persist({ catalogPageSize: next })
+                    }
+                  }}
+                  onKeyUp={(event) => {
+                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
+                    if (next && next !== settings.catalogPageSize) {
+                      void persist({ catalogPageSize: next })
+                    }
+                  }}
+                />
+                <div className="settings-slider-scale" aria-hidden="true">
+                  {CATALOG_PAGE_SIZES.map((size) => (
+                    <span
+                      key={size}
+                      className={
+                        size === catalogPageSizeDraft
+                          ? 'settings-slider-mark is-active'
+                          : 'settings-slider-mark'
+                      }
+                    >
+                      {size}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <Switch
+              checked={settings.metadataApiEnabled !== false}
+              disabled={saving}
+              onChange={(checked) => void persist({ metadataApiEnabled: checked })}
+              label="Enable metadata API"
+            />
+            <p className="muted download-meta">
+              Catalog discovery, share-claims, and package flags. Off by choice still leaves P2P
+              torrenting available when enabled separately.
+            </p>
+          </div>
+        ) : null}
+
+        {tab === 'directories' ? (
+          <div className="settings-tab-body">
             <div className="folder-field">
               <span className="filter-label">Downloads</span>
               <div className="folder-path-row">
@@ -223,65 +299,6 @@ export default function SettingsPage({
               }
             />
             <div className="folder-field">
-              <div className="settings-slider-head">
-                <span className="filter-label" id="catalog-page-size-label">
-                  Catalog page size
-                </span>
-                <span className="settings-slider-value" aria-live="polite">
-                  {catalogPageSizeDraft}
-                </span>
-              </div>
-              <p className="muted download-meta">
-                How many titles to load at once when browsing the catalog.
-              </p>
-              <div className="settings-slider-control">
-                <input
-                  className="settings-slider"
-                  type="range"
-                  min={0}
-                  max={CATALOG_PAGE_SIZES.length - 1}
-                  step={1}
-                  value={Math.max(0, CATALOG_PAGE_SIZES.indexOf(catalogPageSizeDraft))}
-                  disabled={saving}
-                  aria-labelledby="catalog-page-size-label"
-                  aria-valuemin={CATALOG_PAGE_SIZES[0]}
-                  aria-valuemax={CATALOG_PAGE_SIZES[CATALOG_PAGE_SIZES.length - 1]}
-                  aria-valuenow={catalogPageSizeDraft}
-                  aria-valuetext={`${catalogPageSizeDraft} titles`}
-                  onChange={(event) => {
-                    const next = CATALOG_PAGE_SIZES[Number(event.target.value)]
-                    if (next) setCatalogPageSizeDraft(next)
-                  }}
-                  onPointerUp={(event) => {
-                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
-                    if (next && next !== settings.catalogPageSize) {
-                      void persist({ catalogPageSize: next })
-                    }
-                  }}
-                  onKeyUp={(event) => {
-                    const next = CATALOG_PAGE_SIZES[Number(event.currentTarget.value)]
-                    if (next && next !== settings.catalogPageSize) {
-                      void persist({ catalogPageSize: next })
-                    }
-                  }}
-                />
-                <div className="settings-slider-scale" aria-hidden="true">
-                  {CATALOG_PAGE_SIZES.map((size) => (
-                    <span
-                      key={size}
-                      className={
-                        size === catalogPageSizeDraft
-                          ? 'settings-slider-mark is-active'
-                          : 'settings-slider-mark'
-                      }
-                    >
-                      {size}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="folder-field">
               <span className="filter-label">App data</span>
               <p className="muted download-meta">
                 Follow list, settings, and P2P state for this install.
@@ -298,17 +315,6 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
-
-            <Switch
-              checked={settings.metadataApiEnabled !== false}
-              disabled={saving}
-              onChange={(checked) => void persist({ metadataApiEnabled: checked })}
-              label="Enable metadata API"
-            />
-            <p className="muted download-meta">
-              Catalog discovery, share-claims, and package flags. Off by choice still leaves P2P
-              torrenting available when enabled separately.
-            </p>
           </div>
         ) : null}
 

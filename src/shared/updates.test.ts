@@ -7,6 +7,8 @@ import {
   gameUpdateState,
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
+  latestKnownVersion,
+  preferNewerVersion,
   latestOverviewVersion,
   libraryFileVersion,
   mergeVersionNames,
@@ -53,6 +55,19 @@ describe('hasPendingGameUpdate', () => {
         playedVersions: [stat('1.0', 'played', { lastPlayedAt: 1 }), stat('1.1', 'played')]
       })
     ).toBe(false)
+  })
+
+  test('keeps a newer unplayed version visible when the stored field rolled back', () => {
+    const playedVersions = [stat('v0.9.23'), stat('v0.9.22', 'played')]
+    expect(latestKnownVersion('v0.9.22', playedVersions)).toBe('v0.9.23')
+    expect(preferNewerVersion('v0.9.23', 'v0.9.22')).toBe('v0.9.23')
+    expect(
+      hasPendingGameUpdate({
+        latestVersion: latestKnownVersion('v0.9.22', playedVersions),
+        lastPlayedVersion: '',
+        playedVersions
+      })
+    ).toBe(true)
   })
 
   test('drops the updates list after ignoring the latest version', () => {

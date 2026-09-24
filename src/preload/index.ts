@@ -154,6 +154,7 @@ const api = {
     list: (): Promise<RosterGame[]> => ipcRenderer.invoke('roster:list'),
     toggle: (game: CatalogGame): Promise<RosterGame[]> => ipcRenderer.invoke('roster:toggle', game),
     remove: (threadId: number): Promise<RosterGame[]> => ipcRenderer.invoke('roster:remove', threadId),
+    reorder: (threadIds: number[]): Promise<RosterGame[]> => ipcRenderer.invoke('roster:reorder', threadIds),
     onChange: (listener: (items: RosterGame[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: RosterGame[]): void => listener(items)
       ipcRenderer.on('roster:changed', wrapped)

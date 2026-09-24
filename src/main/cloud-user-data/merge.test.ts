@@ -77,6 +77,16 @@ describe('mergeUserData', () => {
     expect(merged.subscriptionTombstones).toEqual([])
   })
 
+  test('equal catalog timestamps keep the newer version string', () => {
+    const local = payload({
+      subscriptions: [sub({ threadId: 7, version: 'v0.9.23', timestamp: 1_700_000_000_000 })]
+    })
+    const remote = payload({
+      subscriptions: [sub({ threadId: 7, version: 'v0.9.22', timestamp: 1_700_000_000_000 })]
+    })
+    expect(mergeUserData(local, remote).subscriptions[0].version).toBe('v0.9.23')
+  })
+
   test('playtime takes the max even when the other side won rarity', () => {
     const local = payload({
       subscriptions: [

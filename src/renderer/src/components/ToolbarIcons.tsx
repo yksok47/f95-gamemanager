@@ -218,6 +218,17 @@ export function RosterIcon(): JSX.Element {
   )
 }
 
+export function CustomOrderIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M6.2 3.1h8.3v1.7H6.2zm0 4.05h8.3v1.7H6.2zm0 4.05h8.3v1.7H6.2zM3.7 1.6 5.6 4H1.8zm0 12.8L1.8 12h3.8z"
+      />
+    </svg>
+  )
+}
+
 export function LibraryIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

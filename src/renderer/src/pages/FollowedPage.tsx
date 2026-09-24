@@ -8,7 +8,7 @@ import type {
   VersionPlayStatus
 } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
-import { formatRelativeTime, shouldListOnUpdatesPage, usableVersion } from '@shared/updates'
+import { formatRelativeTime, latestKnownVersion, shouldListOnUpdatesPage, usableVersion } from '@shared/updates'
 import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
@@ -62,7 +62,7 @@ function gameHasPendingUpdate(
 ): boolean {
   return shouldListOnUpdatesPage(
     {
-      latestVersion: game.version,
+      latestVersion: latestKnownVersion(game.version, game.playedVersions),
       installedVersion: libraryByThread.get(game.threadId)?.installedVersion,
       lastPlayedVersion: game.lastPlayedVersion,
       playedVersions: game.playedVersions
@@ -118,6 +118,12 @@ function syncProgress(sync: FollowSyncStatus): number {
 function formatImport(result: ImportResult): string {
   const label = result.source === 'watched' ? 'watched threads' : 'bookmarks'
   return `Imported ${result.added} ${label} (${result.alreadyFollowed} already followed, ${result.found} found).`
+}
+
+/** Filters only change the shown count. The total stays the full list. */
+function formatShownTotal(shown: number, total: number, singular: string, plural = singular): string {
+  const label = total === 1 ? singular : plural
+  return shown === total ? `${total} ${label}` : `${shown}/${total} ${label}`
 }
 
 export default function FollowedPage({
@@ -203,14 +209,7 @@ export default function FollowedPage({
       ),
     [games, libraryByThread, rosterIds, hiddenThreadIds]
   )
-  const listedCount = updatesOnly
-    ? pendingUpdates.length
-    : archiveFilter === 'include'
-      ? games.filter((game) => game.archived).length
-      : archiveFilter === 'off'
-        ? games.length
-        : games.filter((game) => !game.archived).length
-  const sourceCount = listedCount
+  const totalCount = updatesOnly ? pendingUpdates.length : games.length
   const visible = useMemo(
     () =>
       games
@@ -473,13 +472,9 @@ export default function FollowedPage({
       </ToolbarPortal>
       <FooterPortal>
         <span className="muted pager-label">
-          {needle ||
-          advanced.activeFilterCount ||
-          (!updatesOnly && archiveFilter !== 'exclude')
-            ? `${visible.length}/${sourceCount}`
-            : updatesOnly
-              ? `${visible.length} update${visible.length === 1 ? '' : 's'}`
-              : `${listedCount} followed`}
+          {updatesOnly
+            ? formatShownTotal(visible.length, totalCount, 'update', 'updates')
+            : formatShownTotal(visible.length, totalCount, 'followed')}
         </span>
         {sync?.running ? (
           <span className="muted pager-label">

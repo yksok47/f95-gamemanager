@@ -7,7 +7,7 @@ import { uniqueScreenUrls } from './f95/catalog'
 import { getAppPaths } from './paths'
 import { sendToRenderer } from './windows'
 import { notifyUserDataChanged } from './cloud-user-data/notify'
-import { tombstoneRoster, touchRoster } from './cloud-user-data/state'
+import { tombstoneRoster, touchRoster, touchRosterMany } from './cloud-user-data/state'
 
 type RosterFile = {
   version: 1
@@ -16,6 +16,7 @@ type RosterFile = {
 
 let loaded: RosterGame[] | null = null
 let writeChain: Promise<void> = Promise.resolve()
+let writeGen = 0
 
 function empty(): RosterGame[] {
   return []
@@ -51,12 +52,26 @@ function normalizeGame(value: unknown): RosterGame | null {
     tags: asIdList(raw.tags),
     screens: uniqueScreenUrls(raw.screens),
     engine: typeof raw.engine === 'string' ? raw.engine : '',
-    addedAt: Number(raw.addedAt) || Date.now()
+    addedAt: Number(raw.addedAt) || Date.now(),
+    ...(Number.isFinite(Number(raw.order)) ? { order: Number(raw.order) } : {})
   }
 }
 
-function sortRoster(games: RosterGame[]): RosterGame[] {
-  return [...games].sort((a, b) => b.addedAt - a.addedAt || b.threadId - a.threadId)
+/** Games without a saved position stay at the front, newest first. Saved positions follow. */
+function compareManual(a: RosterGame, b: RosterGame): number {
+  const aOrdered = Number.isFinite(a.order)
+  const bOrdered = Number.isFinite(b.order)
+  if (aOrdered !== bOrdered) return aOrdered ? 1 : -1
+  if (aOrdered && bOrdered && a.order !== b.order) return (a.order as number) - (b.order as number)
+  return b.addedAt - a.addedAt || b.threadId - a.threadId
+}
+
+function assignOrder(games: RosterGame[]): RosterGame[] {
+  return games.map((game, index) => (game.order === index ? game : { ...game, order: index }))
+}
+
+function arrangeRoster(games: RosterGame[]): RosterGame[] {
+  return assignOrder([...games].sort(compareManual))
 }
 
 export function rosterFromCatalog(game: CatalogGame, addedAt = Date.now()): RosterGame {
@@ -121,22 +136,48 @@ async function persist(games: RosterGame[]): Promise<void> {
   await writeFile(file, JSON.stringify({ version: 1, games }, null, 2), 'utf8')
 }
 
-async function writeStore(games: RosterGame[]): Promise<RosterGame[]> {
-  loaded = games
-  const listed = sortRoster(games)
+async function writeStore(games: RosterGame[], keepOrder = false): Promise<RosterGame[]> {
+  const listed = keepOrder ? assignOrder(games) : arrangeRoster(games)
+  loaded = listed
+  const gen = ++writeGen
   writeChain = writeChain
-    .then(() => persist(games))
+    .then(() => persist(listed))
     .catch((error) => {
       console.warn('[roster] persist failed', error)
     })
   await writeChain
-  sendToRenderer('roster:changed', listed)
-  return listed
+  if (gen === writeGen) sendToRenderer('roster:changed', loaded)
+  return loaded ?? listed
 }
 
 export async function listRoster(): Promise<RosterGame[]> {
   const games = await readStore()
-  return sortRoster(games)
+  return arrangeRoster(games)
+}
+
+export async function reorderRoster(threadIds: number[]): Promise<RosterGame[]> {
+  const games = await readStore()
+  const byId = new Map(games.map((game) => [game.threadId, game]))
+  const next: RosterGame[] = []
+  const seen = new Set<number>()
+  for (const raw of threadIds) {
+    const id = Number(raw)
+    const game = byId.get(id)
+    if (!game || seen.has(id)) continue
+    next.push(game)
+    seen.add(id)
+  }
+  for (const game of arrangeRoster(games)) {
+    if (!seen.has(game.threadId)) next.push(game)
+  }
+  const ordered = assignOrder(next)
+  const moved = ordered
+    .filter((game) => byId.get(game.threadId)?.order !== game.order)
+    .map((game) => game.threadId)
+  if (moved.length) await touchRosterMany(moved)
+  const listed = await writeStore(ordered, true)
+  if (moved.length) notifyUserDataChanged('data')
+  return listed
 }
 
 export async function isOnRoster(threadId: number): Promise<boolean> {
@@ -151,7 +192,7 @@ export async function toggleRoster(game: CatalogGame): Promise<RosterGame[]> {
   if (!Number.isFinite(next.threadId) || next.threadId <= 0) {
     throw new Error('Invalid thread id.')
   }
-  const games = await readStore()
+  const games = [...(await readStore())]
   const index = games.findIndex((item) => item.threadId === next.threadId)
   if (index >= 0) {
     games.splice(index, 1)
@@ -187,16 +228,20 @@ export async function applyCatalogGamesToRoster(games: CatalogGame[]): Promise<n
   const stored = await readStore()
   if (!stored.length) return 0
   const byId = new Map(games.map((game) => [game.threadId, game]))
-  let changed = 0
-  for (let i = 0; i < stored.length; i += 1) {
-    const incoming = byId.get(stored[i].threadId)
+  const changedIds: number[] = []
+  for (const item of stored) {
+    const incoming = byId.get(item.threadId)
     if (!incoming) continue
-    const merged = mergeRosterSnapshot(stored[i], incoming)
-    if (JSON.stringify(merged) !== JSON.stringify(stored[i])) {
-      stored[i] = merged
-      changed += 1
-    }
+    const merged = mergeRosterSnapshot(item, incoming)
+    if (JSON.stringify(merged) !== JSON.stringify(item)) changedIds.push(item.threadId)
   }
-  if (changed) await writeStore(stored)
-  return changed
+  if (!changedIds.length) return 0
+  const latest = await readStore()
+  const next = latest.map((item) => {
+    const incoming = byId.get(item.threadId)
+    if (!incoming) return item
+    return mergeRosterSnapshot(item, incoming)
+  })
+  await writeStore(next, true)
+  return changedIds.length
 }

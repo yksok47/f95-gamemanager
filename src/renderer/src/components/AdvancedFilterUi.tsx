@@ -25,6 +25,7 @@ export function FilterToolbarSplit({
     <button
       className={open ? 'ghost-btn icon-btn nav-btn-active' : 'ghost-btn icon-btn'}
       type="button"
+      data-filter-toggle=""
       aria-pressed={open}
       title={
         count
@@ -62,8 +63,19 @@ export function FilterOverlay({
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') onClose()
     }
+    function onTopBarPointer(event: PointerEvent): void {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (!target.closest('.top-bar')) return
+      if (target.closest('[data-filter-toggle]')) return
+      onClose()
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('pointerdown', onTopBarPointer)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('pointerdown', onTopBarPointer)
+    }
   }, [open, onClose])
 
   if (!open) return null

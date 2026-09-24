@@ -96,6 +96,20 @@ function compareGames(a: LibraryGame, b: LibraryGame, sort: LibrarySort, descend
   return descending ? -result : result
 }
 
+/** Filters only change the shown count. The total stays the full list. */
+function formatShownTotal(shown: number, total: number, singular: string, plural = singular): string {
+  const label = total === 1 ? singular : plural
+  return shown === total ? `${total} ${label}` : `${shown}/${total} ${label}`
+}
+
+function countMatching(games: LibraryGame[], match: (game: LibraryGame) => boolean): number {
+  let count = 0
+  for (const game of games) {
+    if (match(game)) count += 1
+  }
+  return count
+}
+
 function exclusiveKindTitle(
   state: FilterChipState,
   copy: { include: string; exclude: string; off: string }
@@ -375,15 +389,26 @@ export default function LibraryPage({
         </button>
       </ToolbarPortal>
       <FooterPortal>
-        <span className="muted pager-label">
-          {needle ||
-          advanced.activeFilterCount ||
-          followedFilter !== 'off' ||
-          archivedFilter !== 'exclude' ||
-          kindFiltersActive
-            ? `${visible.length}/${games.length}`
-            : `${visible.length} in library`}
-        </span>
+        <div className="footer-cluster">
+          <span className="muted pager-label">
+            {formatShownTotal(visible.length, games.length, 'in library')}
+          </span>
+          <span className="muted pager-label">
+            {formatShownTotal(
+              countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
+              countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
+              'installed'
+            )}
+          </span>
+          <span className="muted pager-label">
+            {formatShownTotal(
+              countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
+              countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
+              'archive',
+              'archives'
+            )}
+          </span>
+        </div>
       </FooterPortal>
 
       <LocalAdvancedFilters

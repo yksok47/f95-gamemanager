@@ -22,7 +22,7 @@ import {
   type VersionPlayStat,
   type VersionPlayStatus
 } from '@shared/types'
-import { normalizeVersionPlayStats } from '@shared/updates'
+import { normalizeVersionPlayStats, preferNewerVersion } from '@shared/updates'
 import { maxLikeCount, maxViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 
 export const USER_DATA_SNAPSHOT_VERSION = 1 as const
@@ -361,6 +361,7 @@ export function normalizeRosterGame(value: unknown): SyncedRosterGame | null {
     screens: asScreens(raw.screens),
     engine: typeof raw.engine === 'string' ? raw.engine : '',
     addedAt,
+    ...(Number.isFinite(Number(raw.order)) ? { order: Number(raw.order) } : {}),
     userUpdatedAt: asTime(raw.userUpdatedAt) || addedAt
   }
 }
@@ -520,7 +521,7 @@ export function mergeCatalogFields<T extends {
   return {
     title: newer.title || older.title,
     creator: newer.creator || older.creator,
-    version: newer.version || older.version,
+    version: preferNewerVersion(left.version, right.version),
     coverUrl: newer.coverUrl || older.coverUrl,
     rating: Number(newer.rating) || Number(older.rating) || 0,
     likes: maxLikeCount(newer.likes, older.likes),

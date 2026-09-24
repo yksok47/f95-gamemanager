@@ -46,6 +46,7 @@ import {
   formatUpdateDate,
   effectiveVersionStatus,
   gameUpdateState,
+  latestKnownVersion,
   isRelativeDate,
   latestInstalledLibraryFile,
   latestOverviewVersion,
@@ -750,7 +751,7 @@ function GameDetailsPage({
     [details]
   )
   // Banner / downloads / package hints use catalog version; scraped version stays in overview fields only.
-  const version = summary.version || ''
+  const version = latestKnownVersion(summary.version, summary.playedVersions) || summary.version || ''
   const engine =
     normalizeEngine(summary.engine) ||
     engineFromPrefixIds(summary.prefixes, prefixCatalog) ||

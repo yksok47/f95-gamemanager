@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname } from 'path'
 import { getAppPaths } from '../paths'
+import { markLocalUserDataChange } from './notify'
 import type { SettingsTimes, SyncedSettingKey, UserDataTombstone } from './snapshot'
 
 const TOMBSTONE_KEEP_MS = 180 * 24 * 60 * 60 * 1000
@@ -116,6 +117,21 @@ async function writeState(state: CloudUserDataState): Promise<CloudUserDataState
   return state
 }
 
+function writeLocalEdit(state: CloudUserDataState): Promise<CloudUserDataState> {
+  markLocalUserDataChange()
+  return writeState(state)
+}
+
+/** Keeps per-item edit times that moved forward while a sync was in flight. */
+function keepNewerTimes(
+  current: Record<string, number>,
+  incoming: Record<string, number>
+): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [key, at] of Object.entries(incoming)) out[key] = Math.max(at, current[key] || 0)
+  return out
+}
+
 export async function getCloudUserDataState(): Promise<CloudUserDataState> {
   if (loaded) return loaded
   try {
@@ -148,7 +164,7 @@ export async function touchSubscription(threadId: number, at = Date.now()): Prom
   const id = Number(threadId)
   if (!Number.isFinite(id) || id <= 0) return
   const state = await getCloudUserDataState()
-  await writeState({
+  await writeLocalEdit({
     ...state,
     dirty: true,
     subscriptionUpdatedAt: { ...state.subscriptionUpdatedAt, [String(id)]: at },
@@ -162,7 +178,7 @@ export async function tombstoneSubscription(threadId: number, at = Date.now()): 
   const state = await getCloudUserDataState()
   const updated = { ...state.subscriptionUpdatedAt }
   delete updated[String(id)]
-  await writeState({
+  await writeLocalEdit({
     ...state,
     dirty: true,
     subscriptionUpdatedAt: updated,
@@ -171,14 +187,24 @@ export async function tombstoneSubscription(threadId: number, at = Date.now()): 
 }
 
 export async function touchRoster(threadId: number, at = Date.now()): Promise<void> {
-  const id = Number(threadId)
-  if (!Number.isFinite(id) || id <= 0) return
+  await touchRosterMany([threadId], at)
+}
+
+export async function touchRosterMany(threadIds: number[], at = Date.now()): Promise<void> {
+  const ids = [...new Set(threadIds.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0))]
+  if (!ids.length) return
   const state = await getCloudUserDataState()
-  await writeState({
+  const rosterUpdatedAt = { ...state.rosterUpdatedAt }
+  let rosterTombstones = state.rosterTombstones
+  for (const id of ids) {
+    rosterUpdatedAt[String(id)] = at
+    rosterTombstones = dropTombstone(rosterTombstones, id)
+  }
+  await writeLocalEdit({
     ...state,
     dirty: true,
-    rosterUpdatedAt: { ...state.rosterUpdatedAt, [String(id)]: at },
-    rosterTombstones: dropTombstone(state.rosterTombstones, id)
+    rosterUpdatedAt,
+    rosterTombstones
   })
 }
 
@@ -188,7 +214,7 @@ export async function tombstoneRoster(threadId: number, at = Date.now()): Promis
   const state = await getCloudUserDataState()
   const updated = { ...state.rosterUpdatedAt }
   delete updated[String(id)]
-  await writeState({
+  await writeLocalEdit({
     ...state,
     dirty: true,
     rosterUpdatedAt: updated,
@@ -200,7 +226,7 @@ export async function tombstoneNote(threadId: number, at = Date.now()): Promise<
   const id = Number(threadId)
   if (!Number.isFinite(id) || id <= 0) return
   const state = await getCloudUserDataState()
-  await writeState({
+  await writeLocalEdit({
     ...state,
     dirty: true,
     noteTombstones: upsertTombstone(state.noteTombstones, id, at)
@@ -211,7 +237,7 @@ export async function clearNoteTombstone(threadId: number): Promise<void> {
   const id = Number(threadId)
   if (!Number.isFinite(id) || id <= 0) return
   const state = await getCloudUserDataState()
-  await writeState({
+  await writeLocalEdit({
     ...state,
     dirty: true,
     noteTombstones: dropTombstone(state.noteTombstones, id)
@@ -223,7 +249,7 @@ export async function bumpSettingTimes(keys: SyncedSettingKey[], at = Date.now()
   const state = await getCloudUserDataState()
   const settingTimes = { ...state.settingTimes }
   for (const key of keys) settingTimes[key] = at
-  await writeState({ ...state, dirty: true, settingTimes })
+  await writeLocalEdit({ ...state, dirty: true, settingTimes })
 }
 
 export async function replaceSyncMeta(input: {
@@ -247,8 +273,8 @@ export async function replaceSyncMeta(input: {
     dirty: input.dirty,
     lastError: input.lastError === undefined ? current.lastError : input.lastError,
     settingTimes: input.settingTimes,
-    subscriptionUpdatedAt: input.subscriptionUpdatedAt,
-    rosterUpdatedAt: input.rosterUpdatedAt,
+    subscriptionUpdatedAt: keepNewerTimes(current.subscriptionUpdatedAt, input.subscriptionUpdatedAt),
+    rosterUpdatedAt: keepNewerTimes(current.rosterUpdatedAt, input.rosterUpdatedAt),
     subscriptionTombstones: input.subscriptionTombstones,
     rosterTombstones: input.rosterTombstones,
     noteTombstones: input.noteTombstones

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type MouseEvent } from 'react'
 import type { FavoriteTag, HatedTag, MatchMode } from '@shared/types'
 import {
   cycleChipState,
@@ -12,42 +12,85 @@ import {
   captureQuickFilterSnapshot,
   type QuickFilterSnapshot
 } from './quick-filters'
+import { selectTagsForQuery } from './favorites'
+import {
+  getAdvancedFilterSelection,
+  subscribeAdvancedFilterSelection,
+  updateAdvancedFilterSelection,
+  type AdvancedFilterSelection
+} from './advanced-filter-selection'
 
-export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: HatedTag[]) {
+function setSelectionField<K extends keyof AdvancedFilterSelection>(
+  key: K,
+  action: AdvancedFilterSelection[K] | ((current: AdvancedFilterSelection[K]) => AdvancedFilterSelection[K])
+): void {
+  updateAdvancedFilterSelection((current) => {
+    const next = typeof action === 'function' ? action(current[key]) : action
+    if (next === current[key]) return current
+    return { ...current, [key]: next }
+  })
+}
+
+export function useAdvancedFilters(
+  favoriteTags: FavoriteTag[],
+  hatedTags: HatedTag[],
+  tagQueryLimit?: number
+) {
   const filters = useCatalogFilters()
+  const selection = useSyncExternalStore(
+    subscribeAdvancedFilterSelection,
+    getAdvancedFilterSelection,
+    getAdvancedFilterSelection
+  )
+  const {
+    prefixState,
+    tagState,
+    tagType,
+    tagQuery,
+    creatorInput,
+    creator,
+    favoritesFilter,
+    hatedFilter
+  } = selection
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [prefixState, setPrefixState] = useState<Record<number, FilterChipState>>({})
-  const [tagState, setTagState] = useState<Record<number, FilterChipState>>({})
-  const [tagType, setTagType] = useState<MatchMode>('or')
-  const [tagQuery, setTagQuery] = useState('')
-  const [creatorInput, setCreatorInput] = useState('')
-  const [creator, setCreator] = useState('')
-  const [favoritesFilter, setFavoritesFilter] = useState<FilterChipState>('off')
-  const [hatedFilter, setHatedFilter] = useState<FilterChipState>('off')
 
-  const prefixes = useMemo(() => selectedChipIds(prefixState, 'include'), [prefixState])
+  const includePrefixes = useMemo(() => selectedChipIds(prefixState, 'include'), [prefixState])
   const excludePrefixes = useMemo(() => selectedChipIds(prefixState, 'exclude'), [prefixState])
   const favoriteIds = useMemo(() => favoriteTags.map((tag) => tag.id), [favoriteTags])
   const hatedIds = useMemo(() => hatedTags.map((tag) => tag.id), [hatedTags])
-  const lockedFavoriteIds = favoritesFilter === 'off' ? [] : favoriteIds
+  const appliedFavoriteIds = useMemo(
+    () => selectTagsForQuery(favoriteTags).map((tag) => tag.id),
+    [favoriteTags]
+  )
+  const lockedFavoriteIds = favoritesFilter === 'off' ? [] : appliedFavoriteIds
   const lockedHatedIds = hatedFilter === 'off' ? [] : hatedIds
   const lockedFavoriteSet = useMemo(() => new Set(lockedFavoriteIds), [lockedFavoriteIds])
   const lockedHatedSet = useMemo(() => new Set(lockedHatedIds), [lockedHatedIds])
-  const includedTags = useMemo(() => selectedChipIds(tagState, 'include'), [tagState])
-  const excludedTags = useMemo(() => selectedChipIds(tagState, 'exclude'), [tagState])
+  const includeTags = useMemo(() => selectedChipIds(tagState, 'include'), [tagState])
+  const excludeTags = useMemo(() => selectedChipIds(tagState, 'exclude'), [tagState])
   const queryTagType = favoritesFilter !== 'off' || hatedFilter !== 'off' ? 'or' : tagType
   const activeFilterCount =
-    prefixes.length + excludePrefixes.length + includedTags.length + excludedTags.length + (creator ? 1 : 0)
+    includePrefixes.length +
+    excludePrefixes.length +
+    includeTags.length +
+    excludeTags.length +
+    (creator ? 1 : 0)
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setCreator(creatorInput.trim()), 400)
+    const timer = window.setTimeout(() => {
+      updateAdvancedFilterSelection((current) => {
+        const next = current.creatorInput.trim()
+        if (next === current.creator) return current
+        return { ...current, creator: next }
+      })
+    }, 400)
     return () => window.clearTimeout(timer)
   }, [creatorInput])
 
   useEffect(() => {
     if (favoritesFilter === 'off') return
-    const selected = new Set(favoriteIds)
-    setTagState((current) => {
+    const selected = new Set(appliedFavoriteIds)
+    setSelectionField('tagState', (current) => {
       const next = { ...current }
       let changed = false
       for (const id of favoriteIds) {
@@ -63,13 +106,13 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
       }
       return changed ? next : current
     })
-    setTagType('or')
-  }, [favoritesFilter, favoriteIds])
+    setSelectionField('tagType', 'or')
+  }, [favoritesFilter, favoriteIds, appliedFavoriteIds])
 
   useEffect(() => {
     if (hatedFilter === 'off') return
     const selected = new Set(hatedIds)
-    setTagState((current) => {
+    setSelectionField('tagState', (current) => {
       const next = { ...current }
       let changed = false
       for (const id of hatedIds) {
@@ -85,14 +128,14 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
       }
       return changed ? next : current
     })
-    setTagType('or')
+    setSelectionField('tagType', 'or')
   }, [hatedFilter, hatedIds])
 
   const closeFilters = useCallback(() => setFiltersOpen(false), [])
   const toggleFilters = useCallback(() => setFiltersOpen((open) => !open), [])
 
   const togglePrefix = useCallback((id: number, direction: ChipCycleDirection = 'forward'): void => {
-    setPrefixState((current) => {
+    setSelectionField('prefixState', (current) => {
       const next = cycleChipState(current[id] ?? 'off', direction)
       const copy = { ...current }
       if (next === 'off') delete copy[id]
@@ -104,15 +147,26 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
   const toggleTag = useCallback(
     (id: number, direction: ChipCycleDirection = 'forward'): void => {
       if (lockedFavoriteSet.has(id) || lockedHatedSet.has(id)) return
-      setTagState((current) => {
-        const next = cycleChipState(current[id] ?? 'off', direction)
-        const copy = { ...current }
+      updateAdvancedFilterSelection((current) => {
+        const currentState = current.tagState[id] ?? 'off'
+        let next = cycleChipState(currentState, direction)
+        if (tagQueryLimit != null) {
+          const included = selectedChipIds(current.tagState, 'include').length
+          const excluded = selectedChipIds(current.tagState, 'exclude').length
+          if (currentState === 'off' && included >= tagQueryLimit && excluded >= tagQueryLimit) {
+            return current
+          }
+          if (next === 'include' && included >= tagQueryLimit) next = cycleChipState(next, direction)
+          if (next === 'exclude' && excluded >= tagQueryLimit) next = cycleChipState(next, direction)
+        }
+        if (next === currentState) return current
+        const copy = { ...current.tagState }
         if (next === 'off') delete copy[id]
         else copy[id] = next
-        return copy
+        return { ...current, tagState: copy }
       })
     },
-    [lockedFavoriteSet, lockedHatedSet]
+    [lockedFavoriteSet, lockedHatedSet, tagQueryLimit]
   )
 
   function applyLockedTagFilters(
@@ -121,7 +175,7 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
     state: FilterChipState
   ): void {
     const selected = new Set(appliedIds)
-    setTagState((current) => {
+    setSelectionField('tagState', (current) => {
       const next = { ...current }
       for (const id of ids) {
         if (state !== 'off' && selected.has(id)) next[id] = state
@@ -129,27 +183,27 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
       }
       return next
     })
-    if (state !== 'off') setTagType('or')
+    if (state !== 'off') setSelectionField('tagType', 'or')
   }
 
   function cycleFavoritesFilter(event: MouseEvent): void {
     event.preventDefault()
     const next = cycleChipState(favoritesFilter, cycleDirectionFromEvent(event))
-    setFavoritesFilter(next)
-    applyLockedTagFilters(favoriteIds, favoriteIds, next)
+    setSelectionField('favoritesFilter', next)
+    applyLockedTagFilters(favoriteIds, appliedFavoriteIds, next)
   }
 
   function cycleHatedFilter(event: MouseEvent): void {
     event.preventDefault()
     const next = cycleChipState(hatedFilter, cycleDirectionFromEvent(event, 'reverse'))
-    setHatedFilter(next)
+    setSelectionField('hatedFilter', next)
     applyLockedTagFilters(hatedIds, hatedIds, next)
   }
 
   function lockedTagState(): Record<number, FilterChipState> {
     const next: Record<number, FilterChipState> = {}
     if (favoritesFilter !== 'off') {
-      for (const id of favoriteIds) next[id] = favoritesFilter
+      for (const id of appliedFavoriteIds) next[id] = favoritesFilter
     }
     if (hatedFilter !== 'off') {
       for (const id of hatedIds) next[id] = hatedFilter
@@ -158,36 +212,42 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
   }
 
   function clearFilters(): void {
-    setPrefixState({})
-    setTagQuery('')
-    setCreatorInput('')
-    setCreator('')
-    setTagState(lockedTagState())
-    setTagType('or')
+    updateAdvancedFilterSelection((current) => ({
+      ...current,
+      prefixState: {},
+      tagQuery: '',
+      creatorInput: '',
+      creator: '',
+      tagState: lockedTagState(),
+      tagType: 'or'
+    }))
   }
 
   const applyQuickFilter = useCallback((snapshot: QuickFilterSnapshot): void => {
     const next = captureQuickFilterSnapshot(snapshot)
-    setPrefixState(next.prefixState)
-    setTagState(next.tagState)
-    setTagType(next.tagType)
-    setCreatorInput(next.creator)
-    setCreator(next.creator)
-    setFavoritesFilter(next.favoritesFilter)
-    setHatedFilter(next.hatedFilter)
+    updateAdvancedFilterSelection((current) => ({
+      ...current,
+      prefixState: next.prefixState,
+      tagState: next.tagState,
+      tagType: next.tagType,
+      creatorInput: next.creator,
+      creator: next.creator,
+      favoritesFilter: next.favoritesFilter,
+      hatedFilter: next.hatedFilter
+    }))
   }, [])
 
   const matches = useCallback(
     (game: LocalFilterGame): boolean =>
       matchesLocalFilters(game, {
-        includePrefixes: prefixes,
+        includePrefixes,
         excludePrefixes,
-        includeTags: includedTags,
-        excludeTags: excludedTags,
+        includeTags,
+        excludeTags,
         tagType: queryTagType,
         creator
       }),
-    [prefixes, excludePrefixes, includedTags, excludedTags, queryTagType, creator]
+    [includePrefixes, excludePrefixes, includeTags, excludeTags, queryTagType, creator]
   )
 
   return {
@@ -199,17 +259,23 @@ export function useAdvancedFilters(favoriteTags: FavoriteTag[], hatedTags: Hated
     tagState,
     tagType,
     tagQuery,
-    setTagQuery,
+    setTagQuery: (value: string) => setSelectionField('tagQuery', value),
     creatorInput,
-    setCreatorInput,
+    setCreatorInput: (value: string) => setSelectionField('creatorInput', value),
+    creator,
     favoritesFilter,
     hatedFilter,
     lockedFavoriteIds,
     lockedHatedIds,
+    includePrefixes,
+    excludePrefixes,
+    includeTags,
+    excludeTags,
+    queryTagType,
     activeFilterCount,
     togglePrefix,
     toggleTag,
-    setTagType,
+    setTagType: (value: MatchMode) => setSelectionField('tagType', value),
     clearFilters,
     applyQuickFilter,
     cycleFavoritesFilter,

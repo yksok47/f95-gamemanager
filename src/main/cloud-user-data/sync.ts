@@ -12,6 +12,7 @@ import { mergeUserData, needsApply, needsUpload } from './merge'
 import {
   beginApplyingCloudUserData,
   endApplyingCloudUserData,
+  localUserDataChangeCount,
   notifyUserDataChanged,
   notifyUserDataEnabled,
   notifyUserDataSession,
@@ -69,6 +70,11 @@ async function cloudUserDataReady(): Promise<boolean> {
   return hasCloudSaveSession()
 }
 
+/** Merged payloads list items by thread id; matching that keeps needsApply from firing on order alone. */
+function byThreadId<T extends { threadId: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.threadId - b.threadId)
+}
+
 async function collectLocal(): Promise<UserDataPayload> {
   const [settings, state, subscriptions, roster, notes] = await Promise.all([
     getSettings(),
@@ -83,17 +89,21 @@ async function collectLocal(): Promise<UserDataPayload> {
     updatedAt: Date.now(),
     settings: pickPortableSettings(settings),
     settingsTimes: { ...state.settingTimes },
-    subscriptions: subscriptions.map((game) => ({
-      ...game,
-      userUpdatedAt: state.subscriptionUpdatedAt[String(game.threadId)] || game.addedAt
-    })),
+    subscriptions: byThreadId(
+      subscriptions.map((game) => ({
+        ...game,
+        userUpdatedAt: state.subscriptionUpdatedAt[String(game.threadId)] || game.addedAt
+      }))
+    ),
     subscriptionTombstones: state.subscriptionTombstones,
-    roster: roster.map((game) => ({
-      ...game,
-      userUpdatedAt: state.rosterUpdatedAt[String(game.threadId)] || game.addedAt
-    })),
+    roster: byThreadId(
+      roster.map((game) => ({
+        ...game,
+        userUpdatedAt: state.rosterUpdatedAt[String(game.threadId)] || game.addedAt
+      }))
+    ),
     rosterTombstones: state.rosterTombstones,
-    notes,
+    notes: byThreadId(notes),
     noteTombstones: state.noteTombstones
   }
 }
@@ -176,6 +186,8 @@ async function runSync(): Promise<CloudUserDataSyncStatus> {
     if (journal) {
       await applyPayload(journal)
     }
+    const changesAtStart = localUserDataChangeCount()
+    const staleSnapshot = (): boolean => localUserDataChangeCount() !== changesAtStart
     const local = await collectLocal()
     let remotePayload: UserDataPayload | null = null
     try {
@@ -189,6 +201,11 @@ async function runSync(): Promise<CloudUserDataSyncStatus> {
       return getCloudUserDataStatus()
     }
     const merged = remotePayload ? mergeUserData(local, remotePayload) : local
+    if (staleSnapshot()) {
+      pending = true
+      scheduleDataSync()
+      return getCloudUserDataStatus()
+    }
     if (needsApply(local, merged)) {
       await applyPayload(merged)
     }
@@ -208,6 +225,18 @@ async function runSync(): Promise<CloudUserDataSyncStatus> {
       try {
         const result = await uploadRemoteUserData(upload)
         revision = result.revision
+        if (staleSnapshot()) {
+          await patchCloudUserDataState({
+            lastRevision: result.revision,
+            lastChecksum: result.checksum,
+            dirty: true,
+            lastError: null
+          })
+          await clearApplyJournal()
+          pending = true
+          scheduleDataSync()
+          return getCloudUserDataStatus()
+        }
         const times = timesFromPayload(upload)
         await replaceSyncMeta({
           lastRevision: result.revision,

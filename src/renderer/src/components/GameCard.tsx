@@ -24,6 +24,7 @@ import {
   formatDateTime,
   formatRelativeTime,
   gameUpdateState,
+  latestKnownVersion,
 } from "@shared/updates";
 import EngineBadge from "./EngineBadge";
 import FollowButton from "./FollowButton";
@@ -152,7 +153,7 @@ function GameCard({
     return urls;
   }, [game.screens, game.coverUrl]);
   const updates = gameUpdateState({
-    latestVersion: game.version,
+    latestVersion: latestKnownVersion(game.version, game.playedVersions),
     installedVersion: library?.installedVersion,
     lastPlayedVersion: game.lastPlayedVersion,
     playedVersions: game.playedVersions,
