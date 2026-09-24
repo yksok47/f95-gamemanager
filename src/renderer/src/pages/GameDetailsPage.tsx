@@ -95,18 +95,13 @@ import ReviewCard from '../components/ReviewCard'
 import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { DelayedMount, InlineLoading, Spinner } from '../components/Spinner'
+import {
+  readDetailsSession,
+  writeDetailsSession,
+  type DetailsModalTab
+} from '../lib/details-session-cache'
 
-type DetailsTab =
-  | 'overview'
-  | 'about'
-  | 'changelog'
-  | 'userNotes'
-  | 'gallery'
-  | 'downloads'
-  | 'files'
-  | 'saves'
-  | 'renpy'
-  | 'reviews'
+type DetailsTab = DetailsModalTab
 
 type AboutMode = 'description' | `note:${number}`
 type RenpyMode = 'unren' | 'options'
@@ -424,13 +419,16 @@ function GameDetailsPage({
   const tagCatalog = useCatalogTags()
   const cloudSaveStatus = useCloudSaveStatus()
   const cloudSaveSyncing = Boolean(cloudSaveStatus?.running && cloudSaveStatus.phase === 'syncing')
-  const [details, setDetails] = useState<ThreadDetails | null>(null)
-  const [busy, setBusy] = useState(true)
+  const restoredSession = readDetailsSession(summary.threadId)
+  const [details, setDetails] = useState<ThreadDetails | null>(restoredSession?.details ?? null)
+  const [busy, setBusy] = useState(!restoredSession?.details)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalogBusy, setCatalogBusy] = useState(false)
   const catalogLookupGen = useRef(0)
-  const [tab, setTab] = useState<DetailsTab>(initialTab ?? 'overview')
-  const [savesTabReady, setSavesTabReady] = useState(initialTab === 'saves')
+  const [tab, setTab] = useState<DetailsTab>(initialTab ?? restoredSession?.tab ?? 'overview')
+  const [savesTabReady, setSavesTabReady] = useState(
+    (initialTab ?? restoredSession?.tab) === 'saves'
+  )
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
@@ -499,10 +497,22 @@ function GameDetailsPage({
   const [versionsExpanded, setVersionsExpanded] = useState(false)
 
   useEffect(() => {
+    writeDetailsSession(summary.threadId, {
+      ...(details ? { details } : {}),
+      tab
+    })
+  }, [summary.threadId, details, tab])
+
+  useEffect(() => {
     let cancelled = false
-    setBusy(true)
-    setDetails(null)
-    setTab('overview')
+    const session = reloadToken === 0 ? readDetailsSession(summary.threadId) : undefined
+    if (session?.details) {
+      setDetails(session.details)
+      setBusy(false)
+    } else {
+      setBusy(true)
+      setDetails(null)
+    }
     setAboutMode('description')
     setLightbox(null)
     setOpenVersions({})
@@ -523,9 +533,12 @@ function GameDetailsPage({
     setTagEditBusy(false)
     applyModalOffset(0, 0)
 
+    if (session?.details) return
+
     async function load(): Promise<void> {
       try {
         const next = await window.api.threads.details(summary.threadId)
+        writeDetailsSession(summary.threadId, { details: next })
         if (!cancelled) setDetails(next)
       } catch (err) {
         if (cancelled) return

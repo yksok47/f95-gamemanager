@@ -37,6 +37,7 @@ import { isActiveDownload, isActiveP2pDownload, collectThreadDownloads } from '.
 import { DownloadProgressProvider } from './lib/download-progress'
 import { useLibraryByThread, useLibraryReady, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
+import { syncOpenDetailThreads } from './lib/details-session-cache'
 import { latestKnownVersion, shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
@@ -170,6 +171,7 @@ export default function App(): JSX.Element {
     quickFilters: []
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
+  syncOpenDetailThreads(detailsWindows.map((game) => game.threadId))
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
   const [detailsOpenTab, setDetailsOpenTab] = useState<{
     threadId: number
@@ -530,14 +532,17 @@ export default function App(): JSX.Element {
   const closeDetailsWindow = useCallback((threadId: number) => {
     setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
     setActiveThreadId((current) => (current === threadId ? null : current))
+    setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
   }, [])
 
   const toggleDetailsWindow = useCallback((threadId: number) => {
     setActiveThreadId((current) => (current === threadId ? null : threadId))
+    setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
   }, [])
 
   const minimizeDetailsWindow = useCallback(() => {
     setActiveThreadId(null)
+    setDetailsOpenTab(null)
   }, [])
 
   const rarityById = useMemo(() => {
