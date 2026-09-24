@@ -35,12 +35,13 @@ import LoginPage from './pages/LoginPage'
 import SettingsPage from './pages/SettingsPage'
 import { isActiveDownload, isActiveP2pDownload, collectThreadDownloads } from './lib/downloads'
 import { DownloadProgressProvider } from './lib/download-progress'
-import { useLibraryByThread, type LibraryGame } from './lib/library'
+import { useLibraryByThread, useLibraryReady, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { latestKnownVersion, shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
 import { focusPageSearchOnHotkey } from './lib/page-search'
+import { PageLoading } from './components/Spinner'
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -195,6 +196,7 @@ export default function App(): JSX.Element {
     : 0
   const activeDownloadCount = downloads.filter(isActiveDownload).length + activeP2pCount
   const libraryByThread = useLibraryByThread()
+  useLibraryReady()
   const pendingDownloads = useMemo(
     () => collectThreadDownloads(downloads, p2pEnabled ? p2pTransfers : [], p2pSharedHashes),
     [downloads, p2pEnabled, p2pTransfers, p2pSharedHashes]
@@ -565,7 +567,7 @@ export default function App(): JSX.Element {
 
   const body = !session ? (
     <div className="center-screen">
-      <p className="muted">Checking saved session…</p>
+      <PageLoading label="Checking saved session" />
     </div>
   ) : !session.loggedIn ? (
     <LoginPage

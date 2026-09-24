@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { notifyCaught } from './ErrorNotifications'
+import { DelayedMount, Spinner } from './Spinner'
 
 type UserNotesPanelProps = {
   threadId: number
@@ -115,7 +116,7 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
           ? 'Save failed'
           : ready
             ? 'Autosaves as you type'
-            : 'Loading…'
+            : null
 
   return (
     <div className="user-notes-panel">
@@ -132,7 +133,13 @@ export default function UserNotesPanel({ threadId }: UserNotesPanelProps): JSX.E
                 : 'user-notes-status'
           }
         >
-          {statusLabel}
+          {statusLabel ? (
+            statusLabel
+          ) : (
+            <DelayedMount busy>
+              <Spinner size="sm" label="Loading notes" />
+            </DelayedMount>
+          )}
         </span>
       </div>
       <textarea

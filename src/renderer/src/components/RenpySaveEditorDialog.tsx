@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { RenpySaveEditPatch, RenpySaveEditVar, RenpySaveEditorData, RenpySaveFile } from '@shared/types'
 import { confirm } from './ConfirmDialog'
 import { notifyCaught } from './ErrorNotifications'
+import { InlineLoading } from './Spinner'
 
 type RenpySaveEditorDialogProps = {
   fileId: string
@@ -193,7 +194,7 @@ export default function RenpySaveEditorDialog({
         </div>
 
         {loading ? (
-          <p className="muted">Reading save variables…</p>
+          <InlineLoading label="Reading save variables" />
         ) : error && !rows.length ? (
           <p className="save-editor-error">{error}</p>
         ) : (

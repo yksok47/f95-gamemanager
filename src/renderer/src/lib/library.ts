@@ -193,60 +193,114 @@ export function hasLibraryCopy(status?: GameLibraryStatus | null): boolean {
   return Boolean(status && (status.hasArchive || status.isInstalled || status.installPercent != null))
 }
 
-export function useIdentifiedSaveThreadIds(): Set<number> {
-  const [ids, setIds] = useState<Set<number>>(() => new Set())
+type SnapshotStore<T> = {
+  value: T
+  listeners: Set<(next: T) => void>
+  started: boolean
+}
 
+function emitStore<T>(store: SnapshotStore<T>, next: T): void {
+  store.value = next
+  for (const listener of store.listeners) listener(next)
+}
+
+function useSnapshotStore<T>(store: SnapshotStore<T>, start: () => void): T {
+  const [value, setValue] = useState(store.value)
   useEffect(() => {
-    let cancelled = false
-    let timer: number | null = null
-
-    function load(): void {
-      void window.api.library.identifiedSaveFolders().then((items) => {
-        if (!cancelled) setIds(saveThreadIds(items))
-      })
-    }
-
-    function schedule(): void {
-      if (timer) window.clearTimeout(timer)
-      timer = window.setTimeout(load, 200)
-    }
-
-    load()
-    const stopFolders = window.api.library.onSaveFoldersChange(() => {
-      schedule()
-    })
-    const stopLibrary = window.api.library.onChange(() => {
-      schedule()
-    })
+    start()
+    store.listeners.add(setValue)
+    setValue(store.value)
     return () => {
-      cancelled = true
-      if (timer) window.clearTimeout(timer)
-      stopFolders()
-      stopLibrary()
+      store.listeners.delete(setValue)
     }
-  }, [])
+  }, [start, store])
+  return value
+}
 
-  return ids
+type ReadyList<T> = { items: T; ready: boolean }
+
+const libraryFilesStore: SnapshotStore<ReadyList<GameLibraryFile[]>> = {
+  value: { items: [], ready: false },
+  listeners: new Set(),
+  started: false
+}
+
+const saveFolderIdsStore: SnapshotStore<ReadyList<Set<number>>> = {
+  value: { items: new Set(), ready: false },
+  listeners: new Set(),
+  started: false
+}
+
+const saveOnlyStore: SnapshotStore<ReadyList<IdentifiedSaveFolder[]>> = {
+  value: { items: [], ready: false },
+  listeners: new Set(),
+  started: false
+}
+
+function startLibraryFilesStore(): void {
+  if (libraryFilesStore.started) return
+  libraryFilesStore.started = true
+  window.api.library.onChange((items) => emitStore(libraryFilesStore, { items, ready: true }))
+  void window.api.library.list().then(
+    (items) => emitStore(libraryFilesStore, { items, ready: true }),
+    () => emitStore(libraryFilesStore, { items: libraryFilesStore.value.items, ready: true })
+  )
+}
+
+function startSaveFolderIdsStore(): void {
+  if (saveFolderIdsStore.started) return
+  saveFolderIdsStore.started = true
+  let timer: number | null = null
+
+  function load(): void {
+    void window.api.library.identifiedSaveFolders().then(
+      (items) => emitStore(saveFolderIdsStore, { items: saveThreadIds(items), ready: true }),
+      () => emitStore(saveFolderIdsStore, { items: saveFolderIdsStore.value.items, ready: true })
+    )
+  }
+
+  function schedule(): void {
+    if (timer) window.clearTimeout(timer)
+    timer = window.setTimeout(load, 200)
+  }
+
+  load()
+  window.api.library.onSaveFoldersChange(schedule)
+  window.api.library.onChange(schedule)
+}
+
+function startSaveOnlyStore(): void {
+  if (saveOnlyStore.started) return
+  saveOnlyStore.started = true
+  let timer: number | null = null
+
+  function load(): void {
+    void window.api.library.saveOnlyItems().then(
+      (items) => emitStore(saveOnlyStore, { items, ready: true }),
+      () => emitStore(saveOnlyStore, { items: saveOnlyStore.value.items, ready: true })
+    )
+  }
+
+  function schedule(): void {
+    if (timer) window.clearTimeout(timer)
+    timer = window.setTimeout(load, 200)
+  }
+
+  load()
+  window.api.library.onSaveFoldersChange(schedule)
+  window.api.library.onChange(schedule)
+}
+
+export function useIdentifiedSaveThreadIds(): Set<number> {
+  return useSnapshotStore(saveFolderIdsStore, startSaveFolderIdsStore).items
 }
 
 export function useLibraryByThread(): Map<number, GameLibraryStatus> {
-  const [files, setFiles] = useState<GameLibraryFile[]>([])
+  const files = useLibraryFiles()
   const [subscriptions, setSubscriptions] = useState<
     Array<{ threadId: number; version?: string; playedVersions?: VersionPlayStat[] }>
   >([])
   const saveIds = useIdentifiedSaveThreadIds()
-
-  useEffect(() => {
-    let cancelled = false
-    void window.api.library.list().then((items) => {
-      if (!cancelled) setFiles(items)
-    })
-    const stop = window.api.library.onChange(setFiles)
-    return () => {
-      cancelled = true
-      stop()
-    }
-  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -267,21 +321,13 @@ export function useLibraryByThread(): Map<number, GameLibraryStatus> {
 }
 
 export function useLibraryFiles(): GameLibraryFile[] {
-  const [files, setFiles] = useState<GameLibraryFile[]>([])
+  return useSnapshotStore(libraryFilesStore, startLibraryFilesStore).items
+}
 
-  useEffect(() => {
-    let cancelled = false
-    void window.api.library.list().then((items) => {
-      if (!cancelled) setFiles(items)
-    })
-    const stop = window.api.library.onChange(setFiles)
-    return () => {
-      cancelled = true
-      stop()
-    }
-  }, [])
-
-  return files
+export function useLibraryReady(): boolean {
+  const files = useSnapshotStore(libraryFilesStore, startLibraryFilesStore)
+  const saves = useSnapshotStore(saveOnlyStore, startSaveOnlyStore)
+  return files.ready && saves.ready
 }
 
 export function groupLibraryGames(
@@ -304,8 +350,12 @@ export function groupLibraryGames(
       catalogVersion: sub?.version,
       playedVersions: sub?.playedVersions
     })
-    const newest = [...items].sort((a, b) => b.downloadedAt - a.downloadedAt)[0]
-    const lastPlayed = [...items].sort((a, b) => (a.lastPlayedAt || 0) - (b.lastPlayedAt || 0)).at(-1)
+    let newest = items[0]
+    let lastPlayed = items[0]
+    for (const file of items) {
+      if ((file.downloadedAt || 0) > (newest.downloadedAt || 0)) newest = file
+      if ((file.lastPlayedAt || 0) >= (lastPlayed.lastPlayedAt || 0)) lastPlayed = file
+    }
     const coverUrl =
       items.map((file) => file.coverUrl).find(Boolean) || sub?.coverUrl || null
     const prefixes =
@@ -481,39 +531,7 @@ export function saveOnlyLibraryGames(
 }
 
 export function useIdentifiedSaveFolders(): IdentifiedSaveFolder[] {
-  const [items, setItems] = useState<IdentifiedSaveFolder[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    let timer: number | null = null
-
-    function load(): void {
-      void window.api.library.saveOnlyItems().then((next) => {
-        if (!cancelled) setItems(next)
-      })
-    }
-
-    function schedule(): void {
-      if (timer) window.clearTimeout(timer)
-      timer = window.setTimeout(load, 200)
-    }
-
-    load()
-    const stopFolders = window.api.library.onSaveFoldersChange(() => {
-      schedule()
-    })
-    const stopLibrary = window.api.library.onChange(() => {
-      schedule()
-    })
-    return () => {
-      cancelled = true
-      if (timer) window.clearTimeout(timer)
-      stopFolders()
-      stopLibrary()
-    }
-  }, [])
-
-  return items
+  return useSnapshotStore(saveOnlyStore, startSaveOnlyStore).items
 }
 
 export function usePlaySessions(): PlaySessionStatus[] {

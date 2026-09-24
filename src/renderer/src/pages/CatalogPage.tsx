@@ -31,6 +31,7 @@ import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
+import { PageLoading } from '../components/Spinner'
 
 type CatalogViewProps = {
   followedIds: Set<number>
@@ -315,7 +316,7 @@ export default function CatalogPage({
     goToPage(data.totalPages, 'next')
   }
 
-  function renderGameGrid(games: CatalogGame[], pageNum: number, eagerCovers = false): JSX.Element {
+  function renderGameGrid(games: CatalogGame[], pageNum: number): JSX.Element {
     return (
       <div className="catalog-grid">
         {games.map((game, index) => {
@@ -350,7 +351,7 @@ export default function CatalogPage({
                 playing={Boolean(sessionForThread(game.threadId))}
                 prefixCatalog={filters.prefixes}
                 coverRetryKey={`${pageNum}-${reloadToken}`}
-                coverEager={eagerCovers || eager}
+                coverEager={eager}
                 inRoster={rosterIds.has(game.threadId)}
                 onToggleRoster={() => onToggleRoster(game)}
               />
@@ -469,7 +470,7 @@ export default function CatalogPage({
             </button>
           </div>
           <span className="muted pager-label">
-            {data ? `${data.totalGames.toLocaleString()} titles` : 'Loading…'}
+            {data ? `${data.totalGames.toLocaleString()} titles` : null}
           </span>
         </div>
       </FooterPortal>
@@ -499,7 +500,7 @@ export default function CatalogPage({
         />
       </FilterOverlay>
 
-      {busy && !data ? <p className="catalog-status muted">Loading catalog…</p> : null}
+      {busy && !data ? <PageLoading label="Loading catalog" /> : null}
 
       {visibleDisplayGames && visibleDisplayGames.length === 0 && !turn ? (
         <div className="empty-state">No games match these filters.</div>
@@ -515,7 +516,7 @@ export default function CatalogPage({
               visibleIncomingGames.length === 0 ? (
                 <div className="empty-state">No games match these filters.</div>
               ) : (
-                renderGameGrid(visibleIncomingGames, turn?.toPage ?? page, true)
+                renderGameGrid(visibleIncomingGames, turn?.toPage ?? page)
               )
             ) : null
           }

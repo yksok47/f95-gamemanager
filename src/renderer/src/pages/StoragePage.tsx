@@ -21,6 +21,7 @@ import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
 import { useStorageScan } from '../lib/storage-scan'
+import { InlineLoading } from '../components/Spinner'
 
 export type StorageOpenTab = 'files' | 'saves' | 'gallery'
 
@@ -808,8 +809,10 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
                   </li>
                 ))}
               </ol>
+            ) : scanning && !hasScan ? (
+              <InlineLoading label="Scanning folders" />
             ) : (
-              <p className="muted">{scanning && !hasScan ? 'Scanning folders…' : 'Download or install a game to see usage here.'}</p>
+              <p className="muted">Download or install a game to see usage here.</p>
             )}
           </div>
         </div>
@@ -945,15 +948,18 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
                 )
               })}
             </ul>
+          ) : scanning && !hasScan ? (
+            <InlineLoading label="Scanning folders" />
           ) : (
-            <p className="muted">{scanning && !hasScan ? 'Scanning folders…' : 'No games match that filter.'}</p>
+            <p className="muted">No games match that filter.</p>
           )
         ) : null}
 
         {tab === 'archives' ? (
           <StorageItemList
             items={archives}
-            empty={scanning && !hasScan ? 'Scanning folders…' : 'No archives on disk.'}
+            empty="No archives on disk."
+            loading={scanning && !hasScan}
             actionLabel="Delete archive"
             busyId={acting}
             onOpen={(item) =>
@@ -970,7 +976,8 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         {tab === 'installs' ? (
           <StorageItemList
             items={installs}
-            empty={scanning && !hasScan ? 'Scanning folders…' : 'No installed games on disk.'}
+            empty="No installed games on disk."
+            loading={scanning && !hasScan}
             actionLabel="Uninstall"
             busyId={acting}
             onOpen={(item) =>
@@ -989,7 +996,8 @@ export default function StoragePage({ onOpen }: StoragePageProps): JSX.Element {
         {tab === 'saves' ? (
           <StorageSavesList
             items={saves}
-            empty={scanning && !hasScan ? 'Scanning folders…' : 'No save folders found.'}
+            empty="No save folders found."
+            loading={scanning && !hasScan}
             busyId={acting}
             onOpenGame={(item) => openGame(item, 'saves')}
             onOpenFolder={(item) => void openSaveFolder(item.savePath)}
@@ -1068,6 +1076,7 @@ function saveStatusPills(item: LibraryStorageItem): Array<{ key: string; label: 
 function StorageSavesList({
   items,
   empty,
+  loading = false,
   busyId,
   onOpenGame,
   onOpenFolder,
@@ -1077,6 +1086,7 @@ function StorageSavesList({
 }: {
   items: LibraryStorageItem[]
   empty: string
+  loading?: boolean
   busyId: string | null
   onOpenGame: (item: LibraryStorageItem) => void
   onOpenFolder: (item: LibraryStorageItem) => void
@@ -1084,7 +1094,9 @@ function StorageSavesList({
   onChange: (item: LibraryStorageItem) => void
   onDelete: (item: LibraryStorageItem) => void
 }): JSX.Element {
-  if (!items.length) return <p className="muted">{empty}</p>
+  if (!items.length) {
+    return loading ? <InlineLoading label="Scanning folders" /> : <p className="muted">{empty}</p>
+  }
   const maxBytes = items.reduce((max, item) => Math.max(max, item.bytes), 0)
   return (
     <ul className="storage-rows">
@@ -1183,6 +1195,7 @@ function StorageSavesList({
 function StorageItemList({
   items,
   empty,
+  loading = false,
   actionLabel,
   busyId,
   onOpen,
@@ -1194,6 +1207,7 @@ function StorageItemList({
 }: {
   items: LibraryStorageItem[]
   empty: string
+  loading?: boolean
   actionLabel: string
   busyId: string | null
   onOpen: (item: LibraryStorageItem) => void
@@ -1203,7 +1217,9 @@ function StorageItemList({
   onShowInstall?: (item: LibraryStorageItem) => void
   onFixLayout?: (item: LibraryStorageItem) => void
 }): JSX.Element {
-  if (!items.length) return <p className="muted">{empty}</p>
+  if (!items.length) {
+    return loading ? <InlineLoading label="Scanning folders" /> : <p className="muted">{empty}</p>
+  }
   const maxBytes = items.reduce((max, item) => Math.max(max, item.bytes), 0)
   return (
     <ul className="storage-rows">

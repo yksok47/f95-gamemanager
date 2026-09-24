@@ -18,6 +18,7 @@ import GameCloudSaves, { GameCloudSaveActions } from './GameCloudSaves'
 import RenpySaveEditorDialog from './RenpySaveEditorDialog'
 import SavesDeleteSelectedFab from './SavesDeleteSelectedFab'
 import SavesPanelTabs, { SavesActionButton, type SavesPanelView } from './SavesPanelTabs'
+import { InlineLoading } from './Spinner'
 
 type RenpySavesPanelProps = {
   files: GameLibraryFile[]
@@ -1014,7 +1015,7 @@ export default function RenpySavesPanel({
       {view === 'saves' ? (
       <section className="renpy-section">
         {busy && !info ? (
-          <p className="muted">Reading save location…</p>
+          <InlineLoading label="Reading save location" />
         ) : info?.savePath ? (
           <div className="save-pages">
             {boards.map((board) => {

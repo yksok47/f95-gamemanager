@@ -2989,6 +2989,61 @@ body.is-roster-dragging * {
   text-align: center;
 }
 
+.page-loading,
+.inline-loading {
+  display: grid;
+  place-items: center;
+}
+
+.page-loading {
+  min-height: 240px;
+  padding: 48px 24px;
+}
+
+.inline-loading {
+  min-height: 4.5rem;
+  padding: 18px 0;
+}
+
+.app-spinner {
+  display: inline-grid;
+  place-items: center;
+}
+
+.app-spinner-ring {
+  display: block;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--muted) 38%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: app-spin 0.7s linear infinite;
+}
+
+.app-spinner-sm .app-spinner-ring {
+  width: 14px;
+  height: 14px;
+  border-width: 2px;
+}
+
+.app-spinner-md .app-spinner-ring {
+  width: 22px;
+  height: 22px;
+  border-width: 2.5px;
+}
+
+.app-spinner-lg .app-spinner-ring {
+  width: 34px;
+  height: 34px;
+  border-width: 3px;
+}
+
+
+@keyframes app-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .details-backdrop {
   --details-backdrop: rgba(8, 10, 14, 0.72);
   position: fixed;
@@ -3436,24 +3491,18 @@ body.is-roster-dragging * {
   background: rgba(18, 20, 26, 0.72);
 }
 
-.details-hero-spinner span {
+.details-hero-spinner .app-spinner-ring {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-width: 2px;
+  border-color: rgba(255, 255, 255, 0.28);
   border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: details-spin 0.7s linear infinite;
 }
 
 .details-hero-cloud-sync.is-offset {
   left: 56px;
 }
 
-@keyframes details-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 
 .details-page {
   display: flex;
@@ -3995,6 +4044,9 @@ button.details-pill {
   color: var(--muted);
   font-size: 0.85rem;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: 1em;
 }
 
 .user-notes-status-saved {
@@ -5290,14 +5342,12 @@ body.is-details-modal-dragging .details-modal-shell * {
   background: color-mix(in srgb, #c44b4b 14%, transparent);
 }
 
-.saves-toolbar-spinner {
+.saves-toolbar-btn .app-spinner-sm .app-spinner-ring {
   width: 0.7rem;
   height: 0.7rem;
-  flex: 0 0 0.7rem;
-  border: 1.5px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-width: 1.5px;
+  border-color: color-mix(in srgb, currentColor 28%, transparent);
   border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.75s linear infinite;
 }
 
 .saves-slots-field {
@@ -6743,10 +6793,6 @@ body.is-save-dragging * {
   display: grid;
   gap: 8px;
   min-width: 0;
-}
-
-.p2p-approve-loading {
-  font-size: 0.75rem;
 }
 
 .p2p-approve-trust {

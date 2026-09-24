@@ -6,6 +6,7 @@ import { notifyCaught } from './ErrorNotifications'
 import { formatBytes } from '../lib/downloads'
 import { isPersistentSaveName, useCloudSavesForThread } from '../lib/cloud-saves'
 import { SavesActionButton } from './SavesPanelTabs'
+import { InlineLoading } from './Spinner'
 
 type CloudHook = ReturnType<typeof useCloudSavesForThread>
 
@@ -125,7 +126,7 @@ export default function GameCloudSaves({
   })
 
   if (busy && !visible.length) {
-    return <p className="muted">Checking Google Drive…</p>
+    return <InlineLoading label="Checking Google Drive" />
   }
   if (!visible.length) {
     return <p className="muted">No saves for this game in Google Drive yet.</p>

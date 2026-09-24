@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { IgnoredThread } from '@shared/types'
 import { notifyCaught } from './ErrorNotifications'
 import { RefreshIcon } from './ToolbarIcons'
+import { InlineLoading } from './Spinner'
 
 type IgnoredThreadsPanelProps = {
   onOpenThread: (threadId: number, title: string) => void
@@ -85,7 +86,7 @@ export default function IgnoredThreadsPanel({
         </button>
       </div>
 
-      {busy && !threads.length ? <p className="muted">Loading ignored threads…</p> : null}
+      {busy && !threads.length ? <InlineLoading label="Loading ignored threads" /> : null}
 
       {!busy && !threads.length ? (
         <p className="muted">No ignored threads.</p>

@@ -321,8 +321,8 @@ function GameCard({
             src={coverSrc || undefined}
             alt=""
             loading={coverEager ? "eager" : "lazy"}
-            fetchPriority="high"
-            decoding="async"
+            fetchPriority={coverEager ? "high" : "low"}
+            decoding={coverEager ? "auto" : "async"}
             draggable={false}
             onError={() => {
               if (coverErrorTries.current < 1) {
@@ -712,7 +712,57 @@ function RosterIcon({ inRoster }: { inRoster: boolean }): JSX.Element {
   );
 }
 
-export default memo(GameCard);
+function sameGame(prev: GameCardProps["game"], next: GameCardProps["game"]): boolean {
+  if (prev === next) return true;
+  return (
+    prev.threadId === next.threadId &&
+    prev.title === next.title &&
+    prev.creator === next.creator &&
+    prev.version === next.version &&
+    prev.coverUrl === next.coverUrl &&
+    prev.rating === next.rating &&
+    prev.likes === next.likes &&
+    prev.views === next.views &&
+    prev.prefixes === next.prefixes &&
+    prev.screens === next.screens &&
+    prev.timestamp === next.timestamp &&
+    prev.updatedAt === next.updatedAt &&
+    prev.source === next.source &&
+    prev.rarity === next.rarity &&
+    prev.tags === next.tags &&
+    prev.engine === next.engine &&
+    prev.lastPlayedVersion === next.lastPlayedVersion &&
+    prev.lastPlayedAt === next.lastPlayedAt &&
+    prev.playtimeMs === next.playtimeMs &&
+    prev.playedVersions === next.playedVersions &&
+    prev.checkedAt === next.checkedAt
+  );
+}
+
+function cardPropsEqual(prev: GameCardProps, next: GameCardProps): boolean {
+  return (
+    sameGame(prev.game, next.game) &&
+    prev.subscribed === next.subscribed &&
+    prev.favoriteTags === next.favoriteTags &&
+    prev.hatedTags === next.hatedTags &&
+    prev.library === next.library &&
+    prev.playing === next.playing &&
+    prev.prefixCatalog === next.prefixCatalog &&
+    prev.coverRetryKey === next.coverRetryKey &&
+    prev.coverEager === next.coverEager &&
+    prev.inRoster === next.inRoster &&
+    prev.archived === next.archived &&
+    Boolean(prev.onToggle) === Boolean(next.onToggle) &&
+    Boolean(prev.onOpen) === Boolean(next.onOpen) &&
+    Boolean(prev.onPlay) === Boolean(next.onPlay) &&
+    Boolean(prev.onStop) === Boolean(next.onStop) &&
+    Boolean(prev.onMarkPlayed) === Boolean(next.onMarkPlayed) &&
+    Boolean(prev.onIgnoreUpdate) === Boolean(next.onIgnoreUpdate) &&
+    Boolean(prev.onToggleRoster) === Boolean(next.onToggleRoster)
+  );
+}
+
+export default memo(GameCard, cardPropsEqual);
 
 function CoverDownloadProgress({
   percent,

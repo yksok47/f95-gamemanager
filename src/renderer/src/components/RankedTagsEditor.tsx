@@ -3,6 +3,7 @@ import { TAGS_PER_TIER_LIMIT, TAG_TIERS, type CatalogTag, type FavoriteTag, type
 import { sortFavoriteTags } from '../lib/favorites'
 import TagBrowser from './TagBrowser'
 import { notifyError } from './ErrorNotifications'
+import { InlineLoading } from './Spinner'
 
 function tierLabel(tier: TagTier): string {
   return tier[0].toUpperCase() + tier.slice(1)
@@ -105,7 +106,7 @@ export default function RankedTagsEditor({
         ))}
       </div>
 
-      {busy ? <p className="muted">Loading tags…</p> : null}
+      {busy ? <InlineLoading label="Loading tags" /> : null}
 
       <TagBrowser
         tags={catalogTags}

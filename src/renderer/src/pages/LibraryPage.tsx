@@ -38,10 +38,12 @@ import {
   usePlaySessions,
   useIdentifiedSaveFolders,
   useIdentifiedSaveThreadIds,
+  useLibraryReady,
   withSavePresence,
   libraryExclusiveKind,
   type LibraryGame
 } from '../lib/library'
+import { PageLoading } from '../components/Spinner'
 import { usePendingDownloads } from '../lib/download-progress'
 
 type LibrarySort = 'title' | 'played' | 'added' | 'rating' | 'likes' | 'views'
@@ -131,6 +133,7 @@ export default function LibraryPage({
   onSessionExpired
 }: LibraryPageProps): JSX.Element {
   const files = useLibraryFiles()
+  const libraryReady = useLibraryReady()
   const sessions = usePlaySessions()
   const advanced = useAdvancedFilters(favoriteTags, hatedTags)
   const prefixCatalog = advanced.filters.prefixes
@@ -174,6 +177,7 @@ export default function LibraryPage({
     () => [...installedGames, ...saveOnlyGames],
     [installedGames, saveOnlyGames]
   )
+  const awaitingLibrary = !libraryReady && games.length === 0
   const kindFiltersActive =
     savesFilter !== 'exclude' || archivesFilter !== 'off' || installsFilter !== 'off'
   const needle = query.trim().toLowerCase()
@@ -390,24 +394,28 @@ export default function LibraryPage({
       </ToolbarPortal>
       <FooterPortal>
         <div className="footer-cluster">
-          <span className="muted pager-label">
-            {formatShownTotal(visible.length, games.length, 'in library')}
-          </span>
-          <span className="muted pager-label">
-            {formatShownTotal(
-              countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
-              countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
-              'installed'
-            )}
-          </span>
-          <span className="muted pager-label">
-            {formatShownTotal(
-              countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
-              countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
-              'archive',
-              'archives'
-            )}
-          </span>
+          {awaitingLibrary ? null : (
+            <>
+              <span className="muted pager-label">
+                {formatShownTotal(visible.length, games.length, 'in library')}
+              </span>
+              <span className="muted pager-label">
+                {formatShownTotal(
+                  countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
+                  countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.isInstalled)),
+                  'installed'
+                )}
+              </span>
+              <span className="muted pager-label">
+                {formatShownTotal(
+                  countMatching(visible, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
+                  countMatching(games, (game) => Boolean(libraryByThread.get(game.threadId)?.hasArchive)),
+                  'archive',
+                  'archives'
+                )}
+              </span>
+            </>
+          )}
         </div>
       </FooterPortal>
 
@@ -417,7 +425,9 @@ export default function LibraryPage({
         hatedTags={hatedTags}
       />
 
-      {games.length === 0 ? (
+      {awaitingLibrary ? (
+        <PageLoading label="Loading library" />
+      ) : games.length === 0 ? (
         <div className="empty-state">
           Nothing in the library yet. Download or install a game from a thread and it will show up
           here, even if you are not following it.

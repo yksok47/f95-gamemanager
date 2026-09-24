@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { SaveFolderPeekShot } from '@shared/types'
 import { notifyCaught } from './ErrorNotifications'
+import { InlineLoading } from './Spinner'
 
 const peekCache = new Map<string, SaveFolderPeekShot[]>()
 
@@ -279,7 +280,7 @@ export function SavePeekStrip({
   const groups = useMemo(() => groupPeekShots(shots), [shots])
 
   if (loading && !shots.length) {
-    return <p className="muted storage-save-peek-status">Loading save screenshots…</p>
+    return <InlineLoading label="Loading save screenshots" />
   }
   if (!shots.length) {
     return <p className="muted storage-save-peek-status">{emptyLabel}</p>

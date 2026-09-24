@@ -35,6 +35,7 @@ import {
 } from '@shared/types'
 import { KindIcon, OsIcon } from './TagIcons'
 import { notifyError } from './ErrorNotifications'
+import { DelayedMount, Spinner } from './Spinner'
 
 export type P2pApproveTagsFormProps = {
   /** Stable id so the Approve button can submit this form via the HTML `form` attribute. */
@@ -767,7 +768,11 @@ export default function P2pApproveTagsForm({
           aria-label={[statsPrefix, trustLabel, flagsLabel, firstRecorded].filter(Boolean).join('. ')}
         >
           {statsPrefix ? <span className="p2p-approve-trust-prefix">{statsPrefix}</span> : null}
-          {loading && !pkgMeta ? <span className="muted p2p-approve-loading">Loading…</span> : null}
+          {loading && !pkgMeta ? (
+            <DelayedMount busy>
+              <Spinner size="sm" label="Loading package tags" />
+            </DelayedMount>
+          ) : null}
           {pkgMeta && trustLevelValue && trustLabel ? (
             <>
               <span

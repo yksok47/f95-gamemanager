@@ -1,4 +1,5 @@
 import { type JSX, type ReactNode } from 'react'
+import { Spinner } from './Spinner'
 
 export type SavesPanelView = 'saves' | 'cloud' | 'settings'
 
@@ -36,7 +37,7 @@ export function SavesActionButton({
       disabled={disabled}
       onClick={onClick}
     >
-      {busy ? <span className="saves-toolbar-spinner" aria-hidden="true" /> : null}
+      {busy ? <Spinner size="sm" /> : null}
       {busy ? busyLabel || label : label}
     </button>
   )

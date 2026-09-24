@@ -94,6 +94,7 @@ import {
 import ReviewCard from '../components/ReviewCard'
 import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
+import { DelayedMount, InlineLoading, Spinner } from '../components/Spinner'
 
 type DetailsTab =
   | 'overview'
@@ -1897,12 +1898,12 @@ function GameDetailsPage({
                 </>
               )}
             </div>
-            {busy && !previewCover && !fullCover ? (
+            <DelayedMount busy={busy && !previewCover && !fullCover}>
               <div className="details-hero-spinner" role="status" aria-label="Loading thread">
-                <span aria-hidden="true" />
+                <Spinner size="sm" />
               </div>
-            ) : null}
-            {cloudSaveSyncing ? (
+            </DelayedMount>
+            <DelayedMount busy={cloudSaveSyncing}>
               <div
                 className={
                   busy && !previewCover && !fullCover
@@ -1921,9 +1922,9 @@ function GameDetailsPage({
                     : 'Syncing cloud saves'
                 }
               >
-                <span aria-hidden="true" />
+                <Spinner size="sm" />
               </div>
-            ) : null}
+            </DelayedMount>
             <FollowButton
               variant="modal"
               subscribed={subscribed}
@@ -2237,10 +2238,10 @@ function GameDetailsPage({
                   onClick={onProseClick}
                   dangerouslySetInnerHTML={{ __html: details.descriptionHtml }}
                 />
+              ) : busy ? (
+                <InlineLoading label="Loading description" />
               ) : (
-                <p className="muted">
-                  {busy ? 'Loading description…' : 'No overview section was found in the first post.'}
-                </p>
+                <p className="muted">No overview section was found in the first post.</p>
               )
             ) : null}
 
@@ -2283,8 +2284,10 @@ function GameDetailsPage({
                 )
               })}
             </div>
+          ) : busy ? (
+            <InlineLoading label="Loading changelog" />
           ) : (
-            <p className="muted">{busy ? 'Loading changelog…' : 'No changelog was found.'}</p>
+            <p className="muted">No changelog was found.</p>
           )
         ) : null}
 
@@ -2304,8 +2307,10 @@ function GameDetailsPage({
                 </button>
               ))}
             </div>
+          ) : busy ? (
+            <InlineLoading label="Loading gallery" />
           ) : (
-            <p className="muted">{busy ? 'Loading gallery…' : 'No full-size screenshots were found.'}</p>
+            <p className="muted">No full-size screenshots were found.</p>
           )
         ) : null}
 
@@ -2319,10 +2324,10 @@ function GameDetailsPage({
                   onOpen={(url, entry) => void openUrl(url, entry)}
                 />
               ))
+            ) : busy ? (
+              <InlineLoading label="Loading download links" />
             ) : (
-              <p className="muted">
-                {busy ? 'Loading download links…' : 'No F95 download links were found in the first post.'}
-              </p>
+              <p className="muted">No F95 download links were found in the first post.</p>
             )}
             {p2pEnabled ? (
               <GameP2pSection
@@ -2536,6 +2541,8 @@ function GameDetailsPage({
                 </section>
               ))}
             </div>
+          ) : !filesReady ? (
+            <InlineLoading label="Loading library files" />
           ) : (
             <p className="muted">
               No archives yet. Download a zip, 7z, or rar from the Downloads tab and it will be hashed
@@ -2586,8 +2593,6 @@ function GameDetailsPage({
                     Retry
                   </button>
                 </p>
-              ) : reviewsBusy ? (
-                <p className="muted">Loading reviews…</p>
               ) : reviewItems.length ? (
                 reviewItems.map((review, index) => (
                   <ReviewCard
@@ -2597,6 +2602,8 @@ function GameDetailsPage({
                     onProseClick={onProseClick}
                   />
                 ))
+              ) : reviewsBusy ? (
+                <InlineLoading label="Loading reviews" />
               ) : (
                 <p className="muted">No reviews on this page.</p>
               )}
@@ -2626,8 +2633,10 @@ function GameDetailsPage({
                 </div>
               ) : null}
             </div>
+          ) : busy ? (
+            <InlineLoading label="Loading reviews" />
           ) : (
-            <p className="muted">{busy ? 'Loading reviews…' : 'No reviews were found for this thread.'}</p>
+            <p className="muted">No reviews were found for this thread.</p>
           )
         ) : null}
 
@@ -2773,8 +2782,10 @@ function GameDetailsPage({
                   </div>
                 ))}
               </dl>
+            ) : busy ? (
+              <InlineLoading label="Reading the first post" />
             ) : (
-              <p className="muted">{busy ? 'Reading the first post…' : 'No overview fields were found in the first post.'}</p>
+              <p className="muted">No overview fields were found in the first post.</p>
             )}
           </div>
         ) : null}

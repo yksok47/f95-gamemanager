@@ -2,6 +2,7 @@ import { useMemo, useState, type JSX } from 'react'
 import { TAG_QUERY_LIMIT, type CatalogTag, type HatedTag } from '@shared/types'
 import TagBrowser from './TagBrowser'
 import { notifyError } from './ErrorNotifications'
+import { InlineLoading } from './Spinner'
 
 type HatedTagsEditorProps = {
   selected: HatedTag[]
@@ -70,7 +71,7 @@ export default function HatedTagsEditor({
         )}
       </div>
 
-      {busy ? <p className="muted">Loading tags…</p> : null}
+      {busy ? <InlineLoading label="Loading tags" /> : null}
 
       <TagBrowser
         tags={catalogTags}

@@ -10,6 +10,7 @@ import GameCloudSaves, { GameCloudSaveActions } from './GameCloudSaves'
 import RpgMakerSaveEditorDialog from './RpgMakerSaveEditorDialog'
 import SavesDeleteSelectedFab from './SavesDeleteSelectedFab'
 import SavesPanelTabs, { SavesActionButton, type SavesPanelView } from './SavesPanelTabs'
+import { InlineLoading } from './Spinner'
 
 type RpgMakerSavesPanelProps = {
   files: GameLibraryFile[]
@@ -286,7 +287,7 @@ export default function RpgMakerSavesPanel({
           ) : null}
 
           {busy && !info ? (
-            <p className="muted">Syncing save folders…</p>
+            <InlineLoading label="Syncing save folders" />
           ) : saves.length ? (
             <div className="rpg-save-list">
               {saves.map((save) => {
@@ -344,7 +345,7 @@ export default function RpgMakerSavesPanel({
               })}
             </div>
           ) : (
-            <p className="muted">{busy ? 'Syncing save folders…' : 'No save files found.'}</p>
+            <p className="muted">No save files found.</p>
           )}
         </section>
       ) : null}
