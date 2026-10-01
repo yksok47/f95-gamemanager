@@ -603,6 +603,10 @@ input[type='search']::-webkit-search-results-decoration {
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
+.game-taskbar-btn.is-open {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
 .game-taskbar-btn.is-active {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
@@ -618,6 +622,11 @@ input[type='search']::-webkit-search-results-decoration {
   background: color-mix(in srgb, var(--text) 55%, transparent);
   transform: translateX(-50%);
   transition: width 0.16s ease, background 0.16s ease;
+}
+
+.game-taskbar-btn.is-open::after {
+  width: 10px;
+  background: color-mix(in srgb, var(--accent) 65%, var(--text));
 }
 
 .game-taskbar-btn.is-active::after {
@@ -3061,22 +3070,42 @@ body.is-roster-dragging * {
   }
 }
 
-.details-backdrop {
-  --details-backdrop: rgba(8, 10, 14, 0.72);
+.details-windows {
   position: fixed;
   top: 0;
   right: 0;
   bottom: var(--app-footer-height);
   left: 0;
   z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 20px;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.details-windows.is-elevated {
+  z-index: 12500;
+}
+
+.details-backdrop {
+  --details-backdrop: rgba(8, 10, 14, 0.72);
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
   background: var(--details-backdrop);
 }
 
-.details-backdrop.is-elevated {
-  z-index: 12500;
+.details-window {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  pointer-events: none;
+}
+
+.details-window:not(.is-active) .details-modal-card {
+  filter: brightness(0.88);
 }
 
 .lightbox.is-elevated {

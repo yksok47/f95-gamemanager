@@ -23,6 +23,14 @@ export function pickTopmost<T>(items: T[]): T | undefined {
   return items.length ? items[items.length - 1] : undefined
 }
 
+const INACTIVE_DETAILS_WINDOW = '.details-window:not(.is-active)'
+
+/** Keep shortcut targeting on the active game window, plus global overlays. */
+export function pickActiveDialog(dialogs: HTMLElement[]): HTMLElement | undefined {
+  const usable = dialogs.filter((el) => !el.closest(INACTIVE_DETAILS_WINDOW))
+  return pickTopmost(usable.length ? usable : dialogs)
+}
+
 function isDisplayed(el: Element): boolean {
   if (el.closest('[hidden], [aria-hidden="true"]')) return false
   const style = window.getComputedStyle(el)
@@ -43,7 +51,7 @@ export function findVisibleDialogs(root: ParentNode = document): HTMLElement[] {
 }
 
 export function findPageSearchInput(root: ParentNode = document): HTMLInputElement | null {
-  const dialog = pickTopmost(findVisibleDialogs(root instanceof Document ? root : document))
+  const dialog = pickActiveDialog(findVisibleDialogs(root instanceof Document ? root : document))
   const scope: ParentNode = dialog ?? root
   const inputs = [...scope.querySelectorAll<HTMLInputElement>('input[type="search"]')].filter(
     isUsableSearchInput

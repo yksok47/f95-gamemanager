@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPageSearchHotkey, pickSearchCandidate, pickTopmost } from './page-search'
+import { isPageSearchHotkey, pickActiveDialog, pickSearchCandidate, pickTopmost } from './page-search'
 
 function key(
   partial: Partial<KeyboardEvent> & Pick<KeyboardEvent, 'key'>
@@ -56,5 +56,30 @@ describe('pickTopmost', () => {
   test('uses the last dialog so nested overlays win', () => {
     expect(pickTopmost(['page', 'details', 'editor'])).toBe('editor')
     expect(pickTopmost([])).toBeUndefined()
+  })
+})
+
+describe('pickActiveDialog', () => {
+  function dialog(inactiveWindow: boolean): HTMLElement {
+    return {
+      closest(selector: string) {
+        if (selector === '.details-window:not(.is-active)') {
+          return inactiveWindow ? ({} as HTMLElement) : null
+        }
+        return null
+      }
+    } as HTMLElement
+  }
+
+  test('ignores dialogs inside inactive details windows', () => {
+    const inactive = dialog(true)
+    const active = dialog(false)
+    expect(pickActiveDialog([inactive, active])).toBe(active)
+  })
+
+  test('prefers a global overlay after the active window', () => {
+    const active = dialog(false)
+    const confirm = dialog(false)
+    expect(pickActiveDialog([active, confirm])).toBe(confirm)
   })
 })

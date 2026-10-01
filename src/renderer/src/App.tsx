@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AppSettings,
   AuthSession,
@@ -54,6 +54,13 @@ import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
 import { focusPageSearchOnHotkey } from './lib/page-search'
 import { PageLoading } from './components/Spinner'
+import {
+  activateWindow,
+  activeWindowId,
+  minimizeWindow,
+  toggleWindow,
+  windowCascadeOffset
+} from './lib/details-windows'
 
 function toSummary(
   game: CatalogGame | Subscription | LibraryGame | RosterGame,
@@ -164,6 +171,35 @@ function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSumm
   }
 }
 
+function overlayDetailsSummary(
+  details: GameSummary,
+  followed: Subscription | undefined,
+  rarity: GameRarity | undefined
+): GameSummary {
+  return {
+    ...details,
+    rarity: rarity ?? details.rarity,
+    title: followed?.title || details.title,
+    creator: followed?.creator || details.creator,
+    version: followed?.version || details.version,
+    rating: followed?.rating ?? details.rating,
+    timestamp: followed?.timestamp ?? details.timestamp,
+    likes: followed?.likes ?? details.likes,
+    views: followed?.views ?? details.views,
+    tags: followed?.tags?.length ? followed.tags : details.tags,
+    prefixes: followed?.prefixes?.length ? followed.prefixes : details.prefixes,
+    engine: followed?.engine || details.engine,
+    coverUrl: followed?.coverUrl || details.coverUrl,
+    lastPlayedVersion: followed?.lastPlayedVersion ?? details.lastPlayedVersion,
+    lastPlayedAt: followed?.lastPlayedAt ?? details.lastPlayedAt,
+    playtimeMs: followed?.playtimeMs ?? details.playtimeMs,
+    playedVersions: mergeVersionPlayStats(followed?.playedVersions, details.playedVersions),
+    checkedAt: Math.max(followed?.checkedAt || 0, details.checkedAt || 0) || undefined,
+    screens: followed?.screens?.length ? followed.screens : details.screens,
+    archived: followed?.archived
+  }
+}
+
 export default function App(): JSX.Element {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [busy, setBusy] = useState(false)
@@ -192,7 +228,9 @@ export default function App(): JSX.Element {
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [pinnedGames, setPinnedGames] = useState<TaskbarPin[]>(() => loadTaskbarPins())
   syncOpenDetailThreads(detailsWindows.map((game) => game.threadId))
-  const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
+  const [visibleThreadIds, setVisibleThreadIds] = useState<number[]>([])
+  const windowOffsets = useRef(new Map<number, { x: number; y: number }>())
+  const activeThreadId = activeWindowId(visibleThreadIds)
   const [detailsOpenTab, setDetailsOpenTab] = useState<{
     threadId: number
     tab: StorageOpenTab
@@ -204,7 +242,6 @@ export default function App(): JSX.Element {
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
   const appUpdate = useAppUpdate()
   const storageScan = useStorageScan()
-  const details = detailsWindows.find((game) => game.threadId === activeThreadId) ?? null
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
   const p2pEnabled = Boolean(settings.p2pEnabled)
@@ -498,7 +535,8 @@ export default function App(): JSX.Element {
     setRoster([])
     setView('roster')
     setDetailsWindows([])
-    setActiveThreadId(null)
+    setVisibleThreadIds([])
+    windowOffsets.current.clear()
   }, [])
 
   const handleSessionExpired = useCallback(async (): Promise<void> => {
@@ -506,7 +544,8 @@ export default function App(): JSX.Element {
     setRoster([])
     setView('roster')
     setDetailsWindows([])
-    setActiveThreadId(null)
+    setVisibleThreadIds([])
+    windowOffsets.current.clear()
     setSession({ loggedIn: false, userId: null, username: null })
     notifyError('The saved F95zone session could not be used. Please log in again.')
   }, [])
@@ -554,7 +593,12 @@ export default function App(): JSX.Element {
       saveTaskbarPins(next)
       return next
     })
-    setActiveThreadId(game.threadId)
+    setVisibleThreadIds((stack) => {
+      if (!stack.includes(game.threadId) && !windowOffsets.current.has(game.threadId)) {
+        windowOffsets.current.set(game.threadId, windowCascadeOffset(stack.length))
+      }
+      return activateWindow(stack, game.threadId)
+    })
     if (tab) setDetailsOpenTab({ threadId: game.threadId, tab, key: Date.now() })
   }, [])
 
@@ -586,24 +630,21 @@ export default function App(): JSX.Element {
   }, [])
 
   const closeDetailsWindow = useCallback((threadId: number) => {
-    if (pinnedGames.some((item) => item.threadId === threadId)) {
-      setActiveThreadId((current) => (current === threadId ? null : current))
-      setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
-      return
-    }
-    setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
-    setActiveThreadId((current) => (current === threadId ? null : current))
+    setVisibleThreadIds((stack) => minimizeWindow(stack, threadId))
     setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
+    if (pinnedGames.some((item) => item.threadId === threadId)) return
+    windowOffsets.current.delete(threadId)
+    setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
   }, [pinnedGames])
 
   const toggleDetailsWindow = useCallback((threadId: number) => {
-    setActiveThreadId((current) => (current === threadId ? null : threadId))
+    setVisibleThreadIds((stack) => toggleWindow(stack, threadId))
     setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
   }, [])
 
-  const minimizeDetailsWindow = useCallback(() => {
-    setActiveThreadId(null)
-    setDetailsOpenTab(null)
+  const minimizeDetailsWindow = useCallback((threadId: number) => {
+    setVisibleThreadIds((stack) => minimizeWindow(stack, threadId))
+    setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
   }, [])
 
   const toggleTaskbarPin = useCallback((threadId: number) => {
@@ -614,7 +655,8 @@ export default function App(): JSX.Element {
         saveTaskbarPins(next)
         return next
       })
-      if (activeThreadId !== threadId) {
+      if (!visibleThreadIds.includes(threadId)) {
+        windowOffsets.current.delete(threadId)
         setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
         setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
       }
@@ -629,7 +671,7 @@ export default function App(): JSX.Element {
       saveTaskbarPins(next)
       return next
     })
-  }, [activeThreadId, detailsWindows, pinnedGames])
+  }, [detailsWindows, pinnedGames, visibleThreadIds])
 
   const rarityById = useMemo(() => {
     const map = new Map<number, GameRarity>()
@@ -639,9 +681,16 @@ export default function App(): JSX.Element {
     return map
   }, [subscriptions])
 
-  const detailsFollowed = details
-    ? subscriptions.find((game) => game.threadId === details.threadId)
-    : undefined
+  const visibleDetailsWindows = useMemo(
+    () =>
+      visibleThreadIds
+        .map((threadId) => detailsWindows.find((game) => game.threadId === threadId))
+        .filter((game): game is GameSummary => Boolean(game)),
+    [detailsWindows, visibleThreadIds]
+  )
+  const detailsElevated = visibleDetailsWindows.some(
+    (game) => detailsOpenTab?.threadId === game.threadId && detailsOpenTab.tab === 'gallery'
+  )
 
   const taskbarItems = useMemo<GameTaskbarItem[]>(
     () =>
@@ -692,6 +741,7 @@ export default function App(): JSX.Element {
         <GameTaskbar
           items={taskbarItems}
           activeThreadId={activeThreadId}
+          openThreadIds={visibleThreadIds}
           onToggle={toggleDetailsWindow}
           onClose={closeDetailsWindow}
           onPinToggle={toggleTaskbarPin}
@@ -831,60 +881,73 @@ export default function App(): JSX.Element {
         />
       )}
       </main>
-      {details ? (
-        <GameDetailsPage
-          key={details.threadId}
-          summary={{
-            ...details,
-            rarity: rarityById.get(details.threadId) ?? details.rarity,
-            title: detailsFollowed?.title || details.title,
-            creator: detailsFollowed?.creator || details.creator,
-            version: detailsFollowed?.version || details.version,
-            rating: detailsFollowed?.rating ?? details.rating,
-            timestamp: detailsFollowed?.timestamp ?? details.timestamp,
-            likes: detailsFollowed?.likes ?? details.likes,
-            views: detailsFollowed?.views ?? details.views,
-            tags: detailsFollowed?.tags?.length ? detailsFollowed.tags : details.tags,
-            prefixes: detailsFollowed?.prefixes?.length ? detailsFollowed.prefixes : details.prefixes,
-            engine: detailsFollowed?.engine || details.engine,
-            coverUrl: detailsFollowed?.coverUrl || details.coverUrl,
-            lastPlayedVersion: detailsFollowed?.lastPlayedVersion ?? details.lastPlayedVersion,
-            lastPlayedAt: detailsFollowed?.lastPlayedAt ?? details.lastPlayedAt,
-            playtimeMs: detailsFollowed?.playtimeMs ?? details.playtimeMs,
-            playedVersions: mergeVersionPlayStats(
-              detailsFollowed?.playedVersions,
-              details.playedVersions
-            ),
-            checkedAt:
-              Math.max(detailsFollowed?.checkedAt || 0, details.checkedAt || 0) || undefined,
-            screens: detailsFollowed?.screens?.length ? detailsFollowed.screens : details.screens,
-            archived: detailsFollowed?.archived
-          }}
-          subscribed={followedIds.has(details.threadId)}
-          rarity={rarityById.get(details.threadId) ?? details.rarity}
-          favoriteTags={favoriteTags}
-          hatedTags={hatedTags}
-          onClose={() => closeDetailsWindow(details.threadId)}
-          onMinimize={minimizeDetailsWindow}
-          onOpenThread={(threadId, title) => {
-            if (threadId === details.threadId) return
-            openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
-          }}
-          onApplyCatalogGame={applyCatalogToDetails}
-          onToggleFollow={handleToggleFollow}
-          onSetRarity={handleSetRarity}
-          onIgnoredChange={handleIgnoredChange}
-          onSessionExpired={handleSessionExpired}
-          p2pEnabled={p2pEnabled}
-          p2pSharedHashes={p2pSharedHashes}
-          initialTab={
-            detailsOpenTab?.threadId === details.threadId ? detailsOpenTab.tab : undefined
-          }
-          initialTabKey={
-            detailsOpenTab?.threadId === details.threadId ? detailsOpenTab.key : 0
-          }
-          elevated={detailsOpenTab?.threadId === details.threadId && detailsOpenTab.tab === 'gallery'}
-        />
+      {visibleDetailsWindows.length ? (
+        <div className={detailsElevated ? 'details-windows is-elevated' : 'details-windows'}>
+          <div
+            className="details-backdrop"
+            onPointerDown={(event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onMouseDown={(event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return
+              event.preventDefault()
+              if (activeThreadId != null) closeDetailsWindow(activeThreadId)
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              if (activeThreadId != null) minimizeDetailsWindow(activeThreadId)
+            }}
+          />
+          {visibleDetailsWindows.map((game, index) => {
+            const followed = subscriptions.find((item) => item.threadId === game.threadId)
+            const rarity = rarityById.get(game.threadId) ?? game.rarity
+            return (
+              <GameDetailsPage
+                key={game.threadId}
+                summary={overlayDetailsSummary(game, followed, rarity)}
+                subscribed={followedIds.has(game.threadId)}
+                rarity={rarity}
+                favoriteTags={favoriteTags}
+                hatedTags={hatedTags}
+                onClose={() => closeDetailsWindow(game.threadId)}
+                onMinimize={() => minimizeDetailsWindow(game.threadId)}
+                onActivate={() => {
+                  setVisibleThreadIds((stack) => activateWindow(stack, game.threadId))
+                }}
+                onOpenThread={(threadId, title) => {
+                  if (threadId === game.threadId) return
+                  openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
+                }}
+                onApplyCatalogGame={applyCatalogToDetails}
+                onToggleFollow={handleToggleFollow}
+                onSetRarity={handleSetRarity}
+                onIgnoredChange={handleIgnoredChange}
+                onSessionExpired={handleSessionExpired}
+                p2pEnabled={p2pEnabled}
+                p2pSharedHashes={p2pSharedHashes}
+                initialTab={
+                  detailsOpenTab?.threadId === game.threadId ? detailsOpenTab.tab : undefined
+                }
+                initialTabKey={
+                  detailsOpenTab?.threadId === game.threadId ? detailsOpenTab.key : 0
+                }
+                elevated={
+                  detailsOpenTab?.threadId === game.threadId && detailsOpenTab.tab === 'gallery'
+                }
+                active={game.threadId === activeThreadId}
+                initialOffset={windowOffsets.current.get(game.threadId) ?? { x: 0, y: 0 }}
+                zIndex={index + 1}
+              />
+            )
+          })}
+        </div>
       ) : null}
       {view === 'downloads' ? null : (
         <DownloadsDock
@@ -892,7 +955,7 @@ export default function App(): JSX.Element {
           p2pTransfers={p2pEnabled ? p2pTransfers : []}
           p2pSharedHashes={p2pSharedHashes}
           onOpenPage={() => {
-            setActiveThreadId(null)
+            setVisibleThreadIds([])
             setView('downloads')
           }}
           onCancel={(id) => void handleCancelDownload(id)}

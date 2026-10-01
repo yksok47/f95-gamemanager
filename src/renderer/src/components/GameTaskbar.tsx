@@ -12,6 +12,7 @@ export type GameTaskbarItem = {
 type GameTaskbarProps = {
   items: GameTaskbarItem[]
   activeThreadId: number | null
+  openThreadIds: readonly number[]
   onToggle: (threadId: number) => void
   onClose: (threadId: number) => void
   onPinToggle: (threadId: number) => void
@@ -91,6 +92,7 @@ function GameTaskbarCover({
 function GameTaskbarButton({
   item,
   active,
+  open,
   menuOpen,
   onToggle,
   onClose,
@@ -99,6 +101,7 @@ function GameTaskbarButton({
 }: {
   item: GameTaskbarItem
   active: boolean
+  open: boolean
   menuOpen: boolean
   onToggle: () => void
   onClose: () => void
@@ -123,26 +126,22 @@ function GameTaskbarButton({
   const className = [
     'game-taskbar-btn',
     active ? 'is-active' : '',
+    open ? 'is-open' : '',
     item.pinned ? 'is-pinned' : '',
     menuOpen ? 'is-menu-open' : ''
   ]
     .filter(Boolean)
     .join(' ')
 
+  const pinnedSuffix = item.pinned ? ' (pinned)' : ''
+  const action = active ? 'Minimize' : open ? 'Switch to' : 'Restore'
+
   return (
     <button
       className={className}
       type="button"
-      aria-label={
-        item.pinned
-          ? active
-            ? `Minimize ${item.title} (pinned)`
-            : `Restore ${item.title} (pinned)`
-          : active
-            ? `Minimize ${item.title}`
-            : `Restore ${item.title}`
-      }
-      aria-pressed={active}
+      aria-label={`${action} ${item.title}${pinnedSuffix}`}
+      aria-pressed={open}
       onClick={() => {
         onMenu(null)
         onToggle()
@@ -170,6 +169,7 @@ function GameTaskbarButton({
 export default function GameTaskbar({
   items,
   activeThreadId,
+  openThreadIds,
   onToggle,
   onClose,
   onPinToggle
@@ -200,6 +200,7 @@ export default function GameTaskbar({
           key={item.threadId}
           item={item}
           active={item.threadId === activeThreadId}
+          open={openThreadIds.includes(item.threadId)}
           menuOpen={menu?.threadId === item.threadId}
           onToggle={() => onToggle(item.threadId)}
           onClose={() => onClose(item.threadId)}

@@ -137,6 +137,11 @@ type GameDetailsPageProps = {
   initialTab?: DetailsTab
   initialTabKey?: number
   elevated?: boolean
+  /** Keyboard shortcuts apply only to the active window. */
+  active?: boolean
+  onActivate?: () => void
+  initialOffset?: { x: number; y: number }
+  zIndex?: number
 }
 
 function formatDate(value: string): string {
@@ -414,7 +419,11 @@ function GameDetailsPage({
   p2pSharedHashes,
   initialTab,
   initialTabKey = 0,
-  elevated = false
+  elevated = false,
+  active = true,
+  onActivate,
+  initialOffset = { x: 0, y: 0 },
+  zIndex
 }: GameDetailsPageProps): JSX.Element {
   const prefixCatalog = useCatalogPrefixes()
   const tagCatalog = useCatalogTags()
@@ -453,7 +462,6 @@ function GameDetailsPage({
     origX: 0,
     origY: 0
   })
-  const backdropGesture = useRef(false)
 
   function applyModalOffset(x: number, y: number): void {
     modalOffsetRef.current = { x, y }
@@ -509,6 +517,12 @@ function GameDetailsPage({
   }, [summary.threadId, details, tab])
 
   useEffect(() => {
+    applyModalOffset(initialOffset.x, initialOffset.y)
+    // Position is chosen when this window instance mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
     const session = reloadToken === 0 ? readDetailsSession(summary.threadId) : undefined
     if (session?.details) {
@@ -536,7 +550,6 @@ function GameDetailsPage({
     setArchiveBusy(false)
     setTagEditFile(null)
     setTagEditBusy(false)
-    applyModalOffset(0, 0)
 
     if (session?.details) return
 
@@ -982,12 +995,17 @@ function GameDetailsPage({
   }
 
   useEffect(() => {
+    if (!active) {
+      if (lightbox != null) setLightbox(null)
+      return
+    }
+
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
         if (lightbox != null) setLightbox(null)
-        else if (document.querySelector('[data-escape-layer]')) return
+        else if (modalScrollRef.current?.querySelector('[data-escape-layer]')) return
         else onMinimize()
         return
       }
@@ -1000,7 +1018,7 @@ function GameDetailsPage({
 
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [lightbox, gallery.length, onMinimize])
+  }, [active, lightbox, gallery.length, onMinimize])
 
   useEffect(() => {
     if (lightbox == null) return
@@ -1789,7 +1807,7 @@ function GameDetailsPage({
   function onModalDragPointerDown(event: ReactPointerEvent<HTMLElement>): void {
     if (event.button !== 0) return
     if (isModalDragIgnoreTarget(event.target)) return
-    backdropGesture.current = false
+    onActivate?.()
     const drag = modalDrag.current
     drag.active = true
     drag.moved = false
@@ -1859,31 +1877,9 @@ function GameDetailsPage({
 
   return (
     <div
-      className={elevated ? 'details-backdrop is-elevated' : 'details-backdrop'}
-      onPointerDown={(event) => {
-        backdropGesture.current = event.button === 0 && event.target === event.currentTarget
-        if (event.target === event.currentTarget) suppressMiddleAutoscroll(event)
-      }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) suppressMiddleAutoscroll(event)
-      }}
-      onClick={(event) => {
-        if (event.target !== event.currentTarget) return
-        if (!backdropGesture.current) return
-        backdropGesture.current = false
-        if (lightbox != null) setLightbox(null)
-        else onMinimize()
-      }}
-      onAuxClick={(event) => {
-        if (event.target !== event.currentTarget) return
-        closeOnMiddleButton(event)
-      }}
-      onContextMenu={(event) => {
-        if (event.target !== event.currentTarget) return
-        event.preventDefault()
-        if (lightbox != null) setLightbox(null)
-        else onMinimize()
-      }}
+      className={active ? 'details-window is-active' : 'details-window'}
+      style={zIndex == null ? undefined : { zIndex }}
+      onPointerDown={() => onActivate?.()}
     >
       <div className="details-modal-shell" ref={modalShellRef}>
         <div
@@ -1895,7 +1891,6 @@ function GameDetailsPage({
           className="details-modal-card"
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => {
-            if (event.button === 0) backdropGesture.current = false
             suppressMiddleAutoscroll(event)
           }}
           onMouseDown={suppressMiddleAutoscroll}
@@ -1906,8 +1901,9 @@ function GameDetailsPage({
           className="details-modal"
           ref={modalScrollRef}
           role="dialog"
-          aria-modal="true"
-          aria-labelledby="details-title"
+          aria-modal={active}
+          aria-labelledby={`details-title-${summary.threadId}`}
+          data-dialog-active={active ? '' : undefined}
           onScroll={onModalScroll}
         >
         <div className="details-page">
@@ -1977,7 +1973,7 @@ function GameDetailsPage({
             />
             <div className="details-info">
               <div className="details-title-row">
-                <h1 id="details-title" className="details-title">
+                <h1 id={`details-title-${summary.threadId}`} className="details-title">
                   <a
                     className="details-title-link"
                     href={threadUrl}
@@ -2689,7 +2685,7 @@ function GameDetailsPage({
           <div hidden={tab !== 'posts'}>
             <ThreadPostsPanel
               threadId={summary.threadId}
-              active={tab === 'posts'}
+              active={active && tab === 'posts'}
               jumpToPostId={postsJump?.postId}
               jumpKey={postsJump?.key}
               onProseClick={onProseClick}

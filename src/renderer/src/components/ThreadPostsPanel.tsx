@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type JSX, type MouseEvent
 import { shouldAdvanceThreadRead, type ThreadPost, type ThreadPostSearchHit } from '@shared/types'
 import { isRelativeDate } from '@shared/updates'
 import { reactionIcon } from '../lib/reaction-icon'
-import { isPageSearchHotkey, findVisibleDialogs, pickTopmost } from '../lib/page-search'
+import { isPageSearchHotkey, findVisibleDialogs, pickActiveDialog } from '../lib/page-search'
 import { newAttachmentHash } from '../lib/bbcode'
 import BbCodeComposer, { type BbCodeComposerHandle } from './BbCodeComposer'
 import { confirm } from './ConfirmDialog'
@@ -350,7 +350,7 @@ export default function ThreadPostsPanel({
       if (!isPageSearchHotkey(event)) return
       const root = panelRef.current
       if (!root) return
-      const top = pickTopmost(findVisibleDialogs())
+      const top = pickActiveDialog(findVisibleDialogs())
       if (top && !top.contains(root)) return
       setSearchOpen(true)
     }
