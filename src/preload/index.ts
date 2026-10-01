@@ -37,11 +37,19 @@ import type {
   RosterGame,
   Subscription,
   ThreadDetails,
+  ThreadAttachment,
+  ThreadAttachmentUpload,
+  ThreadPostEditDraft,
+  ThreadPostLikeResult,
+  ThreadLastRead,
+  ThreadPostSearchPage,
+  ThreadPostsPage,
   ThreadReviewsPage,
   IgnoredThread,
   FollowSyncStatus,
   UnRenAction,
-  VersionPlayStatus
+  VersionPlayStatus,
+  F95RequestLogEntry
 } from '@shared/types'
 import type {
   PackageFlagKind,
@@ -146,6 +154,54 @@ const api = {
     details: (threadId: number): Promise<ThreadDetails> => ipcRenderer.invoke('threads:details', threadId),
     reviews: (threadId: number, page = 1): Promise<ThreadReviewsPage> =>
       ipcRenderer.invoke('threads:reviews', threadId, page),
+    posts: (
+      threadId: number,
+      options: { page?: number; postId?: number; latest?: boolean } = {}
+    ): Promise<ThreadPostsPage> => ipcRenderer.invoke('threads:posts', threadId, options),
+    searchPosts: (
+      threadId: number,
+      keywords: string,
+      options: { page?: number; searchId?: number } = {}
+    ): Promise<ThreadPostSearchPage> =>
+      ipcRenderer.invoke('threads:searchPosts', threadId, keywords, options),
+    likePost: (threadId: number, postId: number): Promise<ThreadPostLikeResult> =>
+      ipcRenderer.invoke('threads:likePost', threadId, postId),
+    quotePost: (threadId: number, postId: number): Promise<string> =>
+      ipcRenderer.invoke('threads:quotePost', threadId, postId),
+    reply: (threadId: number, message: string, attachmentHash?: string): Promise<ThreadPostsPage> =>
+      ipcRenderer.invoke('threads:reply', threadId, message, attachmentHash),
+    editDraft: (threadId: number, postId: number): Promise<ThreadPostEditDraft> =>
+      ipcRenderer.invoke('threads:editDraft', threadId, postId),
+    editPost: (
+      threadId: number,
+      postId: number,
+      message: string,
+      attachmentHash?: string
+    ): Promise<ThreadPostsPage> =>
+      ipcRenderer.invoke('threads:editPost', threadId, postId, message, attachmentHash),
+    deletePost: (threadId: number, postId: number, page?: number): Promise<ThreadPostsPage> =>
+      ipcRenderer.invoke('threads:deletePost', threadId, postId, page),
+    uploadAttachment: (
+      threadId: number,
+      hash: string,
+      file: ThreadAttachmentUpload,
+      postId?: number
+    ): Promise<ThreadAttachment> =>
+      ipcRenderer.invoke('threads:uploadAttachment', threadId, hash, {
+        name: file.name,
+        mime: file.mime,
+        data: file.data instanceof Uint8Array ? new Uint8Array(file.data) : new Uint8Array(file.data)
+      }, postId),
+    pickAndUploadAttachments: (
+      threadId: number,
+      hash: string,
+      options?: { images?: boolean; postId?: number }
+    ): Promise<ThreadAttachment[]> =>
+      ipcRenderer.invoke('threads:pickAndUploadAttachments', threadId, hash, options),
+    lastRead: (threadId: number): Promise<ThreadLastRead | null> =>
+      ipcRenderer.invoke('threads:lastRead', threadId),
+    setLastRead: (threadId: number, postId: number, page?: number): Promise<ThreadLastRead | null> =>
+      ipcRenderer.invoke('threads:setLastRead', threadId, postId, page),
     setIgnored: (threadId: number, ignored: boolean, href?: string | null): Promise<boolean> =>
       ipcRenderer.invoke('threads:setIgnored', threadId, ignored, href),
     listIgnored: (): Promise<IgnoredThread[]> => ipcRenderer.invoke('threads:listIgnored')
@@ -188,6 +244,17 @@ const api = {
       ipcRenderer.on('settings:changed', wrapped)
       return () => {
         ipcRenderer.removeListener('settings:changed', wrapped)
+      }
+    }
+  },
+  f95Requests: {
+    list: (): Promise<F95RequestLogEntry[]> => ipcRenderer.invoke('f95Requests:list'),
+    clear: (): Promise<F95RequestLogEntry[]> => ipcRenderer.invoke('f95Requests:clear'),
+    onChange: (listener: (entries: F95RequestLogEntry[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, entries: F95RequestLogEntry[]): void => listener(entries)
+      ipcRenderer.on('f95-requests:changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('f95-requests:changed', wrapped)
       }
     }
   },

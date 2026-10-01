@@ -15,6 +15,7 @@ type MenuPopoverProps = {
   onClose: () => void
   align?: 'left' | 'right'
   header?: ReactNode
+  className?: string
 }
 
 export function MenuPopover({
@@ -22,7 +23,8 @@ export function MenuPopover({
   items,
   onClose,
   align = 'right',
-  header
+  header,
+  className
 }: MenuPopoverProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ top: 0, left: 0, minWidth: 180 })
@@ -67,7 +69,7 @@ export function MenuPopover({
   return createPortal(
     <div
       ref={ref}
-      className="card-menu"
+      className={className ? `card-menu ${className}` : 'card-menu'}
       style={{ top: pos.top, left: pos.left, minWidth: pos.minWidth }}
       role="menu"
     >

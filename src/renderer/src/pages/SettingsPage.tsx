@@ -8,7 +8,8 @@ import type {
   CloudSaveSyncStatus,
   CloudUserDataSyncStatus,
   FavoriteTag,
-  HatedTag
+  HatedTag,
+  F95RequestLogEntry
 } from '@shared/types'
 import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
@@ -23,7 +24,7 @@ import Switch from '../components/Switch'
 import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored'
+type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored' | 'requests'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -124,7 +125,8 @@ export default function SettingsPage({
     { id: 'cloud', label: 'Cloud' },
     { id: 'tags', label: 'Favorite tags' },
     { id: 'hated', label: 'Hated tags' },
-    { id: 'ignored', label: 'Ignored' }
+    { id: 'ignored', label: 'Ignored' },
+    { id: 'requests', label: 'Request log' }
   ]
 
   return (
@@ -409,7 +411,68 @@ export default function SettingsPage({
         {tab === 'ignored' ? (
           <IgnoredThreadsPanel onOpenThread={onOpenThread} onIgnoredChange={onIgnoredChange} />
         ) : null}
+
+        {tab === 'requests' ? <F95RequestLogPanel /> : null}
       </section>
+    </div>
+  )
+}
+
+function F95RequestLogPanel(): JSX.Element {
+  const [entries, setEntries] = useState<F95RequestLogEntry[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.api.f95Requests.list().then((next) => {
+      if (!cancelled) setEntries(next)
+    })
+    const stop = window.api.f95Requests.onChange((next) => {
+      if (!cancelled) setEntries(next)
+    })
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [])
+
+  return (
+    <div className="settings-tab-body">
+      <p className="muted settings-lead">
+        HTML pages and API calls to F95zone while this app is running. Images and other static
+        files are omitted. The log is written to app data and cleared when the app starts.
+      </p>
+      <div className="ignored-toolbar">
+        <span className="muted">
+          {entries.length
+            ? `${entries.length} ${entries.length === 1 ? 'request' : 'requests'}`
+            : 'No requests yet.'}
+        </span>
+        <button
+          className="ghost-btn"
+          type="button"
+          disabled={!entries.length}
+          onClick={() => void window.api.f95Requests.clear()}
+        >
+          Clear
+        </button>
+      </div>
+      {entries.length ? (
+        <ul className="f95-request-log">
+          {entries.map((entry) => (
+            <li key={entry.id} className="f95-request-log-row">
+              <span className="f95-request-log-time">{formatDateTime(entry.at)}</span>
+              <span className="f95-request-log-method">{entry.method}</span>
+              <span className="f95-request-log-url" title={entry.url}>
+                {entry.url}
+              </span>
+              <span className={entry.ok ? 'address-status-ok' : 'address-status-down'}>
+                {entry.ok ? 'OK' : 'Failed'}
+                {entry.status != null ? ` ${entry.status}` : ''}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }

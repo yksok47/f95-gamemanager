@@ -28,6 +28,8 @@ import {
   initF95ImageCache,
   registerF95ImageCache
 } from "./f95/image-cache";
+import { flushF95RequestLog, initF95RequestLog } from "./f95/request-log";
+import { getAppPaths } from "./paths";
 import { appIcon } from "./app-icon";
 import { startRendererServer } from "./renderer-server";
 
@@ -86,6 +88,7 @@ app.whenReady().then(async () => {
   attachGuestWindowOpenHandler();
   await loadSession();
   await initF95ImageCache();
+  await initF95RequestLog(getAppPaths().f95RequestLogFile);
   registerF95CdnRequestHeaders();
   registerEmbedRequestHeaders();
   registerF95ImageCache();
@@ -121,6 +124,9 @@ app.whenReady().then(async () => {
     );
     await clearF95ImageCache().catch((error) =>
       console.warn("[image-cache] clear on quit failed", error)
+    );
+    await flushF95RequestLog().catch((error) =>
+      console.warn("[f95-request-log] flush on quit failed", error)
     );
   });
   await cleanupStaleAppUpdates().catch((error) =>
@@ -163,5 +169,7 @@ app.on("before-quit", (event) => {
     .catch((error) => console.warn("[p2p] destroy on quit failed", error))
     .then(() => clearF95ImageCache())
     .catch((error) => console.warn("[image-cache] clear on quit failed", error))
+    .then(() => flushF95RequestLog())
+    .catch((error) => console.warn("[f95-request-log] flush on quit failed", error))
     .finally(() => app.exit(0));
 });

@@ -1,4 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { readFile } from 'fs/promises'
+import { basename } from 'path'
 import type {
   AppSettings,
   CatalogGame,
@@ -9,6 +11,7 @@ import type {
   LoginPayload,
   RenpyInfoScope,
   RenpyToolId,
+  ThreadAttachment,
   UnRenAction,
   VersionPlayStatus
 } from '@shared/types'
@@ -28,11 +31,28 @@ import {
   showDownloadInFolder
 } from './downloads'
 import { F95Error } from './f95/http'
+import {
+  clearF95RequestLog,
+  listF95RequestLog,
+  onF95RequestLogChange
+} from './f95/request-log'
 import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importWatchedThreads } from './f95/import'
 import { lookupCatalogGame } from './f95/lookup'
 import { fetchThreadDetails, fetchThreadReviews, invalidateThreadDetailsCache } from './f95/thread'
+import {
+  fetchThreadPosts,
+  likeThreadPost,
+  quoteThreadPost,
+  replyToThread,
+  searchThreadPosts,
+  uploadThreadAttachment,
+  fetchThreadPostEdit,
+  editThreadPost,
+  deleteThreadPost
+} from './f95/thread-posts'
+import { getLastReadPost, setLastReadPost } from './thread-read-store'
 import { listIgnoredThreads, setThreadIgnored } from './f95/ignore'
 import {
   applyThreadMetadata,
@@ -116,6 +136,7 @@ import {
   scanExternalLibraries
 } from './library-import'
 import { getSettings, saveSettings } from './settings-store'
+import { sendToRenderer } from './windows'
 import { portableSettingKeysChanged } from './cloud-user-data/snapshot'
 import { bumpSettingTimes } from './cloud-user-data/state'
 import {
@@ -193,11 +214,63 @@ function toIpcError(error: unknown): Error {
   return new Error('Unexpected error')
 }
 
+function asIpcArrayBuffer(data: unknown): ArrayBuffer | null {
+  if (data instanceof ArrayBuffer && data.byteLength > 0) return data.slice(0)
+  if (ArrayBuffer.isView(data) && data.byteLength > 0) {
+    const copy = new Uint8Array(data.byteLength)
+    copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength))
+    return copy.buffer
+  }
+  if (Array.isArray(data) && data.length > 0 && data.every((item) => typeof item === 'number')) {
+    return Uint8Array.from(data).buffer
+  }
+  if (data && typeof data === 'object') {
+    const record = data as { type?: unknown; data?: unknown }
+    if (record.type === 'Buffer' && Array.isArray(record.data) && record.data.length > 0) {
+      return Uint8Array.from(record.data as number[]).buffer
+    }
+  }
+  return null
+}
+
+function arrayBufferFromNodeBytes(data: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(data.byteLength)
+  copy.set(data)
+  return copy.buffer
+}
+
+const IMAGE_UPLOAD_EXTS = ['png', 'jpg', 'jpeg', 'jfif', 'gif', 'webp', 'avif', 'bmp']
+
+function mimeFromFilename(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || ''
+  const map: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    jfif: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    avif: 'image/avif',
+    bmp: 'image/bmp',
+    pdf: 'application/pdf',
+    txt: 'text/plain',
+    zip: 'application/zip',
+    '7z': 'application/x-7z-compressed',
+    rar: 'application/vnd.rar',
+    webm: 'video/webm',
+    mp4: 'video/mp4',
+    mp3: 'audio/mpeg'
+  }
+  return map[ext] || 'application/octet-stream'
+}
+
 function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | null {
   return BrowserWindow.fromWebContents(event.sender)
 }
 
 export function registerIpc(): void {
+  onF95RequestLogChange((items) => sendToRenderer('f95-requests:changed', items))
+
   app.on('browser-window-created', (_event, win) => {
     const send = (): void => {
       if (!win.isDestroyed()) {
@@ -474,6 +547,200 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle(
+    'threads:posts',
+    async (
+      _event,
+      threadId: number,
+      options: { page?: number; postId?: number; latest?: boolean } = {}
+    ) => {
+      try {
+        return await fetchThreadPosts(Number(threadId), options || {})
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'threads:searchPosts',
+    async (
+      _event,
+      threadId: number,
+      keywords: string,
+      options: { page?: number; searchId?: number } = {}
+    ) => {
+      try {
+        return await searchThreadPosts(Number(threadId), String(keywords ?? ''), options || {})
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('threads:likePost', async (_event, threadId: number, postId: number) => {
+    try {
+      return await likeThreadPost(Number(threadId), Number(postId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('threads:quotePost', async (_event, threadId: number, postId: number) => {
+    try {
+      return await quoteThreadPost(Number(threadId), Number(postId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'threads:reply',
+    async (_event, threadId: number, message: string, attachmentHash?: string) => {
+      try {
+        return await replyToThread(Number(threadId), String(message ?? ''), attachmentHash)
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('threads:editDraft', async (_event, threadId: number, postId: number) => {
+    try {
+      return await fetchThreadPostEdit(Number(threadId), Number(postId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'threads:editPost',
+    async (_event, threadId: number, postId: number, message: string, attachmentHash?: string) => {
+      try {
+        return await editThreadPost(
+          Number(threadId),
+          Number(postId),
+          String(message ?? ''),
+          attachmentHash
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'threads:deletePost',
+    async (_event, threadId: number, postId: number, page?: number) => {
+      try {
+        return await deleteThreadPost(
+          Number(threadId),
+          Number(postId),
+          page == null ? undefined : Number(page)
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'threads:uploadAttachment',
+    async (
+      _event,
+      threadId: number,
+      hash: string,
+      file: { name?: string; mime?: string; data?: ArrayBuffer },
+      postId?: number
+    ) => {
+      try {
+        const data = asIpcArrayBuffer(file?.data)
+        if (!data) {
+          throw new Error('That file is empty.')
+        }
+        return await uploadThreadAttachment(
+          Number(threadId),
+          String(hash ?? ''),
+          {
+            name: String(file?.name || 'file'),
+            mime: String(file?.mime || 'application/octet-stream'),
+            data
+          },
+          postId == null ? undefined : Number(postId)
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'threads:pickAndUploadAttachments',
+    async (
+      event,
+      threadId: number,
+      hash: string,
+      options?: { images?: boolean; postId?: number }
+    ) => {
+      try {
+        const parent = windowFromEvent(event)
+        const images = Boolean(options?.images)
+        const dialogOptions: Electron.OpenDialogOptions = {
+          title: images ? 'Upload image' : 'Attach file',
+          properties: ['openFile', 'multiSelections'],
+          filters: images ? [{ name: 'Images', extensions: IMAGE_UPLOAD_EXTS }] : undefined
+        }
+        const picked = parent
+          ? await dialog.showOpenDialog(parent, dialogOptions)
+          : await dialog.showOpenDialog(dialogOptions)
+        if (picked.canceled || !picked.filePaths.length) return []
+        const uploaded: ThreadAttachment[] = []
+        for (const filePath of picked.filePaths) {
+          const bytes = await readFile(filePath)
+          if (!bytes.byteLength) continue
+          uploaded.push(
+            await uploadThreadAttachment(
+              Number(threadId),
+              String(hash ?? ''),
+              {
+                name: basename(filePath) || 'file',
+                mime: mimeFromFilename(filePath),
+                data: arrayBufferFromNodeBytes(bytes)
+              },
+              options?.postId == null ? undefined : Number(options.postId)
+            )
+          )
+        }
+        return uploaded
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('threads:lastRead', async (_event, threadId: number) => {
+    try {
+      return await getLastReadPost(Number(threadId))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'threads:setLastRead',
+    async (_event, threadId: number, postId: number, page?: number) => {
+      try {
+        return await setLastReadPost(
+          Number(threadId),
+          Number(postId),
+          page == null ? undefined : Number(page)
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
     'threads:setIgnored',
     async (_event, threadId: number, ignored: boolean, href?: string | null) => {
       try {
@@ -593,6 +860,10 @@ export function registerIpc(): void {
       throw toIpcError(error)
     }
   })
+
+  ipcMain.handle('f95Requests:list', () => listF95RequestLog())
+
+  ipcMain.handle('f95Requests:clear', () => clearF95RequestLog())
 
   ipcMain.handle('cloudSaves:account', async () => {
     try {

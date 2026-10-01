@@ -92,6 +92,7 @@ import {
   usePlaySessions
 } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
+import ThreadPostsPanel from '../components/ThreadPostsPanel'
 import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { DelayedMount, InlineLoading, Spinner } from '../components/Spinner'
@@ -429,6 +430,10 @@ function GameDetailsPage({
   const [savesTabReady, setSavesTabReady] = useState(
     (initialTab ?? restoredSession?.tab) === 'saves'
   )
+  const [postsTabReady, setPostsTabReady] = useState(
+    (initialTab ?? restoredSession?.tab) === 'posts'
+  )
+  const [postsJump, setPostsJump] = useState<{ postId: number; key: number } | null>(null)
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
   const [p2pReloadKey, setP2pReloadKey] = useState(0)
@@ -857,6 +862,7 @@ function GameDetailsPage({
         count: details?.reviewsTotal || details?.reviews.length,
         hidden: settled && !details?.reviews.length && !details?.reviewsTotal
       },
+      { id: 'posts', label: 'Posts' },
       {
         id: 'gallery',
         label: 'Gallery',
@@ -887,6 +893,7 @@ function GameDetailsPage({
 
   useEffect(() => {
     if (tab === 'saves') setSavesTabReady(true)
+    if (tab === 'posts') setPostsTabReady(true)
   }, [tab])
 
   useEffect(() => {
@@ -980,6 +987,7 @@ function GameDetailsPage({
         event.preventDefault()
         event.stopPropagation()
         if (lightbox != null) setLightbox(null)
+        else if (document.querySelector('[data-escape-layer]')) return
         else onMinimize()
         return
       }
@@ -1698,14 +1706,38 @@ function GameDetailsPage({
       spoiler?.classList.toggle('is-active')
       return
     }
+    const expandToggle = (event.target as HTMLElement).closest('.bbCodeBlock-expandToggle')
+    if (expandToggle instanceof HTMLElement) {
+      event.preventDefault()
+      const block = expandToggle.closest('.bbCodeBlock--expandable')
+      if (block) {
+        const expanded = block.classList.toggle('is-expanded')
+        expandToggle.textContent = expanded ? 'Show less' : 'Show more'
+        expandToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false')
+      }
+      return
+    }
     const target = (event.target as HTMLElement).closest('a')
     if (!target) return
     const href = target.getAttribute('href')
     if (!href) return
     event.preventDefault()
+    const postId =
+      Number(target.getAttribute('data-post-id') || 0) ||
+      Number(
+        (href.match(/\/posts\/(\d+)/i) ||
+          href.match(/\/post-(\d+)/i) ||
+          href.match(/goto\/post\?id=(\d+)/i) ||
+          href.match(/#(?:js-)?post-(\d+)/i))?.[1] || 0
+      )
     const threadId = Number(target.getAttribute('data-thread-id') || 0)
     const hrefId = href.match(/\/threads\/(?:[^/?#]*\.)?(\d+)/i)
     const nextId = threadId || Number(hrefId?.[1] || 0)
+    if (postId && (!nextId || nextId === summary.threadId)) {
+      setTab('posts')
+      setPostsJump({ postId, key: Date.now() })
+      return
+    }
     if (nextId) {
       onOpenThread(nextId, target.getAttribute('data-thread-title') || target.textContent?.trim() || '')
       return
@@ -2651,6 +2683,19 @@ function GameDetailsPage({
           ) : (
             <p className="muted">No reviews were found for this thread.</p>
           )
+        ) : null}
+
+        {postsTabReady ? (
+          <div hidden={tab !== 'posts'}>
+            <ThreadPostsPanel
+              threadId={summary.threadId}
+              active={tab === 'posts'}
+              jumpToPostId={postsJump?.postId}
+              jumpKey={postsJump?.key}
+              onProseClick={onProseClick}
+              onSessionExpired={onSessionExpired}
+            />
+          </div>
         ) : null}
 
         {tab === 'overview' ? (

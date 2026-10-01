@@ -471,7 +471,7 @@ function fullImageUrl($img: Cheerio<AnyNode>): string | null {
   return null
 }
 
-function sanitizeHtml(html: string, currentThreadId?: number): string {
+export function sanitizeHtml(html: string, currentThreadId?: number): string {
   const $ = load(`<div id="root">${html}</div>`)
   const root = $('#root')
   root.find('.bbCodeSpoiler-button, button').remove()

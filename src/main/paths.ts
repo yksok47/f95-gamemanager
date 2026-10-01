@@ -19,6 +19,7 @@ export function getAppPaths(): {
   p2pTorrentsDir: string
   downloadsHistoryFile: string
   gameNotesFile: string
+  threadReadFile: string
   saveFoldersFile: string
   cloudSaveManifestsDir: string
   cloudUserDataStateFile: string
@@ -26,6 +27,7 @@ export function getAppPaths(): {
   libraryImportsFile: string
   renpyOptionsFile: string
   rosterFile: string
+  f95RequestLogFile: string
   downloadsDir: string
   libraryDir: string
   imageCacheDir: string
@@ -44,6 +46,7 @@ export function getAppPaths(): {
     p2pTorrentsDir: join(userData, 'p2p-torrents'),
     downloadsHistoryFile: join(userData, 'downloads-history.json'),
     gameNotesFile: join(userData, 'game-notes.json'),
+    threadReadFile: join(userData, 'thread-read.json'),
     saveFoldersFile: join(userData, 'save-folders.json'),
     cloudSaveManifestsDir: join(userData, 'cloud-save-manifests'),
     cloudUserDataStateFile: join(userData, 'cloud-user-data.json'),
@@ -51,6 +54,7 @@ export function getAppPaths(): {
     libraryImportsFile: join(userData, 'library-imports.json'),
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),
+    f95RequestLogFile: join(userData, 'f95-request-log.json'),
     downloadsDir: join(userData, 'downloads'),
     libraryDir: join(userData, 'library'),
     imageCacheDir: join(userData, 'image-cache')

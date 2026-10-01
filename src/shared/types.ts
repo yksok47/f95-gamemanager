@@ -241,6 +241,16 @@ export type AppSettings = {
   quickFilters: QuickFilter[]
 }
 
+/** In-memory F95zone HTML/API request (not persisted; discarded when the app exits). */
+export type F95RequestLogEntry = {
+  id: number
+  at: number
+  method: string
+  url: string
+  ok: boolean
+  status?: number
+}
+
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'
 
 /** Prefill for approve-tags from a parsed F95 download entry (numeric wire enums). */
@@ -1116,6 +1126,99 @@ export type ThreadReviewsPage = {
   totalPages: number
   total: number
   reviews: ThreadReview[]
+}
+
+export type ThreadPostReaction = {
+  id: number
+  title: string
+}
+
+export type ThreadPost = {
+  postId: number
+  author: string
+  authorId: number | null
+  date: string
+  position: number
+  url: string
+  html: string
+  liked: boolean
+  canLike: boolean
+  canQuote: boolean
+  canReply: boolean
+  canEdit: boolean
+  canDelete: boolean
+  reactions: ThreadPostReaction[]
+  reactionCount: number
+}
+
+export type ThreadPostsPage = {
+  threadId: number
+  page: number
+  totalPages: number
+  posts: ThreadPost[]
+  canPost: boolean
+  /** Furthest post on this page; used when jumping via `/posts/{id}/`. */
+  focusPostId: number | null
+}
+
+export type ThreadPostSearchHit = {
+  postId: number
+  author: string
+  date: string
+  snippetHtml: string
+  url: string
+}
+
+export type ThreadPostSearchPage = {
+  threadId: number
+  query: string
+  page: number
+  totalPages: number
+  /** XenForo search record id, used to paginate without re-running the query. */
+  searchId: number | null
+  results: ThreadPostSearchHit[]
+}
+
+export type ThreadAttachment = {
+  id: number
+  filename: string
+  url: string
+  isImage: boolean
+}
+
+export type ThreadAttachmentUpload = {
+  name: string
+  mime: string
+  data: ArrayBuffer | Uint8Array
+}
+
+/** Last discussion post the user had on screen, plus the page as a backup. */
+export type ThreadLastRead = {
+  postId: number
+  page: number | null
+}
+
+export function lastReadNeedsPageFallback(
+  postId: number,
+  fallbackPage: number | null | undefined,
+  loaded: { page: number; posts: Array<{ postId: number }> }
+): boolean {
+  const page = Math.floor(Number(fallbackPage))
+  if (!Number.isFinite(page) || page < 1 || postId <= 0) return false
+  if (loaded.posts.some((post) => post.postId === postId)) return false
+  return loaded.page !== page
+}
+
+export type ThreadPostLikeResult = {
+  postId: number
+  liked: boolean
+  reactionCount: number | null
+}
+
+export type ThreadPostEditDraft = {
+  postId: number
+  message: string
+  attachmentHash: string | null
 }
 
 export type ChangelogEntry = {

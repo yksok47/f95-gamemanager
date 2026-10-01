@@ -38,6 +38,17 @@ import { DownloadProgressProvider } from './lib/download-progress'
 import { useLibraryByThread, useLibraryReady, type LibraryGame } from './lib/library'
 import { toCatalogGame } from './lib/catalog-game'
 import { syncOpenDetailThreads } from './lib/details-session-cache'
+import {
+  addTaskbarPin,
+  loadTaskbarPins,
+  pinFromSummary,
+  pinsFromWindows,
+  removeTaskbarPin,
+  saveTaskbarPins,
+  summaryFromPin,
+  updateTaskbarPin,
+  type TaskbarPin
+} from './lib/taskbar-pins'
 import { latestKnownVersion, shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
 import { useStorageScan } from './lib/storage-scan'
@@ -124,6 +135,14 @@ function mergeOpenSummary(existing: GameSummary, incoming: GameSummary): GameSum
   }
 }
 
+function windowsFromPins(pins: TaskbarPin[], subscriptions: Subscription[]): GameSummary[] {
+  return pins.map((pin) => {
+    const known = subscriptions.find((game) => game.threadId === pin.threadId)
+    if (!known) return summaryFromPin(pin)
+    return mergeOpenSummary(summaryFromPin(pin), toSummary(known))
+  })
+}
+
 function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSummary {
   return {
     ...existing,
@@ -148,7 +167,7 @@ function mergeCatalogSummary(existing: GameSummary, game: CatalogGame): GameSumm
 export default function App(): JSX.Element {
   const [session, setSession] = useState<AuthSession | null>(null)
   const [busy, setBusy] = useState(false)
-  const [view, setView] = useState<AppView>('catalog')
+  const [view, setView] = useState<AppView>('roster')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
   const [roster, setRoster] = useState<RosterGame[]>([])
   const [settings, setSettings] = useState<AppSettings>({
@@ -171,6 +190,7 @@ export default function App(): JSX.Element {
     quickFilters: []
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
+  const [pinnedGames, setPinnedGames] = useState<TaskbarPin[]>(() => loadTaskbarPins())
   syncOpenDetailThreads(detailsWindows.map((game) => game.threadId))
   const [activeThreadId, setActiveThreadId] = useState<number | null>(null)
   const [detailsOpenTab, setDetailsOpenTab] = useState<{
@@ -420,6 +440,9 @@ export default function App(): JSX.Element {
             setSubscriptions(games)
             setSettings(nextSettings)
             setRoster(nextRoster)
+            const pins = loadTaskbarPins()
+            setPinnedGames(pins)
+            setDetailsWindows(windowsFromPins(pins, games))
             setSession(next)
             void window.api.subscriptions.startSync().catch(() => undefined)
           }
@@ -445,7 +468,15 @@ export default function App(): JSX.Element {
     try {
       const next = await window.api.auth.login({ username, password })
       setSession(next)
-      await Promise.all([loadSubscriptions(), loadSettings(), loadRoster()])
+      const [games] = await Promise.all([
+        window.api.subscriptions.list(),
+        loadSettings(),
+        loadRoster()
+      ])
+      setSubscriptions(games)
+      const pins = loadTaskbarPins()
+      setPinnedGames(pins)
+      setDetailsWindows(windowsFromPins(pins, games))
       void window.api.subscriptions.startSync().catch(() => undefined)
     } catch (err) {
       notifyError(errorMessage(err))
@@ -465,7 +496,7 @@ export default function App(): JSX.Element {
     setSession(next)
     setSubscriptions([])
     setRoster([])
-    setView('catalog')
+    setView('roster')
     setDetailsWindows([])
     setActiveThreadId(null)
   }, [])
@@ -473,7 +504,7 @@ export default function App(): JSX.Element {
   const handleSessionExpired = useCallback(async (): Promise<void> => {
     setSubscriptions([])
     setRoster([])
-    setView('catalog')
+    setView('roster')
     setDetailsWindows([])
     setActiveThreadId(null)
     setSession({ loggedIn: false, userId: null, username: null })
@@ -515,6 +546,14 @@ export default function App(): JSX.Element {
       next[index] = mergeOpenSummary(next[index], game)
       return next
     })
+    setPinnedGames((current) => {
+      const pin = pinFromSummary(game)
+      if (!pin) return current
+      const next = updateTaskbarPin(current, pin)
+      if (next === current) return current
+      saveTaskbarPins(next)
+      return next
+    })
     setActiveThreadId(game.threadId)
     if (tab) setDetailsOpenTab({ threadId: game.threadId, tab, key: Date.now() })
   }, [])
@@ -527,13 +566,35 @@ export default function App(): JSX.Element {
       next[index] = mergeCatalogSummary(next[index], game)
       return next
     })
+    setPinnedGames((current) => {
+      const existing = current.find((item) => item.threadId === game.threadId)
+      if (!existing) return current
+      const pin = pinFromSummary({
+        threadId: game.threadId,
+        title: game.title || existing.title,
+        coverUrl: game.coverUrl || existing.coverUrl,
+        creator: game.creator || existing.creator,
+        version: game.version || existing.version,
+        threadUrl: game.threadUrl || existing.threadUrl
+      })
+      if (!pin) return current
+      const next = updateTaskbarPin(current, pin)
+      if (next === current) return current
+      saveTaskbarPins(next)
+      return next
+    })
   }, [])
 
   const closeDetailsWindow = useCallback((threadId: number) => {
+    if (pinnedGames.some((item) => item.threadId === threadId)) {
+      setActiveThreadId((current) => (current === threadId ? null : current))
+      setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
+      return
+    }
     setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
     setActiveThreadId((current) => (current === threadId ? null : current))
     setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
-  }, [])
+  }, [pinnedGames])
 
   const toggleDetailsWindow = useCallback((threadId: number) => {
     setActiveThreadId((current) => (current === threadId ? null : threadId))
@@ -544,6 +605,31 @@ export default function App(): JSX.Element {
     setActiveThreadId(null)
     setDetailsOpenTab(null)
   }, [])
+
+  const toggleTaskbarPin = useCallback((threadId: number) => {
+    const wasPinned = pinnedGames.some((item) => item.threadId === threadId)
+    if (wasPinned) {
+      setPinnedGames((current) => {
+        const next = removeTaskbarPin(current, threadId)
+        saveTaskbarPins(next)
+        return next
+      })
+      if (activeThreadId !== threadId) {
+        setDetailsWindows((windows) => windows.filter((item) => item.threadId !== threadId))
+        setDetailsOpenTab((current) => (current?.threadId === threadId ? null : current))
+      }
+      return
+    }
+    const game = detailsWindows.find((item) => item.threadId === threadId)
+    const pin = game ? pinFromSummary(game) : null
+    if (!pin) return
+    setPinnedGames((current) => {
+      const ids = new Set([...current.map((item) => item.threadId), threadId])
+      const next = pinsFromWindows(detailsWindows, ids, addTaskbarPin(current, pin))
+      saveTaskbarPins(next)
+      return next
+    })
+  }, [activeThreadId, detailsWindows, pinnedGames])
 
   const rarityById = useMemo(() => {
     const map = new Map<number, GameRarity>()
@@ -564,10 +650,11 @@ export default function App(): JSX.Element {
         return {
           threadId: game.threadId,
           title: followed?.title || game.title,
-          coverUrl: followed?.coverUrl || game.coverUrl
+          coverUrl: followed?.coverUrl || game.coverUrl,
+          pinned: pinnedGames.some((item) => item.threadId === game.threadId)
         }
       }),
-    [detailsWindows, subscriptions]
+    [detailsWindows, pinnedGames, subscriptions]
   )
 
   const body = !session ? (
@@ -607,6 +694,7 @@ export default function App(): JSX.Element {
           activeThreadId={activeThreadId}
           onToggle={toggleDetailsWindow}
           onClose={closeDetailsWindow}
+          onPinToggle={toggleTaskbarPin}
         />
         <FooterDockSlot />
       </footer>

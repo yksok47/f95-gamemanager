@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPageSearchHotkey, pickSearchCandidate } from './page-search'
+import { isPageSearchHotkey, pickSearchCandidate, pickTopmost } from './page-search'
 
 function key(
   partial: Partial<KeyboardEvent> & Pick<KeyboardEvent, 'key'>
@@ -49,5 +49,12 @@ describe('pickSearchCandidate', () => {
   test('falls back to the first visible search', () => {
     const picked = pickSearchCandidate([{ inDialog: false, pageSearch: false, id: 'only' }])
     expect(picked?.id).toBe('only')
+  })
+})
+
+describe('pickTopmost', () => {
+  test('uses the last dialog so nested overlays win', () => {
+    expect(pickTopmost(['page', 'details', 'editor'])).toBe('editor')
+    expect(pickTopmost([])).toBeUndefined()
   })
 })

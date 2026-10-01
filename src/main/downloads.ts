@@ -17,7 +17,7 @@ import {
   loadDownloadHistory,
   persistDownloadHistory
 } from './download-history-store'
-import { isArchivePath } from './fs-utils'
+import { isReviewablePackagePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload } from './open-url'
@@ -80,6 +80,34 @@ function uniquePath(dir: string, filename: string): string {
     if (!existsSync(next)) return next
   }
   return join(dir, `${stem}-${Date.now()}${ext}`)
+}
+
+function fileSize(filePath: string): number | null {
+  try {
+    return statSync(filePath).size
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Chromium creates a 0-byte file at the default name before `will-download`.
+ * That placeholder is this download, so it must not be treated as a name collision.
+ */
+function downloadSavePath(dir: string, filename: string): string {
+  const dest = join(dir, sanitizeFilename(filename))
+  if (fileSize(dest) === 0) return dest
+  return uniquePath(dir, filename)
+}
+
+/** Prefer the recorded path, then the original filename beside it when that path is missing. */
+function locateFinishedFile(entry: TrackedDownload): string {
+  if (entry.savePath && existsSync(entry.savePath)) return entry.savePath
+  if (!entry.filename) return entry.savePath
+  const dir = entry.savePath ? dirname(entry.savePath) : getUntrustedDownloadsDirSync()
+  const sibling = join(dir, sanitizeFilename(entry.filename))
+  if (existsSync(sibling)) return sibling
+  return entry.savePath
 }
 
 function toRecord(entry: TrackedDownload): DownloadRecord {
@@ -197,6 +225,12 @@ export async function restoreDownloadHistory(): Promise<void> {
   }
   lastHistoryFingerprint = historyFingerprint(rows)
   broadcast()
+  // Finished before review existed for this file type (e.g. a loose .rpy/.rpyc patch).
+  for (const entry of tracked.values()) {
+    if (entry.status === 'completed' && !entry.libraryStatus) {
+      void prepareArchiveForReview(entry)
+    }
+  }
 }
 
 function scheduleBroadcast(): void {
@@ -465,10 +499,13 @@ async function reportInstallTags(contentHash: string, tags: PackageInstallTags):
   })
 }
 
-/** Hash complete archives and wait for tag approval before library insert. */
+/** Hash a finished package and wait for tag approval before library insert. */
 async function prepareArchiveForReview(entry: TrackedDownload): Promise<void> {
   const context = entry.context
-  if (!context || !entry.savePath || !isArchivePath(entry.savePath || entry.filename)) return
+  if (!context) return
+  const packagePath = locateFinishedFile(entry)
+  if (!packagePath || !isReviewablePackagePath(packagePath)) return
+  entry.savePath = packagePath
   entry.libraryStatus = 'hashing'
   entry.packageHint = entry.packageHint || context.packageHint
   broadcast()
@@ -613,7 +650,7 @@ export function registerDownloadHandler(): void {
       console.warn('Could not create untrusted downloads folder', error)
     }
     const filename = item.getFilename() || 'download'
-    item.setSavePath(uniquePath(dir, filename))
+    item.setSavePath(downloadSavePath(dir, filename))
 
     const now = Date.now()
     const context = getDownloadContext(webContents)

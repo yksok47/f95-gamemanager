@@ -6,6 +6,8 @@ import {
   resolveBotCheckInWindow
 } from './challenge-window'
 import { F95Error } from './errors'
+import { encodeMultipartForm, type MultipartFile } from './multipart'
+import { recordF95Request } from './request-log'
 import { pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
 
 const HOST = 'https://f95zone.to'
@@ -33,6 +35,23 @@ function electronUserAgent(): string {
   } catch {
     return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
   }
+}
+
+function requestMethod(init: RequestInit): string {
+  return String(init.method || 'GET').toUpperCase()
+}
+
+function logF95Attempt(
+  url: string,
+  method: string,
+  outcome: { ok: boolean; status?: number }
+): void {
+  recordF95Request({
+    url,
+    method,
+    ok: outcome.ok,
+    status: outcome.status
+  })
 }
 
 function detectTransportError(status: number, body: string): void {
@@ -101,6 +120,7 @@ export async function f95Fetch(
   options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean } = {}
 ): Promise<{ response: Response; body: string }> {
   const url = f95Url(path)
+  const method = requestMethod(init)
   const timeoutMs = options.timeoutMs ?? 20000
   const useBrowser = Boolean(options.preferBrowser || hasF95Browser())
 
@@ -110,9 +130,21 @@ export async function f95Fetch(
       ? await browserFetchAsResponse(url, init, timeoutMs)
       : await sessionFetch(url, init, timeoutMs)
   } catch (error) {
+    logF95Attempt(url, method, { ok: false })
     if (error instanceof F95Error) throw error
     if (useBrowser) {
-      result = await sessionFetch(url, init, timeoutMs)
+      try {
+        result = await sessionFetch(url, init, timeoutMs)
+      } catch (fallbackError) {
+        logF95Attempt(url, method, { ok: false })
+        if (fallbackError instanceof F95Error) throw fallbackError
+        throw new F95Error(
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : 'Network request to F95zone failed.',
+          'network'
+        )
+      }
     } else {
       throw new F95Error(
         error instanceof Error ? error.message : 'Network request to F95zone failed.',
@@ -124,6 +156,7 @@ export async function f95Fetch(
   try {
     detectTransportError(result.response.status, result.body)
   } catch (error) {
+    logF95Attempt(url, method, { ok: false, status: result.response.status })
     if (error instanceof F95Error && error.code === 'blocked' && !options.skipChallenge) {
       console.info('[f95] bot-check detected — opening challenge window', url)
       const cleared = await resolveBotCheckInWindow(url)
@@ -137,5 +170,59 @@ export async function f95Fetch(
     }
     throw error
   }
+  logF95Attempt(url, method, { ok: result.response.ok, status: result.response.status })
   return result
+}
+
+/**
+ * Multipart POST on Chromium session.fetch. Node FormData is not a reliable body
+ * there, so this encodes the body the same way Drive uploads do.
+ */
+export async function f95PostForm(
+  path: string,
+  form: { fields: Record<string, string>; file?: MultipartFile },
+  options: { referer: string; timeoutMs?: number } = { referer: HOST }
+): Promise<{ response: Response; body: string }> {
+  const url = f95Url(path)
+  const timeoutMs = options.timeoutMs ?? 120000
+  const encoded = encodeMultipartForm(form.fields, form.file)
+  const headers = new Headers()
+  headers.set('User-Agent', electronUserAgent())
+  headers.set('Accept-Language', 'en-US,en;q=0.9')
+  headers.set('Accept', 'application/json, text/javascript, */*; q=0.01')
+  headers.set('X-Requested-With', 'XMLHttpRequest')
+  headers.set('Origin', HOST)
+  headers.set('Referer', options.referer || HOST)
+  headers.set('Content-Type', encoded.contentType)
+
+  const payload = new Uint8Array(encoded.body.byteLength)
+  payload.set(encoded.body)
+
+  let response: Response
+  try {
+    response = await session.defaultSession.fetch(url, {
+      method: 'POST',
+      headers,
+      body: new Blob([payload]),
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+  } catch (error) {
+    logF95Attempt(url, 'POST', { ok: false })
+    throw new F95Error(
+      error instanceof Error ? error.message : 'Network request to F95zone failed.',
+      'network'
+    )
+  }
+
+  await pullCookiesFromElectron()
+  scheduleSaveSession()
+  const body = await response.text()
+  try {
+    detectTransportError(response.status, body)
+  } catch (error) {
+    logF95Attempt(url, 'POST', { ok: false, status: response.status })
+    throw error
+  }
+  logF95Attempt(url, 'POST', { ok: response.ok, status: response.status })
+  return { response, body }
 }

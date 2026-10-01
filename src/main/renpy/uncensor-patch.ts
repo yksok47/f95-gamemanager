@@ -1,7 +1,7 @@
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'path'
 import { extractArchive, listArchiveEntries } from '../extract'
-import { isArchivePath, sanitizeSegment } from '../fs-utils'
+import { isArchivePath, isRenpyScriptPath, sanitizeSegment } from '../fs-utils'
 import { childPath, listDirents, pathExists, toFsPath } from '../win-path'
 
 const JUNK_NAMES = new Set(['__macosx', '.ds_store', 'thumbs.db', 'desktop.ini'])
@@ -43,9 +43,7 @@ export type UncensorPatchMeta = {
   filename: string
 }
 
-export function isRenpyScriptPath(filePath: string): boolean {
-  return /\.rpyc?$/i.test(filePath)
-}
+export { isRenpyScriptPath }
 
 function isJunkName(name: string): boolean {
   const lower = name.toLowerCase()

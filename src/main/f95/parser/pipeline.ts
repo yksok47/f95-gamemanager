@@ -15,6 +15,8 @@
  *
  *   threadPage  (same full-page HTML as firstPost; JSON page chrome)
  *   reviews     (separate root: /br-reviews pages; pagination only at runtime)
+ *   posts       (same full-page HTML as firstPost; discussion posts, not the OP)
+ *   postSearch  (separate root: /search/{id}/ results for a thread query)
  */
 export type ParserName =
   | 'firstPost'
@@ -29,6 +31,8 @@ export type ParserName =
   | 'overview'
   | 'notes'
   | 'reviews'
+  | 'posts'
+  | 'postSearch'
 
 export type ParserSpec = {
   name: ParserName
@@ -116,6 +120,19 @@ export const PARSERS: Record<ParserName, ParserSpec> = {
     inputFile: 'input.html',
     outputFile: 'output.json',
     source: null
+  },
+  posts: {
+    name: 'posts',
+    inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: null,
+    inputFrom: 'firstPost'
+  },
+  postSearch: {
+    name: 'postSearch',
+    inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: null
   }
 }
 
@@ -132,5 +149,7 @@ export const PARSER_ORDER: ParserName[] = [
   'downloads',
   'overview',
   'notes',
-  'reviews'
+  'reviews',
+  'posts',
+  'postSearch'
 ]

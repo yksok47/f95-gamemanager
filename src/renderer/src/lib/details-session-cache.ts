@@ -12,6 +12,7 @@ export type DetailsModalTab =
   | 'saves'
   | 'renpy'
   | 'reviews'
+  | 'posts'
 
 export type DetailsSession = {
   /** Parsed thread text (HTML, fields, review text, gallery URLs). Not image bytes. */

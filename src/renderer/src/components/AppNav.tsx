@@ -4,7 +4,7 @@ import { MenuPopover } from './MenuPopover'
 import { ToolbarSlot } from './ToolbarPortal'
 import { DownloadIcon, FullscreenIcon, RefreshIcon, SettingsIcon, StorageIcon, UploadIcon, CatalogIcon, FollowedIcon, UpdatesIcon, RosterIcon, LibraryIcon } from './ToolbarIcons'
 
-export type AppView = 'catalog' | 'followed' | 'updates' | 'roster' | 'library' | 'storage' | 'downloads' | 'uploads' | 'settings'
+export type AppView = 'roster' | 'updates' | 'library' | 'followed' | 'catalog' | 'storage' | 'downloads' | 'uploads' | 'settings'
 
 type AppNavProps = {
   view: AppView
@@ -63,28 +63,16 @@ export default function AppNav({
       <div className="app-nav-links">
         <img className="app-nav-icon" src={appIcon} alt="" width={28} height={28} />
         <button
-          className={view === 'catalog' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+          className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
-          title="Catalog"
-          aria-label="Catalog"
-          onClick={() => onViewChange('catalog')}
+          title="Roster"
+          aria-label="Roster"
+          onClick={() => onViewChange('roster')}
         >
           <span className="nav-btn-icon">
-            <CatalogIcon />
+            <RosterIcon />
           </span>
-          <span className="nav-btn-label">Catalog</span>
-        </button>
-        <button
-          className={view === 'followed' ? 'nav-btn nav-btn-active' : 'nav-btn'}
-          type="button"
-          title="Followed"
-          aria-label="Followed"
-          onClick={() => onViewChange('followed')}
-        >
-          <span className="nav-btn-icon">
-            <FollowedIcon />
-          </span>
-          <span className="nav-btn-label">Followed</span>
+          <span className="nav-btn-label">Roster</span>
         </button>
         <button
           className={view === 'updates' ? 'nav-btn nav-btn-active' : 'nav-btn'}
@@ -100,18 +88,6 @@ export default function AppNav({
           {updatesCount ? <span className="icon-btn-badge nav-btn-count">{updatesCount}</span> : null}
         </button>
         <button
-          className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
-          type="button"
-          title="Roster"
-          aria-label="Roster"
-          onClick={() => onViewChange('roster')}
-        >
-          <span className="nav-btn-icon">
-            <RosterIcon />
-          </span>
-          <span className="nav-btn-label">Roster</span>
-        </button>
-        <button
           className={view === 'library' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
           title="Library"
@@ -122,6 +98,30 @@ export default function AppNav({
             <LibraryIcon />
           </span>
           <span className="nav-btn-label">Library</span>
+        </button>
+        <button
+          className={view === 'followed' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+          type="button"
+          title="Followed"
+          aria-label="Followed"
+          onClick={() => onViewChange('followed')}
+        >
+          <span className="nav-btn-icon">
+            <FollowedIcon />
+          </span>
+          <span className="nav-btn-label">Followed</span>
+        </button>
+        <button
+          className={view === 'catalog' ? 'nav-btn nav-btn-active' : 'nav-btn'}
+          type="button"
+          title="Catalog"
+          aria-label="Catalog"
+          onClick={() => onViewChange('catalog')}
+        >
+          <span className="nav-btn-icon">
+            <CatalogIcon />
+          </span>
+          <span className="nav-btn-label">Catalog</span>
         </button>
       </div>
       <ToolbarSlot />

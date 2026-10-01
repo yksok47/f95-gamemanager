@@ -3,6 +3,9 @@ export function sleep(ms: number): Promise<void> {
 }
 
 export const THREAD_URL_RE = /\/threads\/(?:[^/?#]*\.)?(\d+)/i
+export const POST_URL_RE = /\/posts\/(\d+)/i
+export const THREAD_POST_URL_RE = /\/threads\/[^/?#]+\/post-(\d+)/i
+export const POST_ANCHOR_RE = /#(?:js-)?post-(\d+)/i
 
 export const PREFIX_NODE_SELECTOR =
   '.label, .label-append, .labelLink, [class^="pre-"], [class*=" pre-"]'
@@ -39,6 +42,16 @@ export function extractThreadId(value: string | undefined | null): number | null
   if (!match) return null
   const id = Number(match[1])
   return Number.isFinite(id) ? id : null
+}
+
+/** Post id from `/posts/123`, `/threads/slug.1/post-123`, or `#post-123`. */
+export function extractPostId(value: string | undefined | null): number | null {
+  if (!value) return null
+  const match =
+    value.match(POST_URL_RE) || value.match(THREAD_POST_URL_RE) || value.match(POST_ANCHOR_RE)
+  if (!match) return null
+  const id = Number(match[1])
+  return Number.isFinite(id) && id > 0 ? id : null
 }
 
 export function threadUrl(threadId: number): string {
