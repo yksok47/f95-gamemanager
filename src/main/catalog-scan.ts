@@ -75,6 +75,22 @@ export function watermarkFromHeadPage(games: DatedRow[], lastSeen: number): numb
 }
 
 /**
+ * Automatic catch-up (app start / poll) stops after the newest page when there
+ * is no watermark. Walking until every followed game appears is the manual
+ * refresh — doing that on startup hammers Latest Updates.
+ */
+export function catalogCatchUpDone(
+  page: number,
+  totalPages: number,
+  games: DatedRow[],
+  lastSeen: number
+): boolean {
+  if (page >= totalPages) return true
+  if (!catalogTimestamp(lastSeen)) return true
+  return catalogPagePastTimestamp(games, lastSeen)
+}
+
+/**
  * Oldest followed update that is safe to stop at.
  * If any followed game has no timestamp, return 0: a newly followed title
  * (the only dated row, and the latest one) must not become the cutoff.

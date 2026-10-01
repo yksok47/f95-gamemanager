@@ -125,6 +125,28 @@ export default function CatalogPage({
   const [sort, setSort] = useState<CatalogSort>('date')
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const filterQueryKey = JSON.stringify({
+    sort,
+    search,
+    creator,
+    prefixes,
+    excludePrefixes,
+    includedTags,
+    excludedTags,
+    queryTagType,
+    favoritesFilter,
+    hatedFilter,
+    catalogPageSize
+  })
+  const [activeQueryKey, setActiveQueryKey] = useState(filterQueryKey)
+  if (filterQueryKey !== activeQueryKey) {
+    setActiveQueryKey(filterQueryKey)
+    setPage(1)
+    setDisplayPage(1)
+    setTurn(null)
+    setIncomingGames(null)
+    turnLockRef.current = false
+  }
 
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(searchInput.trim()), 400)
@@ -159,26 +181,6 @@ export default function CatalogPage({
       notifyCaught(err, 'Could not stop the game.')
     }
   }
-
-  useEffect(() => {
-    turnLockRef.current = false
-    setTurn(null)
-    setIncomingGames(null)
-    setPage(1)
-    setDisplayPage(1)
-  }, [
-    sort,
-    search,
-    creator,
-    prefixes,
-    excludePrefixes,
-    includedTags,
-    excludedTags,
-    queryTagType,
-    favoritesFilter,
-    hatedFilter,
-    catalogPageSize
-  ])
 
   useEffect(() => {
     let cancelled = false
@@ -239,22 +241,7 @@ export default function CatalogPage({
     return () => {
       cancelled = true
     }
-  }, [
-    page,
-    reloadToken,
-    sort,
-    search,
-    creator,
-    prefixes,
-    excludePrefixes,
-    includedTags,
-    excludedTags,
-    queryTagType,
-    favoritesFilter,
-    hatedFilter,
-    catalogPageSize,
-    onSessionExpired
-  ])
+  }, [page, reloadToken, filterQueryKey, onSessionExpired])
 
   useEffect(() => {
     const revertTo = pendingRevertRef.current

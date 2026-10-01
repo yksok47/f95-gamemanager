@@ -141,7 +141,17 @@ export async function setThreadIgnored(
   return ignored
 }
 
+let ignoredListInFlight: Promise<IgnoredThread[]> | null = null
+
 export async function listIgnoredThreads(): Promise<IgnoredThread[]> {
+  if (ignoredListInFlight) return ignoredListInFlight
+  ignoredListInFlight = loadIgnoredThreads().finally(() => {
+    ignoredListInFlight = null
+  })
+  return ignoredListInFlight
+}
+
+async function loadIgnoredThreads(): Promise<IgnoredThread[]> {
   const all: IgnoredThread[] = []
   let path = '/account/ignored?key=thread'
   for (let page = 0; page < MAX_PAGES; page += 1) {

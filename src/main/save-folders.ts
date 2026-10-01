@@ -779,7 +779,7 @@ async function identifyFromCatalog(folderName: string): Promise<CatalogGame | nu
     try {
       const page = await fetchCatalog(
         { search, rows: 90, page: 1 },
-        { skipFilterFetch: true, skipSessionOptions: true }
+        { skipSessionOptions: true }
       )
       for (const game of page.games) {
         const score = scoreSaveFolder(folderName, game.title)

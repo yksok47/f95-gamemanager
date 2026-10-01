@@ -7,6 +7,7 @@ import {
 } from './challenge-window'
 import { F95Error } from './errors'
 import { encodeMultipartForm, type MultipartFile } from './multipart'
+import { coalesceInflight, f95InflightGetKey } from './inflight'
 import { recordF95Request } from './request-log'
 import { pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
 
@@ -23,6 +24,8 @@ const RATE_LIMIT_MARKERS = [
 ]
 
 export { F95Error }
+
+const inFlightGets = new Map<string, Promise<{ response: Response; body: string }>>()
 
 export function f95Url(path: string): string {
   if (path.startsWith('http')) return path
@@ -121,6 +124,18 @@ export async function f95Fetch(
 ): Promise<{ response: Response; body: string }> {
   const url = f95Url(path)
   const method = requestMethod(init)
+  const key = f95InflightGetKey(method, url)
+  if (!key) return f95FetchOnce(path, init, options)
+  return coalesceInflight(inFlightGets, key, () => f95FetchOnce(path, init, options))
+}
+
+async function f95FetchOnce(
+  path: string,
+  init: RequestInit,
+  options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean }
+): Promise<{ response: Response; body: string }> {
+  const url = f95Url(path)
+  const method = requestMethod(init)
   const timeoutMs = options.timeoutMs ?? 20000
   const useBrowser = Boolean(options.preferBrowser || hasF95Browser())
 
@@ -161,7 +176,7 @@ export async function f95Fetch(
       console.info('[f95] bot-check detected — opening challenge window', url)
       const cleared = await resolveBotCheckInWindow(url)
       if (cleared) {
-        return f95Fetch(path, init, { ...options, skipChallenge: true, preferBrowser: true })
+        return f95FetchOnce(path, init, { ...options, skipChallenge: true, preferBrowser: true })
       }
       throw new F95Error(
         'F95zone bot-check was not completed. Finish it in the browser window, or close it and try again.',

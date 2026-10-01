@@ -1,5 +1,6 @@
 import type { FollowSyncStatus } from '@shared/types'
 import {
+  catalogCatchUpDone,
   catalogPagePastTimestamp,
   followedTimestampCutoff,
   newestCatalogTimestamp
@@ -64,15 +65,11 @@ export function getFollowSyncStatus(): FollowSyncStatus {
 /**
  * After shutdown, walk date-sorted catalog pages from newest until past the
  * stored watermark (strictly older than last seen, so equal timestamps are included).
- * With no watermark yet, walk until every followed game has been seen or until
- * past the oldest followed timestamp — never stop just because the newest row
- * is a game we already follow.
+ * With no watermark yet, only the newest page is fetched — a full followed-game
+ * walk is the manual toolbar refresh.
  */
 async function catalogCatchUp(): Promise<number> {
   const lastSeen = await getLastSeenCatalogUpdate()
-  const followed = lastSeen ? [] : await listSubscriptions()
-  const pendingIds = new Set(followed.map((game) => game.threadId))
-  const cutoff = followedTimestampCutoff(followed.map((game) => game.timestamp))
 
   let page = 1
   let matched = 0
@@ -89,18 +86,11 @@ async function catalogCatchUp(): Promise<number> {
 
     matched += await applyCatalogGames(result.games)
 
-    let done = page >= result.totalPages
-    if (!done && lastSeen) {
-      done = catalogPagePastTimestamp(result.games, lastSeen)
-    } else if (!done) {
-      for (const game of result.games) pendingIds.delete(game.threadId)
-      const pastOldest = cutoff > 0 && catalogPagePastTimestamp(result.games, cutoff)
-      done = pendingIds.size === 0 || pastOldest
-    }
+    const done = catalogCatchUpDone(page, result.totalPages, result.games, lastSeen)
 
     status.checked = matched
     status.updated = matched
-    status.pending = done ? 0 : lastSeen ? 1 : pendingIds.size
+    status.pending = done ? 0 : 1
     broadcastStatus()
 
     if (done) {
@@ -111,7 +101,9 @@ async function catalogCatchUp(): Promise<number> {
     if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
   }
 
-  if (newestOnTop && covered && !wasCancelled()) await advanceLastSeenCatalogUpdate(newestOnTop)
+  if (newestOnTop && covered && lastSeen && !wasCancelled()) {
+    await advanceLastSeenCatalogUpdate(newestOnTop)
+  }
   return matched
 }
 

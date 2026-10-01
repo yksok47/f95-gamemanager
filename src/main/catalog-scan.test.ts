@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  catalogCatchUpDone,
   catalogPagePastTimestamp,
   catalogWatermarkFromStore,
   followedTimestampCutoff,
@@ -51,5 +52,12 @@ describe('catalog scan bounds', () => {
     expect(followedTimestampCutoff([newest, 0, older])).toBe(0)
     expect(followedTimestampCutoff([newest])).toBe(newest)
     expect(followedTimestampCutoff([newest, older, middle])).toBe(older)
+  })
+
+  test('startup catch-up without a watermark stops after the newest page', () => {
+    expect(catalogCatchUpDone(1, 40, [{ timestamp: newest }], 0)).toBe(true)
+    expect(catalogCatchUpDone(1, 40, [{ timestamp: newest }], previous)).toBe(false)
+    expect(catalogCatchUpDone(1, 40, [{ timestamp: older }], previous)).toBe(true)
+    expect(catalogCatchUpDone(40, 40, [{ timestamp: newest }], previous)).toBe(true)
   })
 })

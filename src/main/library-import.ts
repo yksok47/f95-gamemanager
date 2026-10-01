@@ -310,7 +310,7 @@ async function identifyFromCatalog(title: string): Promise<CatalogGame | null> {
     try {
       const page = await fetchCatalog(
         { search, rows: 90, page: 1 },
-        { skipFilterFetch: true, skipSessionOptions: true }
+        { skipSessionOptions: true }
       )
       for (const game of page.games) {
         const score = scoreImportTitle(title, game.title)

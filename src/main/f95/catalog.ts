@@ -16,7 +16,9 @@ import type {
   CatalogQuery,
   CatalogTag
 } from '@shared/types'
-import { F95Error, f95Fetch } from './http'
+import { F95Error } from './errors'
+import { f95Fetch } from './http'
+import { coalesceInflight } from './inflight'
 
 type LatestDataGame = {
   thread_id: number
@@ -46,7 +48,10 @@ type LatestDataResponse = {
   }
 }
 
-/** SAM caps page size at 90; session options must match or list ignores higher `rows`. */
+/**
+ * SAM caps page size at 90. The `rows` query param is ignored unless the session
+ * cookie has the same cap via `cmd=options` (site default is 30).
+ */
 const CATALOG_ROWS_MAX = 90
 
 const CATALOG_SESSION_OPTIONS = {
@@ -65,6 +70,7 @@ let cachedFilters: CatalogFilters | null = null
 let filtersPromise: Promise<CatalogFilters> | null = null
 let catalogOptionsReady = false
 let catalogOptionsPromise: Promise<void> | null = null
+const inFlightCatalogLists = new Map<string, Promise<CatalogPage>>()
 
 async function applyCatalogSessionOptions(): Promise<void> {
   const body = new URLSearchParams(CATALOG_SESSION_OPTIONS)
@@ -98,9 +104,48 @@ async function ensureCatalogSessionOptions(): Promise<void> {
   await catalogOptionsPromise
 }
 
-/** Call after login/logout so options are re-applied on the new session cookie. */
-export function invalidateCatalogSessionOptions(): void {
+/** Drop in-memory catalog request state (tests, or a new login session). */
+export function resetCatalogRequestState(): void {
+  cachedFilters = null
+  filtersPromise = null
   catalogOptionsReady = false
+  catalogOptionsPromise = null
+  inFlightCatalogLists.clear()
+}
+
+function sortedIds(values?: number[]): number[] {
+  return values?.length ? [...values].sort((a, b) => a - b) : []
+}
+
+function catalogListKey(query: CatalogQuery, skipSessionOptions: boolean): string {
+  const page = query.page && query.page > 0 ? query.page : 1
+  const requested = query.rows && query.rows > 0 ? query.rows : CATALOG_ROWS_MAX
+  const rows = Math.min(requested, CATALOG_ROWS_MAX)
+  return JSON.stringify({
+    page,
+    rows,
+    sort: query.sort ?? 'date',
+    category: query.category ?? 'games',
+    search: sanitizeCatalogQuery(query.search ?? ''),
+    creator: sanitizeCatalogQuery(query.creator ?? ''),
+    ignored: query.ignored === 'show' ? 'show' : 'hide',
+    prefixes: sortedIds(query.prefixes),
+    excludePrefixes: sortedIds(query.excludePrefixes),
+    prefixType: query.prefixType ?? 'and',
+    tags: sortedIds(query.tags),
+    excludeTags: sortedIds(query.excludeTags),
+    tagType: query.tagType ?? 'or',
+    skipSessionOptions
+  })
+}
+
+function rememberFiltersFromList(msg: NonNullable<LatestDataResponse['msg']>): CatalogFilters {
+  const prefixes = prefixesFromUnknown(msg.prefixes)
+  const tags = tagsFromUnknown(msg.tags)
+  if (prefixes.length || tags.length) {
+    cachedFilters = finalizeFilters(prefixes, tags)
+  }
+  return cachedFilters ?? { prefixes: FALLBACK_PREFIXES, tags: [] }
 }
 
 export function uniqueScreenUrls(urls: unknown): string[] {
@@ -271,23 +316,6 @@ function parseFiltersFromHtml(html: string): CatalogFilters {
 }
 
 async function loadCatalogFilters(): Promise<CatalogFilters> {
-  try {
-    const { body } = await f95Fetch(
-      `/sam/latest_alpha/latest_data.php?cmd=filters&cat=games&_=${Date.now()}`,
-      { headers: { Accept: 'application/json,text/plain,*/*' } }
-    )
-    const parsed = JSON.parse(body) as LatestDataResponse
-    if (parsed.status === 'ok' && parsed.msg) {
-      const prefixes = prefixesFromUnknown(parsed.msg.prefixes)
-      const tags = tagsFromUnknown(parsed.msg.tags)
-      if (prefixes.length || tags.length) {
-        return finalizeFilters(prefixes, tags)
-      }
-    }
-  } catch {
-    // Fall through to HTML scrape / hardcoded list.
-  }
-
   const { body: html } = await f95Fetch('/sam/latest_alpha/')
   return parseFiltersFromHtml(html)
 }
@@ -314,23 +342,19 @@ function appendArray(params: URLSearchParams, name: string, values?: number[]): 
   }
 }
 
-export async function fetchCatalog(
-  query: CatalogQuery = {},
-  options?: { skipFilterFetch?: boolean; skipSessionOptions?: boolean }
+async function loadCatalogPage(
+  query: CatalogQuery,
+  skipSessionOptions: boolean
 ): Promise<CatalogPage> {
   const page = query.page && query.page > 0 ? query.page : 1
   const requested = query.rows && query.rows > 0 ? query.rows : CATALOG_ROWS_MAX
   const rows = Math.min(requested, CATALOG_ROWS_MAX)
   const sort = query.sort ?? 'date'
   const category = query.category ?? 'games'
-  const ts = Date.now()
   const search = sanitizeCatalogQuery(query.search ?? '')
   const creator = sanitizeCatalogQuery(query.creator ?? '')
-  const filtersPromise = options?.skipFilterFetch
-    ? Promise.resolve(cachedFilters || { prefixes: FALLBACK_PREFIXES, tags: [] })
-    : fetchCatalogFilters().catch((): CatalogFilters => ({ prefixes: FALLBACK_PREFIXES, tags: [] }))
 
-  if (!options?.skipSessionOptions) await ensureCatalogSessionOptions()
+  if (!skipSessionOptions) await ensureCatalogSessionOptions()
 
   const params = new URLSearchParams()
   params.set('cmd', 'list')
@@ -339,7 +363,7 @@ export async function fetchCatalog(
   params.set('sort', sort)
   params.set('rows', String(rows))
   params.set('ignored', query.ignored === 'show' ? 'show' : 'hide')
-  params.set('_', String(ts))
+  params.set('_', String(Date.now()))
   if (search) params.set('search', search)
   if (creator) params.set('creator', creator)
 
@@ -370,11 +394,20 @@ export async function fetchCatalog(
     throw new F95Error('F95zone catalog request failed.', 'parse')
   }
 
-  const filters = await filtersPromise
+  const filters = rememberFiltersFromList(parsed.msg)
   return {
     games: parsed.msg.data.map((entry) => mapGame(entry, filters.prefixes)),
     page: parsed.msg.pagination?.page ?? page,
     totalPages: parsed.msg.pagination?.total ?? 1,
     totalGames: parsed.msg.count ?? parsed.msg.data.length
   }
+}
+
+export async function fetchCatalog(
+  query: CatalogQuery = {},
+  options?: { skipSessionOptions?: boolean }
+): Promise<CatalogPage> {
+  const skipSessionOptions = Boolean(options?.skipSessionOptions)
+  const key = catalogListKey(query, skipSessionOptions)
+  return coalesceInflight(inFlightCatalogLists, key, () => loadCatalogPage(query, skipSessionOptions))
 }
