@@ -1230,13 +1230,13 @@ input[type='search']::-webkit-search-results-decoration {
   border-radius: 10px;
   padding: 10px 14px;
   border: 1px solid transparent;
-  background: #e8c547;
-  color: #1a1406;
+  background: #2563eb;
+  color: #eff6ff;
   font-weight: 650;
 }
 
 .update-btn:hover:not(:disabled) {
-  background: #f0d26a;
+  background: #3b82f6;
 }
 
 .ghost-btn {
