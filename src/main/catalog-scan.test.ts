@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
   catalogCatchUpDone,
+  catalogCatchUpShouldSeed,
   catalogPagePastTimestamp,
   catalogWatermarkFromStore,
   followedTimestampCutoff,
+  oldestFollowedCheckAt,
   watermarkFromHeadPage
 } from './catalog-scan'
 
@@ -54,10 +56,25 @@ describe('catalog scan bounds', () => {
     expect(followedTimestampCutoff([newest, older, middle])).toBe(older)
   })
 
+  test('oldest followed check ignores games that were never checked', () => {
+    expect(oldestFollowedCheckAt([])).toBe(0)
+    expect(oldestFollowedCheckAt([0, newest, older])).toBe(older)
+    expect(oldestFollowedCheckAt([newest, middle])).toBe(middle)
+  })
+
   test('startup catch-up without a watermark stops after the newest page', () => {
     expect(catalogCatchUpDone(1, 40, [{ timestamp: newest }], 0)).toBe(true)
     expect(catalogCatchUpDone(1, 40, [{ timestamp: newest }], previous)).toBe(false)
     expect(catalogCatchUpDone(1, 40, [{ timestamp: older }], previous)).toBe(true)
     expect(catalogCatchUpDone(40, 40, [{ timestamp: newest }], previous)).toBe(true)
+  })
+
+  test('a missing watermark reseeds by walking down to the oldest followed check', () => {
+    expect(catalogCatchUpDone(1, 40, [{ timestamp: newest }], 0, previous)).toBe(false)
+    expect(catalogCatchUpDone(2, 40, [{ timestamp: older }], 0, previous)).toBe(true)
+    expect(catalogCatchUpShouldSeed(newest, true, false, 0, previous)).toBe(true)
+    expect(catalogCatchUpShouldSeed(newest, true, false, 0, 0)).toBe(false)
+    expect(catalogCatchUpShouldSeed(newest, true, true, 0, previous)).toBe(false)
+    expect(catalogCatchUpShouldSeed(newest, true, false, previous, 0)).toBe(true)
   })
 })

@@ -75,19 +75,56 @@ export function watermarkFromHeadPage(games: DatedRow[], lastSeen: number): numb
 }
 
 /**
+ * Oldest followed `checkedAt`. Never-checked games are skipped so they cannot
+ * force a full catalog walk when reseeding a missing watermark.
+ */
+export function oldestFollowedCheckAt(times: Array<number | null | undefined>): number {
+  let oldest = 0
+  for (const value of times) {
+    const at = catalogTimestamp(value)
+    if (!at) continue
+    if (!oldest || at < oldest) oldest = at
+  }
+  return oldest
+}
+
+/**
+ * How far catch-up must walk: the stored watermark, or the oldest followed
+ * check when reseeding after the watermark is gone.
+ */
+export function catalogCatchUpBound(lastSeen: number, seedUntil = 0): number {
+  return catalogTimestamp(lastSeen) || catalogTimestamp(seedUntil)
+}
+
+/**
  * Automatic catch-up (app start / poll) stops after the newest page when there
- * is no watermark. Walking until every followed game appears is the manual
- * refresh — doing that on startup hammers Latest Updates.
+ * is no watermark and nothing to reseed from. Otherwise it walks until the
+ * page is older than the bound — a missing watermark uses the oldest followed
+ * check so we do not have to see every followed game again.
  */
 export function catalogCatchUpDone(
   page: number,
   totalPages: number,
   games: DatedRow[],
-  lastSeen: number
+  lastSeen: number,
+  seedUntil = 0
 ): boolean {
   if (page >= totalPages) return true
-  if (!catalogTimestamp(lastSeen)) return true
-  return catalogPagePastTimestamp(games, lastSeen)
+  const bound = catalogCatchUpBound(lastSeen, seedUntil)
+  if (!bound) return true
+  return catalogPagePastTimestamp(games, bound)
+}
+
+/** True when catch-up actually covered a bound and may write a new watermark. */
+export function catalogCatchUpShouldSeed(
+  newestOnTop: number,
+  covered: boolean,
+  cancelled: boolean,
+  lastSeen: number,
+  seedUntil = 0
+): boolean {
+  if (!newestOnTop || !covered || cancelled) return false
+  return Boolean(catalogCatchUpBound(lastSeen, seedUntil))
 }
 
 /**

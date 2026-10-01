@@ -287,6 +287,7 @@ export async function advanceLastSeenCatalogUpdate(timestamp: number): Promise<v
   lastSeenCatalogUpdate = at
   catalogScanVersion = CATALOG_SCAN_VERSION
   await persistMeta()
+  sendToRenderer('subscriptions:catalogWatermark', lastSeenCatalogUpdate)
 }
 
 export async function listSubscriptions(): Promise<Subscription[]> {

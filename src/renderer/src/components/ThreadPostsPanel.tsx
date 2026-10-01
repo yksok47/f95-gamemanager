@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type MouseEvent } from 'react'
-import type { ThreadPost, ThreadPostSearchHit } from '@shared/types'
+import { shouldAdvanceThreadRead, type ThreadPost, type ThreadPostSearchHit } from '@shared/types'
 import { isRelativeDate } from '@shared/updates'
 import { reactionIcon } from '../lib/reaction-icon'
 import { isPageSearchHotkey, findVisibleDialogs, pickTopmost } from '../lib/page-search'
@@ -23,7 +23,6 @@ type ThreadPostsPanelProps = {
 type PostsQuery = {
   page?: number
   postId?: number
-  latest?: boolean
   token: number
 }
 
@@ -109,7 +108,46 @@ export default function ThreadPostsPanel({
   const composerRef = useRef<BbCodeComposerHandle>(null)
   const restoringRef = useRef(false)
   const lastReadTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingLastRead = useRef<{ threadId: number; postId: number; page: number } | null>(null)
+  const highWaterRef = useRef<{ postId: number; page: number | null } | null>(null)
   const scrollListOnLoad = useRef(false)
+
+  function flushLastRead(): void {
+    if (lastReadTimer.current) {
+      clearTimeout(lastReadTimer.current)
+      lastReadTimer.current = null
+    }
+    const pending = pendingLastRead.current
+    if (!pending) return
+    pendingLastRead.current = null
+    void window.api.threads
+      .setLastRead(pending.threadId, pending.postId, pending.page)
+      .then((saved) => {
+        if (!saved?.postId) return
+        const current = highWaterRef.current
+        if (!current || shouldAdvanceThreadRead(saved, current)) {
+          highWaterRef.current = { postId: saved.postId, page: saved.page }
+        }
+      })
+      .catch(() => undefined)
+  }
+
+  function rememberLastRead(postId: number, page: number, immediate = false): void {
+    if (!postId || page < 1) return
+    const previous = highWaterRef.current
+    if (previous && !shouldAdvanceThreadRead({ postId, page }, previous)) return
+    highWaterRef.current = { postId, page }
+    pendingLastRead.current = { threadId, postId, page }
+    if (immediate) {
+      flushLastRead()
+      return
+    }
+    if (lastReadTimer.current) clearTimeout(lastReadTimer.current)
+    lastReadTimer.current = setTimeout(() => {
+      lastReadTimer.current = null
+      flushLastRead()
+    }, 400)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -123,6 +161,8 @@ export default function ThreadPostsPanel({
 
   useEffect(() => {
     searchGen.current += 1
+    highWaterRef.current = null
+    pendingLastRead.current = null
     setQuery(null)
     setPosts([])
     setDraft('')
@@ -140,6 +180,18 @@ export default function ThreadPostsPanel({
     setSearchId(null)
     setSearchError(null)
     setSearchBusy(false)
+    let cancelled = false
+    void window.api.threads.lastRead(threadId).then((saved) => {
+      if (cancelled || !saved?.postId) return
+      const current = highWaterRef.current
+      if (!current || shouldAdvanceThreadRead(saved, current)) {
+        highWaterRef.current = { postId: saved.postId, page: saved.page }
+      }
+    })
+    return () => {
+      cancelled = true
+      flushLastRead()
+    }
   }, [threadId])
 
   useEffect(() => {
@@ -157,6 +209,7 @@ export default function ThreadPostsPanel({
       .then((saved) => {
         if (cancelled) return
         if (saved?.postId) {
+          highWaterRef.current = { postId: saved.postId, page: saved.page }
           setQuery({
             postId: saved.postId,
             page: saved.page ?? undefined,
@@ -184,8 +237,7 @@ export default function ThreadPostsPanel({
     void window.api.threads
       .posts(threadId, {
         page: query.page,
-        postId: query.postId,
-        latest: query.latest
+        postId: query.postId
       })
       .then((next) => {
         if (cancelled) return
@@ -244,6 +296,11 @@ export default function ThreadPostsPanel({
   }, [busy, posts, highlightId])
 
   useEffect(() => {
+    if (!active || busy || !posts.length) return
+    rememberLastRead(posts[0].postId, page, true)
+  }, [active, busy, posts, page, threadId])
+
+  useEffect(() => {
     if (!active || !posts.length) return
     const root = listRef.current?.closest('.details-modal')
     const observer = new IntersectionObserver(
@@ -254,18 +311,15 @@ export default function ThreadPostsPanel({
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
         const id = Number(visible[0]?.target.getAttribute('data-post-id') || 0)
         if (!id) return
-        if (lastReadTimer.current) clearTimeout(lastReadTimer.current)
-        lastReadTimer.current = setTimeout(() => {
-          void window.api.threads.setLastRead(threadId, id, page).catch(() => undefined)
-        }, 400)
+        rememberLastRead(id, page)
       },
-      { root: root instanceof Element ? root : null, threshold: 0.4 }
+      { root: root instanceof Element ? root : null, threshold: 0 }
     )
     const nodes = listRef.current?.querySelectorAll('[data-post-id]') ?? []
     for (const node of nodes) observer.observe(node)
     return () => {
       observer.disconnect()
-      if (lastReadTimer.current) clearTimeout(lastReadTimer.current)
+      flushLastRead()
     }
   }, [active, posts, threadId, page])
 
@@ -434,9 +488,7 @@ export default function ThreadPostsPanel({
       if (next.focusPostId) {
         restoringRef.current = true
         setHighlightId(next.focusPostId)
-        void window.api.threads
-          .setLastRead(threadId, next.focusPostId, next.page)
-          .catch(() => undefined)
+        rememberLastRead(next.focusPostId, next.page, true)
       }
     } catch (err) {
       await handleLoginError(err, 'Could not post that reply.')
@@ -591,21 +643,7 @@ export default function ThreadPostsPanel({
           </div>
         ) : null}
       </div>
-      <div className="thread-posts-toolbar">
-        <button
-          className="ghost-btn"
-          type="button"
-          disabled={busy}
-          onClick={() => {
-            setHighlightId(null)
-            scrollListOnLoad.current = true
-            request({ latest: true })
-          }}
-        >
-          Latest
-        </button>
-        {renderPager()}
-      </div>
+      {totalPages > 1 ? <div className="thread-posts-toolbar">{renderPager()}</div> : null}
 
       {error ? (
         <p className="muted">

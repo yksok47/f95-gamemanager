@@ -15,7 +15,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThreadAttachment } from '@shared/types'
-import { applyBbCode, applyListBbCode, bbcodeToHtml, htmlToBbcode } from '../lib/bbcode'
+import { applyBbCode, applyListBbCode, applyStripBbCode, bbcodeToHtml, htmlToBbcode, moveCaretOutOfBbCodeTag, stripBbCode } from '../lib/bbcode'
 import { notifyCaught } from './ErrorNotifications'
 
 export type BbCodeComposerHandle = {
@@ -97,6 +97,7 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
     const pendingSel = useRef<{ start: number; end: number } | null>(null)
     const [previewEmpty, setPreviewEmpty] = useState(() => !value.trim())
     const savedRange = useRef<Range | null>(null)
+    const pendingPreviewCaret = useRef<Range | null>(null)
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -135,6 +136,7 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       if (!opened && skipPreviewSync.current) {
         skipPreviewSync.current = false
         setPreviewEmpty(composerLooksEmpty(node))
+        restorePendingPreviewCaret(node)
         return
       }
       skipPreviewSync.current = false
@@ -143,13 +145,43 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       pinComposerToModal(node)
     }, [value, preview, attachments])
 
-    function rememberPreviewRange(): void {
-      const sel = window.getSelection()
-      if (!sel || !sel.rangeCount) return
-      const range = sel.getRangeAt(0)
-      if (previewRef.current?.contains(range.commonAncestorContainer)) {
-        savedRange.current = range.cloneRange()
+    useEffect(() => {
+      if (!preview) return
+      function onSelectionChange(): void {
+        rememberPreviewRange()
       }
+      document.addEventListener('selectionchange', onSelectionChange)
+      return () => document.removeEventListener('selectionchange', onSelectionChange)
+    }, [preview])
+
+    function restorePendingPreviewCaret(editor: HTMLElement): void {
+      const caret = pendingPreviewCaret.current
+      pendingPreviewCaret.current = null
+      if (!caret || !rangeIsInEditor(editor, caret)) return
+      editor.focus()
+      const sel = window.getSelection()
+      if (!sel) return
+      sel.removeAllRanges()
+      sel.addRange(caret)
+      savedRange.current = caret.cloneRange()
+    }
+
+    function capturePendingPreviewCaret(): void {
+      const editor = previewRef.current
+      const sel = window.getSelection()
+      if (!editor || !sel || !sel.rangeCount) return
+      const range = sel.getRangeAt(0)
+      if (!rangeIsInEditor(editor, range)) return
+      pendingPreviewCaret.current = range.cloneRange()
+    }
+
+    function rememberPreviewRange(): void {
+      const editor = previewRef.current
+      const sel = window.getSelection()
+      if (!editor || !sel || !sel.rangeCount) return
+      const range = sel.getRangeAt(0)
+      if (!rangeIsInEditor(editor, range)) return
+      savedRange.current = range.cloneRange()
     }
 
     function restorePreviewRange(): Range | null {
@@ -159,10 +191,13 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       const sel = window.getSelection()
       if (!sel) return null
       const range = savedRange.current
-      if (range && editor.contains(range.commonAncestorContainer)) {
+      if (range && rangeIsInEditor(editor, range)) {
+        const next = range.cloneRange()
+        snapRangeIntoEditor(editor, next)
         sel.removeAllRanges()
-        sel.addRange(range)
-        return range
+        sel.addRange(next)
+        savedRange.current = next.cloneRange()
+        return next
       }
       const fallback = document.createRange()
       fallback.selectNodeContents(editor)
@@ -172,9 +207,21 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       return fallback
     }
 
-    function commitPreview(): void {
+    function commitPreview(opts?: { clearIfEmpty?: boolean }): void {
       const node = previewRef.current
       if (!node) return
+      if (opts?.clearIfEmpty) {
+        pruneEmptyBlockWraps(node)
+        if (previewHasNoUserContent(node)) {
+          node.innerHTML = ''
+          savedRange.current = null
+          skipPreviewSync.current = true
+          setPreviewEmpty(true)
+          onChange('')
+          pinComposerToModal(node)
+          return
+        }
+      }
       skipPreviewSync.current = true
       setPreviewEmpty(composerLooksEmpty(node))
       onChange(htmlToBbcode(node.innerHTML))
@@ -197,12 +244,16 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
                   : null
         if (command) {
           document.execCommand(command)
+          rememberPreviewRange()
+          capturePendingPreviewCaret()
           commitPreview()
           return
         }
         const color = open.match(/^\[COLOR=(.+)\]$/i)?.[1]
         if (color) {
           document.execCommand('foreColor', false, color)
+          rememberPreviewRange()
+          capturePendingPreviewCaret()
           commitPreview()
           return
         }
@@ -246,12 +297,21 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       if (!editor) return
       const range = restorePreviewRange()
       if (!range) return
-      const inner = range.collapsed ? placeholderText : range.toString()
+      const hadSelection = !range.collapsed && Boolean(range.toString())
+      const inner = hadSelection ? range.toString() : placeholderText
       const node = make(inner)
+      const target = primaryInsertedNode(node)
       range.deleteContents()
       range.insertNode(node)
-      range.collapse(false)
-      savedRange.current = range.cloneRange()
+      if (target && editorContainsNode(editor, target)) {
+        ensureCaretTarget(target)
+        placeCaretInNode(target, {
+          selectContents: Boolean(placeholderText) && !hadSelection,
+          atStart: !hadSelection
+        })
+      }
+      rememberPreviewRange()
+      capturePendingPreviewCaret()
       commitPreview()
     }
 
@@ -293,10 +353,44 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
       onChange(next)
     }
 
+    function stripFormatting(): void {
+      if (disabled) return
+      if (preview) {
+        const editor = previewRef.current
+        const range = restorePreviewRange()
+        if (!editor || !range) return
+        if (!range.collapsed) {
+          if (unwrapPreviewRange(editor, range)) {
+            rememberPreviewRange()
+            capturePendingPreviewCaret()
+            commitPreview()
+            return
+          }
+          const holder = document.createElement('div')
+          holder.appendChild(range.cloneContents())
+          savedRange.current = range.cloneRange()
+          insertPreviewHtml(bbcodeToHtml(stripBbCode(htmlToBbcode(holder.innerHTML)), attachments))
+          return
+        }
+        if (!exitPreviewFormatting(editor, range)) return
+        rememberPreviewRange()
+        capturePendingPreviewCaret()
+        commitPreview()
+        return
+      }
+      const node = textareaRef.current
+      const start = node?.selectionStart ?? 0
+      const end = node?.selectionEnd ?? start
+      const next = applyStripBbCode(value, start, end)
+      pendingSel.current = { start: next.start, end: next.end }
+      onChange(next.value)
+    }
+
     function selectedText(): string {
       if (preview) {
         const sel = window.getSelection()
-        if (sel && previewRef.current?.contains(sel.anchorNode)) return sel.toString()
+        const editor = previewRef.current
+        if (sel && editor && editorContainsNode(editor, sel.anchorNode)) return sel.toString()
         return ''
       }
       const node = textareaRef.current
@@ -388,6 +482,9 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
     }
 
     function onKeyDown(event: KeyboardEvent<HTMLElement>): void {
+      if (!event.altKey && !event.ctrlKey && !event.metaKey && isArrowKey(event.key)) {
+        if (preview ? leavePreviewWrap(event) : leaveTextareaWrap(event)) return
+      }
       if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey) return
       const key = event.key.toLowerCase()
       if (key === 'b') {
@@ -403,6 +500,50 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
         event.preventDefault()
         openDialog('link')
       }
+    }
+
+    function leavePreviewWrap(event: KeyboardEvent<HTMLElement>): boolean {
+      const editor = previewRef.current
+      const sel = window.getSelection()
+      if (!editor || !sel || !sel.rangeCount) return false
+      const range = sel.getRangeAt(0)
+      if (!range.collapsed && !event.shiftKey) return false
+      const wrap = findBbcodeWrap(editor, range.startContainer)
+      if (!wrap) return false
+      const block = isBlockBbcodeWrap(wrap)
+      const leaveAfter =
+        (event.key === 'ArrowRight' && isAtEditableEnd(wrap, range)) ||
+        (event.key === 'ArrowDown' && (block ? isOnLastEditableLine(wrap, range) : isAtEditableEnd(wrap, range)))
+      const leaveBefore =
+        (event.key === 'ArrowLeft' && isAtEditableStart(wrap, range)) ||
+        (event.key === 'ArrowUp' && (block ? isOnFirstEditableLine(wrap, range) : isAtEditableStart(wrap, range)))
+      if (!leaveAfter && !leaveBefore) return false
+      event.preventDefault()
+      const added = placeCaretOutside(wrap, leaveAfter, event.shiftKey)
+      rememberPreviewRange()
+      if (added) commitPreview()
+      return true
+    }
+
+    function leaveTextareaWrap(event: KeyboardEvent<HTMLElement>): boolean {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false
+      const node = textareaRef.current
+      if (!node) return false
+      const start = node.selectionStart
+      const end = node.selectionEnd
+      if (start !== end && !event.shiftKey) return false
+      const caret = event.key === 'ArrowLeft' ? start : end
+      const next = moveCaretOutOfBbCodeTag(value, caret, event.key === 'ArrowLeft' ? 'left' : 'right')
+      if (next == null) return false
+      event.preventDefault()
+      if (event.shiftKey) {
+        if (event.key === 'ArrowLeft') node.setSelectionRange(Math.min(next, end), end)
+        else node.setSelectionRange(start, Math.max(next, start))
+      } else {
+        node.setSelectionRange(next, next)
+      }
+      pendingSel.current = { start: node.selectionStart, end: node.selectionEnd }
+      return true
     }
 
     function onDrop(event: DragEvent<HTMLElement>): void {
@@ -497,6 +638,9 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
           <ToolBtn disabled={busy} title="Inline code" onClick={() => applyWrap('[ICODE]', '[/ICODE]', 'code')}>
             {'</>'}
           </ToolBtn>
+          <ToolBtn disabled={busy} title="Remove BBCode from selection, or exit the current tag" onClick={() => stripFormatting()}>
+            Clear
+          </ToolBtn>
           <button
             className={
               preview
@@ -529,7 +673,12 @@ const BbCodeComposer = forwardRef<BbCodeComposerHandle, BbCodeComposerProps>(
           data-placeholder={placeholder}
           hidden={!preview}
           aria-label={ariaLabel || 'Reply to this thread'}
-          onInput={commitPreview}
+          onInput={(event) => {
+            const inputType = (event.nativeEvent as InputEvent).inputType ?? ''
+            commitPreview({
+              clearIfEmpty: inputType.startsWith('delete') || inputType === 'historyUndo'
+            })
+          }}
           onClick={(event) => {
             const link = (event.target as HTMLElement).closest('a')
             if (!link || !event.currentTarget.contains(link)) return
@@ -777,8 +926,380 @@ function pinComposerToModal(from: HTMLElement): void {
 }
 
 function composerLooksEmpty(node: HTMLElement): boolean {
-  const text = node.innerText ?? ''
+  if (node.querySelector('img, a[data-attachment], video, iframe, pre, blockquote, details, ul, ol, li')) {
+    return false
+  }
+  return previewHasNoUserContent(node)
+}
+
+function previewHasNoUserContent(node: HTMLElement): boolean {
+  if (node.querySelector('img, a[data-attachment], video, iframe')) return false
+  const clone = node.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('[contenteditable="false"]').forEach((el) => el.remove())
+  const text = (clone.innerText ?? '').replace(/\u00a0/g, ' ')
   return text === '' || text === '\n' || text === '\r\n'
+}
+
+function pruneEmptyBlockWraps(editor: HTMLElement): void {
+  const blocks = [...editor.querySelectorAll('blockquote, pre, details, ul, ol')]
+  for (const el of blocks.reverse()) {
+    if (!(el instanceof HTMLElement) || !editor.contains(el)) continue
+    if (isEmptyBlock(el)) el.remove()
+  }
+}
+
+function isEmptyBlock(el: HTMLElement): boolean {
+  if (el.querySelector('img, a[data-attachment], video, iframe')) return false
+  const clone = el.cloneNode(true) as HTMLElement
+  clone.querySelectorAll('[contenteditable="false"], .bbCodeBlock-title, summary').forEach((node) => node.remove())
+  return !(clone.textContent ?? '').replace(/\u00a0/g, ' ').trim()
+}
+
+function isBbcodeWrap(el: HTMLElement): boolean {
+  const tag = el.tagName.toLowerCase()
+  if (
+    tag === 'strong' ||
+    tag === 'b' ||
+    tag === 'em' ||
+    tag === 'i' ||
+    tag === 'u' ||
+    tag === 's' ||
+    tag === 'strike' ||
+    tag === 'del' ||
+    tag === 'pre' ||
+    tag === 'code' ||
+    tag === 'blockquote' ||
+    tag === 'details' ||
+    tag === 'ul' ||
+    tag === 'ol' ||
+    tag === 'a' ||
+    tag === 'font'
+  ) {
+    return true
+  }
+  if (el.classList.contains('bbcode-preview-code')) return true
+  if (el.classList.contains('bbcode-preview-icode')) return true
+  if (el.classList.contains('bbcode-preview-ispoiler')) return true
+  if (el.classList.contains('bbcode-preview-spoiler')) return true
+  if (el.classList.contains('bbCodeBlock--quote')) return true
+  return Boolean(el.style.color || el.style.fontSize)
+}
+
+function findBbcodeWrap(editor: HTMLElement, node: Node | null): HTMLElement | null {
+  let current: Node | null = node
+  while (current && current !== editor) {
+    if (current instanceof HTMLElement && isBbcodeWrap(current)) return current
+    current = current.parentNode
+  }
+  return null
+}
+
+function splitElementAt(el: HTMLElement, container: Node, offset: number): HTMLElement | null {
+  const rest = document.createRange()
+  try {
+    rest.setStart(container, offset)
+    rest.setEnd(el, el.childNodes.length)
+  } catch {
+    return null
+  }
+  if (rest.collapsed) return null
+  const frag = rest.extractContents()
+  if (!frag.childNodes.length) return null
+  const clone = el.cloneNode(false) as HTMLElement
+  clone.appendChild(frag)
+  el.after(clone)
+  return clone
+}
+
+function unwrapElement(el: HTMLElement): { first: Node | null; last: Node | null } {
+  const parent = el.parentNode
+  const first = el.firstChild
+  const last = el.lastChild
+  if (!parent) return { first, last }
+  while (el.firstChild) parent.insertBefore(el.firstChild, el)
+  el.remove()
+  return { first, last }
+}
+
+function clampRangeToNode(range: Range, node: HTMLElement): Range | null {
+  const contents = document.createRange()
+  contents.selectNodeContents(node)
+  const next = range.cloneRange()
+  try {
+    if (next.compareBoundaryPoints(Range.START_TO_START, contents) < 0) {
+      next.setStart(contents.startContainer, contents.startOffset)
+    }
+    if (next.compareBoundaryPoints(Range.END_TO_END, contents) > 0) {
+      next.setEnd(contents.endContainer, contents.endOffset)
+    }
+  } catch {
+    return null
+  }
+  return next
+}
+
+function splitWrapAroundRange(wrap: HTMLElement, range: Range): boolean {
+  const clamped = clampRangeToNode(range, wrap)
+  if (!clamped) return false
+  splitElementAt(wrap, clamped.endContainer, clamped.endOffset)
+  const middle = splitElementAt(wrap, clamped.startContainer, clamped.startOffset)
+  if (middle) {
+    const { first, last } = unwrapElement(middle)
+    const sel = window.getSelection()
+    if (sel && first && last) {
+      const next = document.createRange()
+      next.setStartBefore(first)
+      next.setEndAfter(last)
+      sel.removeAllRanges()
+      sel.addRange(next)
+    }
+  }
+  if (!wrap.childNodes.length || previewHasNoUserContent(wrap)) wrap.remove()
+  return true
+}
+
+function findWrapIntersectingRange(editor: HTMLElement, range: Range): HTMLElement | null {
+  const inner = findBbcodeWrap(editor, range.commonAncestorContainer)
+  if (inner) return inner
+  const hits: HTMLElement[] = []
+  for (const node of editor.querySelectorAll('*')) {
+    if (!(node instanceof HTMLElement) || !isBbcodeWrap(node)) continue
+    try {
+      if (range.intersectsNode(node)) hits.push(node)
+    } catch {
+      continue
+    }
+  }
+  hits.sort((a, b) => (a.contains(b) ? 1 : b.contains(a) ? -1 : 0))
+  return hits[0] ?? null
+}
+
+function unwrapPreviewRange(editor: HTMLElement, range: Range): boolean {
+  let current = range
+  let changed = false
+  for (let i = 0; i < 8; i++) {
+    const wrap = findWrapIntersectingRange(editor, current)
+    if (!wrap) break
+    if (!splitWrapAroundRange(wrap, current)) break
+    changed = true
+    const sel = window.getSelection()
+    if (!sel?.rangeCount) break
+    current = sel.getRangeAt(0)
+  }
+  return changed
+}
+
+function exitPreviewFormatting(editor: HTMLElement, range: Range): boolean {
+  const fromTitle = range.startContainer instanceof Node
+    ? (range.startContainer instanceof Element
+        ? range.startContainer
+        : range.startContainer.parentElement
+      )?.closest('.bbCodeBlock-title, summary')
+    : null
+  const wrap = findBbcodeWrap(editor, fromTitle || range.startContainer)
+  if (!wrap) return false
+
+  if (fromTitle || rangeIsAtEndOf(wrap, range)) {
+    placeCaretAfter(wrap)
+    return true
+  }
+
+  const tail = document.createRange()
+  try {
+    tail.setStart(range.startContainer, range.startOffset)
+    tail.setEnd(wrap, wrap.childNodes.length)
+  } catch {
+    placeCaretAfter(wrap)
+    return true
+  }
+
+  const fragment = tail.extractContents()
+  const marker = document.createTextNode('')
+  wrap.parentNode?.insertBefore(marker, wrap.nextSibling)
+  if (fragment.childNodes.length) wrap.parentNode?.insertBefore(fragment, marker.nextSibling)
+  if (isEmptyBlock(wrap) || previewHasNoUserContent(wrap)) wrap.remove()
+
+  const sel = window.getSelection()
+  if (!sel) return true
+  const caret = document.createRange()
+  caret.setStartAfter(marker)
+  caret.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(caret)
+  marker.remove()
+  return true
+}
+
+function rangeIsAtEndOf(node: HTMLElement, range: Range): boolean {
+  const end = document.createRange()
+  end.selectNodeContents(node)
+  end.collapse(false)
+  try {
+    return range.collapsed && range.compareBoundaryPoints(Range.START_TO_START, end) >= 0
+  } catch {
+    return false
+  }
+}
+
+function placeCaretAfter(node: Node): void {
+  const sel = window.getSelection()
+  if (!sel) return
+  const caret = document.createRange()
+  caret.setStartAfter(node)
+  caret.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(caret)
+}
+
+function isBlockBbcodeWrap(el: HTMLElement): boolean {
+  const tag = el.tagName.toLowerCase()
+  return (
+    tag === 'pre' ||
+    tag === 'blockquote' ||
+    tag === 'details' ||
+    tag === 'ul' ||
+    tag === 'ol' ||
+    el.classList.contains('bbcode-preview-code') ||
+    el.classList.contains('bbcode-preview-spoiler') ||
+    el.classList.contains('bbCodeBlock--quote')
+  )
+}
+
+function editableTextAroundCaret(wrap: HTMLElement, range: Range, before: boolean): string {
+  const slice = document.createRange()
+  try {
+    if (before) {
+      slice.selectNodeContents(wrap)
+      slice.setEnd(range.startContainer, range.startOffset)
+    } else {
+      slice.selectNodeContents(wrap)
+      slice.setStart(range.startContainer, range.startOffset)
+    }
+  } catch {
+    return before ? 'x' : 'x'
+  }
+  const holder = document.createElement('div')
+  holder.appendChild(slice.cloneContents())
+  holder.querySelectorAll('[contenteditable="false"], .bbCodeBlock-title, summary').forEach((node) => node.remove())
+  holder.querySelectorAll('br').forEach((node) => node.replaceWith('\n'))
+  return (holder.textContent ?? '').replace(/\u00a0/g, ' ')
+}
+
+function isAtEditableStart(wrap: HTMLElement, range: Range): boolean {
+  return !editableTextAroundCaret(wrap, range, true).trim()
+}
+
+function isAtEditableEnd(wrap: HTMLElement, range: Range): boolean {
+  return !editableTextAroundCaret(wrap, range, false).trim()
+}
+
+function isOnFirstEditableLine(wrap: HTMLElement, range: Range): boolean {
+  return !editableTextAroundCaret(wrap, range, true).replace(/^\s+/, '').includes('\n')
+}
+
+function isOnLastEditableLine(wrap: HTMLElement, range: Range): boolean {
+  return !editableTextAroundCaret(wrap, range, false).replace(/\s+$/, '').includes('\n')
+}
+
+function placeCaretOutside(wrap: HTMLElement, after: boolean, extend: boolean): boolean {
+  let added = false
+  const sel = window.getSelection()
+  if (!sel) return false
+  const caret = document.createRange()
+  if (after) {
+    if (!wrap.nextSibling) {
+      if (isBlockBbcodeWrap(wrap)) {
+        wrap.after(document.createElement('br'))
+        added = true
+        caret.setStartAfter(wrap)
+      } else {
+        const spacer = document.createTextNode('\u200b')
+        wrap.after(spacer)
+        added = true
+        caret.setStart(spacer, 1)
+      }
+    } else {
+      caret.setStartAfter(wrap)
+    }
+  } else {
+    if (!wrap.previousSibling) {
+      const spacer = document.createTextNode('\u200b')
+      wrap.before(spacer)
+      added = true
+      caret.setStart(spacer, 0)
+    } else {
+      caret.setStartBefore(wrap)
+    }
+  }
+  caret.collapse(true)
+  if (extend && sel.rangeCount) {
+    try {
+      sel.extend(caret.startContainer, caret.startOffset)
+    } catch {
+      sel.removeAllRanges()
+      sel.addRange(caret)
+    }
+  } else {
+    sel.removeAllRanges()
+    sel.addRange(caret)
+  }
+  return added
+}
+
+function isArrowKey(key: string): boolean {
+  return key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
+}
+
+function editorContainsNode(editor: HTMLElement, node: Node | null): boolean {
+  return Boolean(node && (node === editor || editor.contains(node)))
+}
+
+function rangeIsInEditor(editor: HTMLElement, range: Range): boolean {
+  try {
+    if (!range.startContainer.isConnected || !range.endContainer.isConnected) return false
+  } catch {
+    return false
+  }
+  return editorContainsNode(editor, range.commonAncestorContainer)
+}
+
+function snapRangeIntoEditor(editor: HTMLElement, range: Range): void {
+  if (range.startContainer === editor) {
+    const child = editor.childNodes[range.startOffset] ?? editor.firstChild
+    if (child) range.setStart(child, 0)
+  }
+  if (range.endContainer === editor) {
+    const child = editor.childNodes[Math.max(0, range.endOffset - 1)] ?? editor.lastChild
+    if (child) {
+      const offset = child.nodeType === Node.TEXT_NODE ? (child.textContent?.length ?? 0) : child.childNodes.length
+      range.setEnd(child, offset)
+    }
+  }
+}
+
+function primaryInsertedNode(node: Node): Node | null {
+  if (node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return node
+  const elements = Array.from(node.childNodes).filter((child) => child.nodeType === Node.ELEMENT_NODE)
+  return elements[0] || node.firstChild
+}
+
+function ensureCaretTarget(node: Node): void {
+  if (!(node instanceof HTMLElement) || node.childNodes.length) return
+  node.appendChild(document.createElement('br'))
+}
+
+function placeCaretInNode(node: Node, opts: { selectContents?: boolean; atStart?: boolean }): void {
+  const sel = window.getSelection()
+  if (!sel) return
+  const range = document.createRange()
+  try {
+    range.selectNodeContents(node)
+    if (!opts.selectContents) range.collapse(Boolean(opts.atStart))
+    sel.removeAllRanges()
+    sel.addRange(range)
+  } catch {
+    return
+  }
 }
 
 function isHttpUrl(value: string): boolean {

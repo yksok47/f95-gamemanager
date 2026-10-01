@@ -257,7 +257,7 @@ export async function fetchThreadPostEdit(
   }
   const referer = threadUrl(threadId)
   const token = await tokenForThread(threadId)
-  const data = await xfJson(`/posts/${id}/edit`, token, referer, {}, 'GET')
+  const data = await xfJson(`/posts/${id}/edit`, token, referer, { _xfInlineEdit: '1' }, 'GET')
   let parsed = parsePostEditForm(xfHtmlContent(data))
   if (!parsed) {
     const { body } = await f95Fetch(
@@ -462,13 +462,21 @@ type XfJson = {
   errors?: string[] | Record<string, string>
   status?: string
   message?: string
-  html?: { content?: string; message?: string }
+  html?: string | { content?: string; message?: string }
 }
 
 function xfHtmlContent(data: XfJson): string {
-  if (typeof data.html?.content === 'string' && data.html.content.trim()) return data.html.content
-  if (typeof data.html?.message === 'string' && data.html.message.trim()) return data.html.message
-  if (typeof data.message === 'string' && /contentRow|block-row/.test(data.message)) return data.message
+  if (typeof data.html === 'string' && data.html.trim()) return data.html
+  if (data.html && typeof data.html === 'object') {
+    if (typeof data.html.content === 'string' && data.html.content.trim()) return data.html.content
+    if (typeof data.html.message === 'string' && data.html.message.trim()) return data.html.message
+  }
+  if (
+    typeof data.message === 'string' &&
+    /contentRow|block-row|js-editor|data-bb-code/.test(data.message)
+  ) {
+    return data.message
+  }
   return ''
 }
 

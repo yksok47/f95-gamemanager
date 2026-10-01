@@ -1192,10 +1192,28 @@ export type ThreadAttachmentUpload = {
   data: ArrayBuffer | Uint8Array
 }
 
-/** Last discussion post the user had on screen, plus the page as a backup. */
+/** Furthest discussion post the user has reached, plus the page as a backup. */
 export type ThreadLastRead = {
   postId: number
   page: number | null
+}
+
+function threadReadPage(value: unknown): number | null {
+  const page = Math.floor(Number(value))
+  return Number.isFinite(page) && page >= 1 ? page : null
+}
+
+/** High-water mark: later pages/posts win; paging backward does not. */
+export function shouldAdvanceThreadRead(
+  next: { postId: number; page?: number | null },
+  previous: { postId: number; page?: number | null } | null | undefined
+): boolean {
+  if (!previous) return true
+  const nextPage = threadReadPage(next.page)
+  const prevPage = threadReadPage(previous.page)
+  if (next.postId === previous.postId) return Boolean(nextPage && !prevPage)
+  if (nextPage != null && prevPage != null && nextPage !== prevPage) return nextPage > prevPage
+  return next.postId > previous.postId
 }
 
 export function lastReadNeedsPageFallback(
@@ -1203,8 +1221,8 @@ export function lastReadNeedsPageFallback(
   fallbackPage: number | null | undefined,
   loaded: { page: number; posts: Array<{ postId: number }> }
 ): boolean {
-  const page = Math.floor(Number(fallbackPage))
-  if (!Number.isFinite(page) || page < 1 || postId <= 0) return false
+  const page = threadReadPage(fallbackPage)
+  if (page == null || postId <= 0) return false
   if (loaded.posts.some((post) => post.postId === postId)) return false
   return loaded.page !== page
 }

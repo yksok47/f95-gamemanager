@@ -135,6 +135,7 @@ const api = {
     cancelSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:cancelSync'),
     startSync: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:startSync'),
     syncStatus: (): Promise<FollowSyncStatus> => ipcRenderer.invoke('subscriptions:syncStatus'),
+    catalogWatermark: (): Promise<number> => ipcRenderer.invoke('subscriptions:catalogWatermark'),
     onChange: (listener: (items: Subscription[]) => void): (() => void) => {
       const wrapped = (_event: unknown, items: Subscription[]): void => listener(items)
       ipcRenderer.on('subscriptions:changed', wrapped)
@@ -147,6 +148,13 @@ const api = {
       ipcRenderer.on('follow-sync:status', wrapped)
       return () => {
         ipcRenderer.removeListener('follow-sync:status', wrapped)
+      }
+    },
+    onCatalogWatermark: (listener: (at: number) => void): (() => void) => {
+      const wrapped = (_event: unknown, next: number): void => listener(next)
+      ipcRenderer.on('subscriptions:catalogWatermark', wrapped)
+      return () => {
+        ipcRenderer.removeListener('subscriptions:catalogWatermark', wrapped)
       }
     }
   },

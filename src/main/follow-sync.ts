@@ -1,9 +1,11 @@
 import type { FollowSyncStatus } from '@shared/types'
 import {
   catalogCatchUpDone,
+  catalogCatchUpShouldSeed,
   catalogPagePastTimestamp,
   followedTimestampCutoff,
-  newestCatalogTimestamp
+  newestCatalogTimestamp,
+  oldestFollowedCheckAt
 } from './catalog-scan'
 import { fetchCatalog } from './f95/catalog'
 import { F95Error } from './f95/errors'
@@ -65,11 +67,14 @@ export function getFollowSyncStatus(): FollowSyncStatus {
 /**
  * After shutdown, walk date-sorted catalog pages from newest until past the
  * stored watermark (strictly older than last seen, so equal timestamps are included).
- * With no watermark yet, only the newest page is fetched — a full followed-game
- * walk is the manual toolbar refresh.
+ * With no watermark, walk only as far as the oldest followed check date, then
+ * seed from the newest row — a full followed-game walk is the manual refresh.
  */
 async function catalogCatchUp(): Promise<number> {
   const lastSeen = await getLastSeenCatalogUpdate()
+  const seedUntil = lastSeen
+    ? 0
+    : oldestFollowedCheckAt((await listSubscriptions()).map((game) => game.checkedAt))
 
   let page = 1
   let matched = 0
@@ -86,7 +91,7 @@ async function catalogCatchUp(): Promise<number> {
 
     matched += await applyCatalogGames(result.games)
 
-    const done = catalogCatchUpDone(page, result.totalPages, result.games, lastSeen)
+    const done = catalogCatchUpDone(page, result.totalPages, result.games, lastSeen, seedUntil)
 
     status.checked = matched
     status.updated = matched
@@ -101,7 +106,7 @@ async function catalogCatchUp(): Promise<number> {
     if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
   }
 
-  if (newestOnTop && covered && lastSeen && !wasCancelled()) {
+  if (catalogCatchUpShouldSeed(newestOnTop, covered, wasCancelled(), lastSeen, seedUntil)) {
     await advanceLastSeenCatalogUpdate(newestOnTop)
   }
   return matched
@@ -212,12 +217,18 @@ export function cancelFollowSyncRun(): FollowSyncStatus {
   return getFollowSyncStatus()
 }
 
+/**
+ * Start the startup catch-up and poll loop. A missing watermark is reseeded
+ * from the oldest followed check on this first run, then later polls use it.
+ * Later calls are ignored so login restore cannot stack a second walk.
+ */
 export function startFollowSync(): Promise<FollowSyncStatus> {
-  const run = runFollowSync('catchup')
-  if (!started) {
-    started = true
-    void run.finally(scheduleNext)
+  if (started) {
+    return chain.then(() => getFollowSyncStatus())
   }
+  started = true
+  const run = runFollowSync('catchup')
+  void run.finally(scheduleNext)
   return run
 }
 

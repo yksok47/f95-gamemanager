@@ -162,6 +162,7 @@ import { clearDriveCaches } from './cloud-saves/drive'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
   applyCatalogGames,
+  getLastSeenCatalogUpdate,
   isSubscribed,
   listSubscriptions,
   refreshSubscription,
@@ -529,6 +530,14 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('subscriptions:syncStatus', () => getFollowSyncStatus())
+
+  ipcMain.handle('subscriptions:catalogWatermark', async () => {
+    try {
+      return await getLastSeenCatalogUpdate()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
 
   ipcMain.handle('threads:details', async (_event, threadId: number) => {
     try {

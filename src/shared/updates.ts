@@ -732,6 +732,32 @@ export function formatDateTime(at: number | undefined | null): string {
   })
 }
 
+/** Footer label for the catalog catch-up watermark: relative at a glance, exact on hover. */
+export function formatCatalogWatermark(
+  at: number | undefined | null,
+  now = Date.now()
+): { label: string; title: string } {
+  const ms = catalogTimestamp(at)
+  if (!ms) {
+    return {
+      label: 'Catch-up not seeded',
+      title: 'Automatic scans only fetch the newest catalog page until a watermark is established.'
+    }
+  }
+  const relative = formatRelativeTime(ms, now)
+  const exact = formatDateTime(ms)
+  const compact = new Date(ms).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+  return {
+    label: relative ? `Caught up through ${relative} · ${compact}` : 'Catch-up not seeded',
+    title: exact
+  }
+}
+
 export type GameUpdateState = {
   updateAvailable: boolean
   unplayedUpdate: boolean

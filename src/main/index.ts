@@ -19,6 +19,8 @@ import {
   setAppUpdateBeforeExitHook,
   startAppUpdateService,
 } from "./app-update";
+import { getAuthSession } from "./f95/auth";
+import { startFollowSync } from "./follow-sync";
 import { loadSession, persistSessionNow } from "./session-store";
 import { registerF95CdnRequestHeaders } from "./f95/cdn-request-headers";
 import { registerEmbedRequestHeaders } from "./embed-request-headers";
@@ -96,6 +98,12 @@ app.whenReady().then(async () => {
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
+  void getAuthSession()
+    .then((session) => {
+      if (!session.loggedIn) return;
+      return startFollowSync();
+    })
+    .catch((error) => console.warn("Could not start followed-game catch-up", error));
   void startCloudUserDataSync().catch((error) =>
     console.warn("Could not start user-data sync", error)
   );

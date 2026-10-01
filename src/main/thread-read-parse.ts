@@ -1,4 +1,4 @@
-import type { ThreadLastRead } from '@shared/types'
+import { shouldAdvanceThreadRead, type ThreadLastRead } from '@shared/types'
 
 export type ThreadReadRecord = {
   postId: number
@@ -22,6 +22,30 @@ export function saneThreadReadPage(value: unknown): number | undefined {
 
 export function threadLastReadFromRecord(record: ThreadReadRecord): ThreadLastRead {
   return { postId: record.postId, page: record.page ?? null }
+}
+
+export function applyThreadReadUpdate(
+  previous: ThreadReadRecord | undefined,
+  postId: number,
+  page?: number
+): { record: ThreadReadRecord; changed: boolean } | null {
+  if (!Number.isFinite(postId) || postId <= 0) return null
+  const incomingPage = saneThreadReadPage(page)
+  if (previous && !shouldAdvanceThreadRead({ postId, page: incomingPage }, previous)) {
+    return { record: previous, changed: false }
+  }
+  const nextPage = incomingPage ?? previous?.page
+  if (previous?.postId === postId && previous.page === nextPage) {
+    return { record: previous, changed: false }
+  }
+  return {
+    record: {
+      postId,
+      ...(nextPage ? { page: nextPage } : {}),
+      updatedAt: Date.now()
+    },
+    changed: true
+  }
 }
 
 export function parseThreadReadStore(value: unknown): ThreadReadStore {

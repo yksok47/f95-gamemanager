@@ -8,7 +8,13 @@ import type {
   VersionPlayStatus
 } from '@shared/types'
 import { RARITY_RANK } from '@shared/types'
-import { formatRelativeTime, latestKnownVersion, shouldListOnUpdatesPage, usableVersion } from '@shared/updates'
+import {
+  formatCatalogWatermark,
+  formatRelativeTime,
+  latestKnownVersion,
+  shouldListOnUpdatesPage,
+  usableVersion
+} from '@shared/updates'
 import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
 import LazyMount from '../components/LazyMount'
@@ -152,6 +158,7 @@ export default function FollowedPage({
   const updatesOnly = mode === 'updates'
   const [archiveFilter, setArchiveFilter] = useState<FilterChipState>('exclude')
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
+  const [catalogWatermark, setCatalogWatermark] = useState<number | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -165,6 +172,19 @@ export default function FollowedPage({
       stop()
     }
   }, [])
+
+  useEffect(() => {
+    if (!updatesOnly) return
+    let cancelled = false
+    void window.api.subscriptions.catalogWatermark().then((next) => {
+      if (!cancelled) setCatalogWatermark(next)
+    })
+    const stop = window.api.subscriptions.onCatalogWatermark(setCatalogWatermark)
+    return () => {
+      cancelled = true
+      stop()
+    }
+  }, [updatesOnly])
 
   useEffect(() => {
     if (sync?.lastError) notifyError(sync.lastError)
@@ -210,6 +230,8 @@ export default function FollowedPage({
     [games, libraryByThread, rosterIds, hiddenThreadIds]
   )
   const totalCount = updatesOnly ? pendingUpdates.length : games.length
+  const watermarkDisplay =
+    updatesOnly && catalogWatermark !== null ? formatCatalogWatermark(catalogWatermark) : null
   const visible = useMemo(
     () =>
       games
@@ -471,18 +493,25 @@ export default function FollowedPage({
         </div>
       </ToolbarPortal>
       <FooterPortal>
-        <span className="muted pager-label">
-          {updatesOnly
-            ? formatShownTotal(visible.length, totalCount, 'update', 'updates')
-            : formatShownTotal(visible.length, totalCount, 'followed')}
-        </span>
-        {sync?.running ? (
+        <div className="footer-cluster">
           <span className="muted pager-label">
-            {sync.pending
-              ? `Checking ${sync.checked}/${sync.checked + sync.pending}`
-              : 'Checking…'}
+            {updatesOnly
+              ? formatShownTotal(visible.length, totalCount, 'update', 'updates')
+              : formatShownTotal(visible.length, totalCount, 'followed')}
           </span>
-        ) : null}
+          {watermarkDisplay ? (
+            <span className="muted pager-label" title={watermarkDisplay.title}>
+              {watermarkDisplay.label}
+            </span>
+          ) : null}
+          {sync?.running ? (
+            <span className="muted pager-label">
+              {sync.pending
+                ? `Checking ${sync.checked}/${sync.checked + sync.pending}`
+                : 'Checking…'}
+            </span>
+          ) : null}
+        </div>
       </FooterPortal>
 
       <LocalAdvancedFilters

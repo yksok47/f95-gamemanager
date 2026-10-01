@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { lastReadNeedsPageFallback } from '@shared/types'
-import { parseThreadReadStore } from './thread-read-parse'
+import { lastReadNeedsPageFallback, shouldAdvanceThreadRead } from '@shared/types'
+import { applyThreadReadUpdate, parseThreadReadStore } from './thread-read-parse'
 
 describe('parseThreadReadStore', () => {
   test('keeps post ids from old records that have no page', () => {
@@ -34,6 +34,39 @@ describe('parseThreadReadStore', () => {
     expect(store.lastRead['1']).toEqual({ postId: 8, updatedAt: 1 })
     expect(store.lastRead['2']).toBeUndefined()
     expect(store.lastRead.nope).toBeUndefined()
+  })
+})
+
+describe('shouldAdvanceThreadRead', () => {
+  test('keeps the furthest page when browsing backward', () => {
+    expect(shouldAdvanceThreadRead({ postId: 90, page: 45 }, { postId: 120, page: 46 })).toBe(false)
+    expect(shouldAdvanceThreadRead({ postId: 130, page: 47 }, { postId: 120, page: 46 })).toBe(true)
+  })
+
+  test('keeps the furthest post on the same page', () => {
+    expect(shouldAdvanceThreadRead({ postId: 90, page: 46 }, { postId: 120, page: 46 })).toBe(false)
+    expect(shouldAdvanceThreadRead({ postId: 130, page: 46 }, { postId: 120, page: 46 })).toBe(true)
+  })
+
+  test('fills in a missing backup page for the same post', () => {
+    expect(shouldAdvanceThreadRead({ postId: 22, page: 7 }, { postId: 22 })).toBe(true)
+    expect(shouldAdvanceThreadRead({ postId: 22, page: 6 }, { postId: 22, page: 7 })).toBe(false)
+  })
+})
+
+describe('applyThreadReadUpdate', () => {
+  test('does not replace a later page with an earlier one', () => {
+    const previous = { postId: 120, page: 46, updatedAt: 10 }
+    const applied = applyThreadReadUpdate(previous, 90, 45)
+    expect(applied).toEqual({ record: previous, changed: false })
+  })
+
+  test('moves forward to a later page', () => {
+    const previous = { postId: 120, page: 46, updatedAt: 10 }
+    const applied = applyThreadReadUpdate(previous, 200, 47)
+    expect(applied?.changed).toBe(true)
+    expect(applied?.record.postId).toBe(200)
+    expect(applied?.record.page).toBe(47)
   })
 })
 

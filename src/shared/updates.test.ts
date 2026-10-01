@@ -4,6 +4,7 @@ import {
   addVersionPlaytime,
   canonicalVersionName,
   ensureKnownVersion,
+  formatCatalogWatermark,
   gameUpdateState,
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
@@ -346,3 +347,20 @@ describe('version aliases', () => {
     ).toBe('0.9')
   })
 })
+
+describe('formatCatalogWatermark', () => {
+  test('explains a missing catch-up watermark', () => {
+    expect(formatCatalogWatermark(0)).toEqual({
+      label: 'Catch-up not seeded',
+      title: 'Automatic scans only fetch the newest catalog page until a watermark is established.'
+    })
+  })
+
+  test('shows how far catch-up has continuously covered', () => {
+    const now = Date.parse('2026-10-01T21:00:00Z')
+    const shown = formatCatalogWatermark(now - 3 * 60 * 60 * 1000, now)
+    expect(shown.label.startsWith('Caught up through 3 hours ago · ')).toBe(true)
+    expect(shown.title.length).toBeGreaterThan(0)
+  })
+})
+

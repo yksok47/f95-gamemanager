@@ -116,18 +116,53 @@ function postFromNode(node: Cheerio<AnyNode>, threadId: number, $: CheerioAPI): 
 export function parsePostEditForm(html: string): { message: string; attachmentHash: string | null } | null {
   if (!html.trim()) return null
   const $ = load(html)
-  const field = $('textarea[name="message"], input[name="message"]').first()
-  if (!field.length) return null
-  const raw = field.val()
-  const message = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : ''
+  const message = editorBbCode($)
+  if (message == null) return null
   const hash = normalize(
     $('input[name="attachment_hash"]').first().attr('value') ||
       $('input[name="attachment_hash_combined[hash]"]').first().attr('value') ||
+      hashFromCombined($('input[name="attachment_hash_combined"]').first().attr('value') || '') ||
       ''
   )
   return {
     message,
     attachmentHash: /^[a-f0-9]{32}$/i.test(hash) ? hash : null
+  }
+}
+
+function editorBbCode($: CheerioAPI): string | null {
+  const named = $('textarea[name="message"], input[name="message"]').first()
+  const namedValue = named.length ? formValue(named) : null
+  const bb = $('input[data-bb-code="message"]').first()
+  const bbValue = bb.length ? formValue(bb) : null
+
+  if (namedValue != null && namedValue.trim()) return namedValue
+  if (bbValue != null) return bbValue
+  if (namedValue != null) return namedValue
+
+  for (const el of $('noscript').toArray()) {
+    const inner = $(el).html() || $(el).text() || ''
+    if (!/name\s*=\s*["']message["']/i.test(inner)) continue
+    const nested = parsePostEditForm(inner)
+    if (nested) return nested.message
+  }
+
+  return null
+}
+
+function formValue(node: Cheerio<AnyNode>): string {
+  const raw = node.val() ?? node.attr('value') ?? ''
+  return typeof raw === 'string' ? raw : Array.isArray(raw) ? raw.join('') : ''
+}
+
+function hashFromCombined(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith('{')) return ''
+  try {
+    const parsed = JSON.parse(trimmed) as { hash?: unknown }
+    return typeof parsed.hash === 'string' ? parsed.hash : ''
+  } catch {
+    return ''
   }
 }
 

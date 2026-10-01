@@ -25,6 +25,180 @@ export function applyBbCode(
   return { value: next, start: innerStart, end: innerStart + inner.length }
 }
 
+export function stripBbCode(value: string): string {
+  let text = value
+  text = text.replace(/\[ATTACH(?:=[^\]]*)?\]\d+\[\/ATTACH\]/gi, '')
+  for (let i = 0; i < 12; i++) {
+    const next = text.replace(/\[([A-Z]+)(?:=[^\]]*)?\]([\s\S]*?)\[\/\1\]/gi, '$2')
+    if (next === text) break
+    text = next
+  }
+  text = text.replace(/\[\*\]\s?/g, '')
+  text = text.replace(/\[\/?[A-Z]+(?:=[^\]]*)?\]/gi, '')
+  return text.replace(/\n{3,}/g, '\n\n')
+}
+
+export function applyStripBbCode(value: string, start: number, end: number): BbCodeSelection {
+  if (start === end) return exitBbCodeAtCaret(value, start)
+  let from = Math.min(start, end)
+  let to = Math.max(start, end)
+  let current = value
+  for (let i = 0; i < 12; i++) {
+    const wrap = innermostOverlappingWrap(current, from, to)
+    if (!wrap) break
+    const next = rewriteWrapAroundSelection(current, wrap, from, to)
+    if (next.value === current && next.start === from && next.end === to) break
+    current = next.value
+    from = next.start
+    to = next.end
+  }
+  return { value: current, start: from, end: to }
+}
+
+export function exitBbCodeAtCaret(value: string, caret: number): BbCodeSelection {
+  const wrap = findInnermostBbCodeWrap(value, caret)
+  if (!wrap) return { value, start: caret, end: caret }
+  const after = value.slice(caret, wrap.closeStart)
+  if (!after) return { value, start: wrap.closeEnd, end: wrap.closeEnd }
+  const prefix = value.slice(0, wrap.openStart)
+  const open = value.slice(wrap.openStart, wrap.openEnd)
+  const before = value.slice(wrap.openEnd, caret)
+  const close = value.slice(wrap.closeStart, wrap.closeEnd)
+  const suffix = value.slice(wrap.closeEnd)
+  if (!before) {
+    const next = `${prefix}${after}${suffix}`
+    return { value: next, start: prefix.length, end: prefix.length }
+  }
+  const next = `${prefix}${open}${before}${close}${after}${suffix}`
+  const nextCaret = prefix.length + open.length + before.length + close.length
+  return { value: next, start: nextCaret, end: nextCaret }
+}
+
+export function moveCaretOutOfBbCodeTag(
+  value: string,
+  caret: number,
+  direction: 'left' | 'right'
+): number | null {
+  const wrap = findInnermostBbCodeWrap(value, caret)
+  if (!wrap) return null
+  if (direction === 'right' && caret >= wrap.closeStart) return wrap.closeEnd
+  if (direction === 'left' && caret <= wrap.openEnd) return wrap.openStart
+  return null
+}
+
+type BbCodeWrap = { tag: string; openStart: number; openEnd: number; closeStart: number; closeEnd: number }
+
+function innermostOverlappingWrap(value: string, from: number, to: number): BbCodeWrap | null {
+  const wraps = findAllBbCodeWraps(value).filter((wrap) => from < wrap.closeEnd && to > wrap.openStart)
+  wraps.sort((a, b) => a.closeEnd - a.openStart - (b.closeEnd - b.openStart))
+  return wraps[0] ?? null
+}
+
+function rewriteWrapAroundSelection(value: string, wrap: BbCodeWrap, from: number, to: number): BbCodeSelection {
+  const openTag = value.slice(wrap.openStart, wrap.openEnd)
+  const closeTag = value.slice(wrap.closeStart, wrap.closeEnd)
+  const hitsOpen = from < wrap.openEnd && to > wrap.openStart
+  const hitsClose = from < wrap.closeEnd && to > wrap.closeStart
+  const inner = value.slice(wrap.openEnd, wrap.closeStart)
+  const prefix = value.slice(0, wrap.openStart)
+  const suffix = value.slice(wrap.closeEnd)
+
+  if (hitsOpen && hitsClose) {
+    const next = `${prefix}${inner}${suffix}`
+    return { value: next, start: mapIndexAfterRemovingTags(from, wrap), end: mapIndexAfterRemovingTags(to, wrap) }
+  }
+
+  if (hitsOpen) {
+    const split = Math.max(0, Math.min(to, wrap.closeStart) - wrap.openEnd)
+    const leftInner = inner.slice(0, split)
+    const rightInner = inner.slice(split)
+    const next = `${prefix}${leftInner}${rightInner ? `${openTag}${rightInner}${closeTag}` : ''}${suffix}`
+    return { value: next, start: prefix.length, end: prefix.length + leftInner.length }
+  }
+
+  if (hitsClose) {
+    const split = Math.max(0, Math.min(from, wrap.closeStart) - wrap.openEnd)
+    const leftInner = inner.slice(0, split)
+    const rightInner = inner.slice(split)
+    const next = `${prefix}${leftInner ? `${openTag}${leftInner}${closeTag}` : ''}${rightInner}${suffix}`
+    const start = prefix.length + (leftInner ? openTag.length + leftInner.length + closeTag.length : 0)
+    return { value: next, start, end: start + rightInner.length }
+  }
+
+  const a = from - wrap.openEnd
+  const b = to - wrap.openEnd
+  const leftInner = inner.slice(0, a)
+  const mid = inner.slice(a, b)
+  const rightInner = inner.slice(b)
+  const next = `${prefix}${leftInner ? `${openTag}${leftInner}${closeTag}` : ''}${mid}${
+    rightInner ? `${openTag}${rightInner}${closeTag}` : ''
+  }${suffix}`
+  const start = prefix.length + (leftInner ? openTag.length + leftInner.length + closeTag.length : 0)
+  return { value: next, start, end: start + mid.length }
+}
+
+function mapIndexAfterRemovingTags(index: number, wrap: BbCodeWrap): number {
+  const openLen = wrap.openEnd - wrap.openStart
+  const closeLen = wrap.closeEnd - wrap.closeStart
+  if (index <= wrap.openStart) return index
+  if (index <= wrap.openEnd) return wrap.openStart
+  if (index <= wrap.closeStart) return index - openLen
+  if (index <= wrap.closeEnd) return wrap.closeStart - openLen
+  return index - openLen - closeLen
+}
+
+function findInnermostBbCodeWrap(value: string, caret: number): BbCodeWrap | null {
+  const wraps = findAllBbCodeWraps(value).filter((wrap) => caret >= wrap.openEnd && caret <= wrap.closeStart)
+  wraps.sort((a, b) => a.closeStart - a.openEnd - (b.closeStart - b.openEnd))
+  return wraps[0] ?? null
+}
+
+function findAllBbCodeWraps(value: string): BbCodeWrap[] {
+  const wraps: BbCodeWrap[] = []
+  const re = /\[(\/)?([A-Z]+)(?:=[^\]]*)?\]/gi
+  const stack: { tag: string; openStart: number; openEnd: number }[] = []
+  let match: RegExpExecArray | null
+  while ((match = re.exec(value))) {
+    const tag = match[2].toUpperCase()
+    const isClose = Boolean(match[1])
+    const start = match.index
+    const end = start + match[0].length
+    if (!isClose) {
+      stack.push({ tag, openStart: start, openEnd: end })
+      if (tag === 'CODE' || tag === 'ICODE') {
+        const close = new RegExp(`\\[\\/${tag}\\]`, 'ig')
+        close.lastIndex = end
+        const closed = close.exec(value)
+        stack.pop()
+        if (!closed) continue
+        wraps.push({
+          tag,
+          openStart: start,
+          openEnd: end,
+          closeStart: closed.index,
+          closeEnd: closed.index + closed[0].length
+        })
+        re.lastIndex = closed.index + closed[0].length
+      }
+      continue
+    }
+    for (let i = stack.length - 1; i >= 0; i--) {
+      if (stack[i].tag !== tag) continue
+      const open = stack[i]
+      stack.length = i
+      wraps.push({
+        tag,
+        openStart: open.openStart,
+        openEnd: open.openEnd,
+        closeStart: start,
+        closeEnd: end
+      })
+      break
+    }
+  }
+  return wraps
+}
+
 export function applyListBbCode(
   value: string,
   start: number,
@@ -123,7 +297,7 @@ export function htmlToBbcode(html: string): string {
 }
 
 function serializeNode(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
+  if (node.nodeType === Node.TEXT_NODE) return (node.textContent ?? '').replace(/\u200b/g, '')
   if (node.nodeType !== Node.ELEMENT_NODE) return ''
   const el = node as HTMLElement
   const tag = el.tagName.toLowerCase()
@@ -142,12 +316,12 @@ function serializeNode(node: Node): string {
 
   const inner = serializeChildren(el)
 
-  if (tag === 'strong' || tag === 'b') return `[B]${inner}[/B]`
-  if (tag === 'em' || tag === 'i') return `[I]${inner}[/I]`
-  if (tag === 'u') return `[U]${inner}[/U]`
-  if (tag === 's' || tag === 'strike' || tag === 'del') return `[S]${inner}[/S]`
-  if (classListContains(el, 'bbcode-preview-ispoiler')) return `[ISPOILER]${inner}[/ISPOILER]`
-  if (tag === 'code') return `[ICODE]${inner}[/ICODE]`
+  if (tag === 'strong' || tag === 'b') return wrapInline('B', inner)
+  if (tag === 'em' || tag === 'i') return wrapInline('I', inner)
+  if (tag === 'u') return wrapInline('U', inner)
+  if (tag === 's' || tag === 'strike' || tag === 'del') return wrapInline('S', inner)
+  if (classListContains(el, 'bbcode-preview-ispoiler')) return wrapInline('ISPOILER', inner)
+  if (tag === 'code') return wrapInline('ICODE', inner)
   if (tag === 'blockquote' || classListContains(el, 'bbCodeBlock--quote')) {
     const arg = quoteArgFromElement(el)
     return arg ? `[QUOTE=${arg}]${inner}[/QUOTE]` : `[QUOTE]${inner}[/QUOTE]`
@@ -186,8 +360,10 @@ function serializeNode(node: Node): string {
   let wrapped = inner
   const color = sanitizeColor(el.style.color || el.getAttribute('color') || '')
   const size = sanitizeSize(el.style.fontSize || fontSizeFromAttr(el.getAttribute('size')))
-  if (color) wrapped = `[COLOR=${toHexColor(el.style.color || el.getAttribute('color') || color)}]${wrapped}[/COLOR]`
-  if (size) wrapped = `[SIZE=${size}]${wrapped}[/SIZE]`
+  if (color && wrapped.trim()) {
+    wrapped = `[COLOR=${toHexColor(el.style.color || el.getAttribute('color') || color)}]${wrapped}[/COLOR]`
+  }
+  if (size && wrapped.trim()) wrapped = `[SIZE=${size}]${wrapped}[/SIZE]`
 
   if (tag === 'div' || tag === 'p' || tag === 'h1' || tag === 'h2' || tag === 'h3') {
     return wrapped.replace(/\n$/, '') + '\n'
@@ -197,6 +373,10 @@ function serializeNode(node: Node): string {
 
 function serializeChildren(el: HTMLElement): string {
   return Array.from(el.childNodes).map(serializeNode).join('')
+}
+
+function wrapInline(tag: string, inner: string): string {
+  return inner.trim() ? `[${tag}]${inner}[/${tag}]` : inner
 }
 
 function classListContains(el: HTMLElement, name: string): boolean {

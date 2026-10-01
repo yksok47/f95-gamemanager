@@ -1,5 +1,6 @@
 /**
  * Per-thread last-read discussion post, so reopening Posts lands on the same place.
+ * This is a high-water mark: visiting an earlier page does not move it back.
  * The page is a backup when the linked post has been removed.
  */
 import { mkdir, readFile, writeFile } from 'fs/promises'
@@ -7,9 +8,9 @@ import { dirname } from 'path'
 import type { ThreadLastRead } from '@shared/types'
 import { getAppPaths } from './paths'
 import {
+  applyThreadReadUpdate,
   emptyThreadReadStore,
   parseThreadReadStore,
-  saneThreadReadPage,
   threadLastReadFromRecord,
   type ThreadReadRecord,
   type ThreadReadStore
@@ -37,16 +38,6 @@ async function persist(store: ThreadReadStore): Promise<void> {
   await writeFile(file, JSON.stringify(store, null, 2), 'utf8')
 }
 
-function queueWrite(store: ThreadReadStore): Promise<void> {
-  cache = store
-  writeChain = writeChain
-    .then(() => persist(store))
-    .catch((error) => {
-      console.warn('[thread-read] persist failed', error)
-    })
-  return writeChain
-}
-
 export async function getLastReadPost(threadId: number): Promise<ThreadLastRead | null> {
   const id = Number(threadId)
   if (!Number.isFinite(id) || id <= 0) return null
@@ -64,24 +55,30 @@ export async function setLastReadPost(
   const nextPostId = Number(postId)
   if (!Number.isFinite(id) || id <= 0) return null
   if (!Number.isFinite(nextPostId) || nextPostId <= 0) return null
-  const store = await loadStore()
-  const key = String(id)
-  const previous = store.lastRead[key]
-  const nextPage = saneThreadReadPage(page) ?? previous?.page
-  if (previous?.postId === nextPostId && previous?.page === nextPage) {
-    return threadLastReadFromRecord(previous)
-  }
-  const record: ThreadReadRecord = {
-    postId: nextPostId,
-    ...(nextPage ? { page: nextPage } : {}),
-    updatedAt: Date.now()
-  }
-  await queueWrite({
-    version: 1,
-    lastRead: {
-      ...store.lastRead,
-      [key]: record
+
+  const result = writeChain.then(async () => {
+    const store = await loadStore()
+    const key = String(id)
+    const applied = applyThreadReadUpdate(store.lastRead[key], nextPostId, page)
+    if (!applied) return null
+    if (!applied.changed) return threadLastReadFromRecord(applied.record)
+    const nextStore: ThreadReadStore = {
+      version: 1,
+      lastRead: {
+        ...store.lastRead,
+        [key]: applied.record
+      }
     }
+    cache = nextStore
+    try {
+      await persist(nextStore)
+    } catch (error) {
+      console.warn('[thread-read] persist failed', error)
+    }
+    return threadLastReadFromRecord(applied.record)
   })
-  return threadLastReadFromRecord(record)
+  writeChain = result.then(() => undefined).catch((error) => {
+    console.warn('[thread-read] persist failed', error)
+  })
+  return result.catch(() => null)
 }

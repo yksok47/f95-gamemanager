@@ -105,6 +105,37 @@ describe('posts unit', () => {
     expect(parsePostEditForm('<p>no form</p>')).toBeNull()
   })
 
+  it('reads BBCode from the XenForo rich editor hidden field', () => {
+    expect(
+      parsePostEditForm(`
+<form action="/posts/44/edit" method="post" class="js-quickEditForm">
+  <textarea name="message_html" class="input js-editor u-jsOnly" data-xf-init="editor" data-original-name="message"></textarea>
+  <input type="hidden" value="Hello [B]world[/B]" data-bb-code="message" />
+  <noscript>
+    <textarea name="message" class="input"></textarea>
+  </noscript>
+  <input type="hidden" name="attachment_hash" value="99f58f84de758effcb80b0479f58e05c" />
+  <input type="hidden" name="attachment_hash_combined" value="{&quot;type&quot;:&quot;post&quot;,&quot;hash&quot;:&quot;99f58f84de758effcb80b0479f58e05c&quot;}" />
+</form>`)
+    ).toEqual({
+      message: 'Hello [B]world[/B]',
+      attachmentHash: '99f58f84de758effcb80b0479f58e05c'
+    })
+  })
+
+  it('reads BBCode when the noscript message box is omitted', () => {
+    expect(
+      parsePostEditForm(`
+<form action="/posts/44/edit" method="post">
+  <textarea name="message_html" class="js-editor" data-original-name="message"></textarea>
+  <input type="hidden" value="[QUOTE]keep me[/QUOTE]" data-bb-code="message" />
+</form>`)
+    ).toEqual({
+      message: '[QUOTE]keep me[/QUOTE]',
+      attachmentHash: null
+    })
+  })
+
   it('reads page nav and whether posting is allowed', () => {
     expect(parsePostsPageNav(SAMPLE)).toEqual({ page: 1, totalPages: 12 })
     const page = postsPageFromDocument(load(SAMPLE), 99, 1)
