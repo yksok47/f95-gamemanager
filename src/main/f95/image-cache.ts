@@ -3,9 +3,7 @@ import { mkdir, readFile, rename, rm, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { getAppPaths } from '../paths'
 import {
-  f95ImgProtocolUrl,
   imageCacheFileName,
-  isF95CdnImageUrl,
   normalizeImageCacheUrl,
   originalUrlFromProtocolRequest,
   sniffImageMime
@@ -13,7 +11,6 @@ import {
 
 const F95_REFERER = 'https://f95zone.to/'
 const FETCH_TIMEOUT_MS = 20000
-const FETCH_CONCURRENCY = 6
 
 export const F95_IMG_SCHEME = {
   scheme: 'f95-img',
@@ -31,8 +28,6 @@ type CachedImage = { bytes: Buffer; mime: string }
 /** URLs currently downloaded by the cache — must not be redirected back into f95-img. */
 const bypassRedirect = new Set<string>()
 const inflight = new Map<string, Promise<CachedImage>>()
-const fetchWaiters: Array<() => void> = []
-let activeFetches = 0
 let registered = false
 
 function cacheDir(): string {
@@ -57,19 +52,6 @@ function shouldBypassRedirect(url: string): boolean {
   return bypassRedirect.has(url) || bypassRedirect.has(normalizeImageCacheUrl(url))
 }
 
-async function withFetchSlot<T>(fn: () => Promise<T>): Promise<T> {
-  if (activeFetches >= FETCH_CONCURRENCY) {
-    await new Promise<void>((resolve) => fetchWaiters.push(resolve))
-  }
-  activeFetches += 1
-  try {
-    return await fn()
-  } finally {
-    activeFetches -= 1
-    fetchWaiters.shift()?.()
-  }
-}
-
 export async function initF95ImageCache(): Promise<void> {
   const dir = cacheDir()
   await rm(dir, { recursive: true, force: true })
@@ -79,8 +61,6 @@ export async function initF95ImageCache(): Promise<void> {
 export async function clearF95ImageCache(): Promise<void> {
   inflight.clear()
   bypassRedirect.clear()
-  fetchWaiters.length = 0
-  activeFetches = 0
   await rm(cacheDir(), { recursive: true, force: true })
 }
 
@@ -171,7 +151,7 @@ async function loadImage(url: string): Promise<CachedImage> {
       const mime = sniffImageMime(cached) || 'application/octet-stream'
       return { bytes: cached, mime }
     }
-    return withFetchSlot(() => fetchRemoteImage(keyUrl))
+    return fetchRemoteImage(keyUrl)
   })()
 
   inflight.set(keyUrl, task)
@@ -180,17 +160,6 @@ async function loadImage(url: string): Promise<CachedImage> {
   } finally {
     inflight.delete(keyUrl)
   }
-}
-
-/** Shared with the guest adblock listener — Electron only keeps one onBeforeRequest handler. */
-export function maybeRedirectCdnImageRequest(details: {
-  method: string
-  resourceType: string
-  url: string
-}): string | undefined {
-  if (details.method !== 'GET' || details.resourceType !== 'image') return undefined
-  if (shouldBypassRedirect(details.url) || !isF95CdnImageUrl(details.url)) return undefined
-  return f95ImgProtocolUrl(details.url)
 }
 
 export function registerF95ImageCache(): void {

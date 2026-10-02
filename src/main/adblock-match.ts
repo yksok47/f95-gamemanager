@@ -216,7 +216,7 @@ export function matchNetworkRequest({
 }: NetworkCheck): NetworkDecision {
   if (resourceType === 'mainFrame') return { cancel: false }
   // Screenshots in threads are often on third-party image hosts. EasyList is
-  // too aggressive there; guest windows also cannot use the f95-img cache.
+  // too aggressive there; guest windows load those images directly.
   if (
     (resourceType === 'image' || resourceType === 'media') &&
     (isForumHost(pageHostname(pageUrl)) || isForumHost(pageHostname(url)))

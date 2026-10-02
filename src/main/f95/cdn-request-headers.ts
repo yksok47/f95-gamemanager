@@ -17,10 +17,9 @@ const F95_REFERER = 'https://f95zone.to/'
 let registered = false
 
 /**
- * Catalog JSON goes through session.fetch (cookies + Referer). Cover <img> tags are
- * redirected to the on-disk image cache; cache misses fetch the CDN from main with
- * a first-party Referer. This header rewrite still covers any non-image CDN requests
- * (and the cache's own session.fetch).
+ * Catalog JSON goes through session.fetch (cookies + Referer). Cover / gallery
+ * <img> tags load the CDN directly from the renderer (localhost origin), so this
+ * rewrites Referer to a first-party F95 URL that the attachments host accepts.
  */
 export function registerF95CdnRequestHeaders(): void {
   if (registered) return

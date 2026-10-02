@@ -895,6 +895,10 @@ export default function App(): JSX.Element {
               event.preventDefault()
               event.stopPropagation()
             }}
+            onClick={(event) => {
+              if (event.button !== 0) return
+              if (activeThreadId != null) minimizeDetailsWindow(activeThreadId)
+            }}
             onAuxClick={(event) => {
               if (event.button !== 1) return
               event.preventDefault()

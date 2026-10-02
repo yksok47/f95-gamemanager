@@ -76,6 +76,7 @@ import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import UserNotesPanel from '../components/UserNotesPanel'
+import ProgressiveCdnImg from '../components/ProgressiveCdnImg'
 import { useCatalogPrefixes, useCatalogTags } from '../lib/catalog-prefixes'
 import { useCloudSaveStatus } from '../lib/cloud-saves'
 import {
@@ -2344,7 +2345,7 @@ function GameDetailsPage({
                   type="button"
                   onClick={() => setLightbox(index)}
                 >
-                  <img src={url} alt="" referrerPolicy="no-referrer" />
+                  <ProgressiveCdnImg src={url} />
                 </button>
               ))}
             </div>
@@ -2860,10 +2861,8 @@ function GameDetailsPage({
                 <ClearIcon />
               </button>
               <div className="lightbox-stage" ref={lightboxStageRef}>
-                <img
+                <ProgressiveCdnImg
                   src={gallery[lightbox]}
-                  alt=""
-                  referrerPolicy="no-referrer"
                   draggable={false}
                   onClick={(event) => event.stopPropagation()}
                 />
@@ -2915,7 +2914,7 @@ function GameDetailsPage({
                       title={`Photo ${index + 1} of ${gallery.length}`}
                       onClick={() => setLightbox(index)}
                     >
-                      <img src={url} alt="" referrerPolicy="no-referrer" draggable={false} />
+                      <ProgressiveCdnImg src={url} draggable={false} />
                     </button>
                   ))}
                 </div>

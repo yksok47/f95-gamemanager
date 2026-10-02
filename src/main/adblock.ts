@@ -9,7 +9,6 @@ import {
   shouldBlockPopup as matchShouldBlockPopup,
   type AdblockEngine
 } from './adblock-match'
-import { maybeRedirectCdnImageRequest } from './f95/image-cache'
 
 const LIST_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 const guestContentsIds = new Set<number>()
@@ -133,14 +132,9 @@ function registerWebRequest(): void {
   registered = true
 
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    // Live forum HTML is subject to f95zone CSP, which does not allow f95-img:.
-    // Only the app renderer should rewrite CDN <img> tags onto the cache protocol.
+    // App renderer is not a forum page — skip EasyList. CDN images load directly
+    // (Referer rewritten in cdn-request-headers); guest windows keep f95zone CSP.
     if (!isGuestContentsId(details.webContentsId)) {
-      const cdn = maybeRedirectCdnImageRequest(details)
-      if (cdn) {
-        callback({ redirectURL: cdn })
-        return
-      }
       callback({})
       return
     }
