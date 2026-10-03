@@ -15,7 +15,7 @@ import { parsePostEditForm, postsPageFromDocument } from './parser/posts/postsPa
 import { parsePostSearch, searchResultsPath } from './parser/postSearch/postSearchParser'
 
 const HOST = 'https://f95zone.to'
-const CACHE_VERSION = 1
+const CACHE_VERSION = 2
 const POSTS_TTL_MS = 5 * 60 * 1000
 
 const postsCache = new Map<string, { at: number; value: ThreadPostsPage }>()

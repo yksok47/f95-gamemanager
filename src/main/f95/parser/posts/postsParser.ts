@@ -24,11 +24,20 @@ export function parsePostsDocument($: CheerioAPI, threadId = 0): ThreadPost[] {
   $(POST_SELECTOR).each((_, el) => {
     const node = $(el)
     if (node.closest('.js-quickReply, .message--quickReply').length) return
-    if (node.hasClass('message-threadStarterPost')) return
+    // XenForo marks every OP reply with message-threadStarterPost. Skip only #1
+    // (already shown in Overview/About), not later posts by the thread starter.
+    if (isThreadFirstPost(node)) return
     const post = postFromNode(node, threadId, $)
     if (post) posts.push(post)
   })
   return unique(posts, (post) => String(post.postId))
+}
+
+function isThreadFirstPost(node: Cheerio<AnyNode>): boolean {
+  if (node.hasClass('message--first')) return true
+  const position = positionFromNode(node)
+  if (position === 1) return true
+  return node.hasClass('message-threadStarterPost') && position <= 1
 }
 
 export function parsePostsPageNav(html: string): { page: number; totalPages: number } {

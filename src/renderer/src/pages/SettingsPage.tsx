@@ -17,6 +17,7 @@ import { formatDateTime } from '@shared/updates'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
+import AppAboutPanel from '../components/AppAboutPanel'
 import AppUpdatePanel from '../components/AppUpdatePanel'
 import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught } from '../components/ErrorNotifications'
@@ -24,20 +25,22 @@ import Switch from '../components/Switch'
 import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored' | 'requests'
+type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored' | 'about' | 'requests'
 
 type SettingsPageProps = {
   settings: AppSettings
   onSaveSettings: (next: Partial<AppSettings>) => Promise<void>
   onOpenThread: (threadId: number, title: string) => void
   onIgnoredChange?: (threadId: number, ignored: boolean) => void
+  onSessionExpired: () => Promise<void>
 }
 
 export default function SettingsPage({
   settings,
   onSaveSettings,
   onOpenThread,
-  onIgnoredChange
+  onIgnoredChange,
+  onSessionExpired
 }: SettingsPageProps): JSX.Element {
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
@@ -48,6 +51,7 @@ export default function SettingsPage({
   const [userDataPath, setUserDataPath] = useState('')
   const [uploadLimitDraft, setUploadLimitDraft] = useState(String(settings.p2pUploadLimitKBps || ''))
   const [catalogPageSizeDraft, setCatalogPageSizeDraft] = useState(settings.catalogPageSize)
+  const [aboutReady, setAboutReady] = useState(false)
   const appUpdate = useAppUpdate()
 
   useEffect(() => {
@@ -61,6 +65,10 @@ export default function SettingsPage({
   useEffect(() => {
     setCatalogPageSizeDraft(settings.catalogPageSize)
   }, [settings.catalogPageSize])
+
+  useEffect(() => {
+    if (tab === 'about') setAboutReady(true)
+  }, [tab])
 
 
   useEffect(() => {
@@ -126,12 +134,13 @@ export default function SettingsPage({
     { id: 'tags', label: 'Favorite tags' },
     { id: 'hated', label: 'Hated tags' },
     { id: 'ignored', label: 'Ignored' },
+    { id: 'about', label: 'About' },
     { id: 'requests', label: 'Request log' }
   ]
 
   return (
     <div className="settings-page">
-      <section className="settings-card">
+      <section className={tab === 'about' ? 'settings-card settings-card-wide' : 'settings-card'}>
         <h1>Settings</h1>
 
         <div className="downloads-p2p-tabs" role="tablist">
@@ -410,6 +419,16 @@ export default function SettingsPage({
 
         {tab === 'ignored' ? (
           <IgnoredThreadsPanel onOpenThread={onOpenThread} onIgnoredChange={onIgnoredChange} />
+        ) : null}
+
+        {aboutReady ? (
+          <div hidden={tab !== 'about'}>
+            <AppAboutPanel
+              active={tab === 'about'}
+              onOpenThread={onOpenThread}
+              onSessionExpired={onSessionExpired}
+            />
+          </div>
         ) : null}
 
         {tab === 'requests' ? <F95RequestLogPanel /> : null}

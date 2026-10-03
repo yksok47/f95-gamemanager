@@ -101,6 +101,7 @@ import {
 } from '../lib/library'
 import ReviewCard from '../components/ReviewCard'
 import ThreadPostsPanel from '../components/ThreadPostsPanel'
+import { threadProseTarget } from '../lib/thread-prose'
 import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { DelayedMount, InlineLoading, Spinner } from '../components/Spinner'
@@ -1391,7 +1392,7 @@ function GameDetailsPage({
     [p2pEnabled, p2pTransfers, p2pSharedHashes, summary.threadId, title, installingFile]
   )
 
-  async function openUrl(url: string, entry?: DownloadEntry): Promise<void> {
+  async function openUrl(url: string, entry?: DownloadEntry, download = false): Promise<void> {
     const packageHint = entry ? packageHintFromEntry(entry, version) : undefined
     const entryVersion = (entry?.version || '').trim()
     const requiresVersion =
@@ -1399,24 +1400,28 @@ function GameDetailsPage({
     const contextVersion = entry
       ? entryVersion || (requiresVersion ? version : '')
       : version
-    await window.api.shell.open(url, {
-      threadId: summary.threadId,
-      title,
-      version: contextVersion,
-      engine,
-      creator,
-      coverUrl: coverUrl || summary.coverUrl,
-      rating: summary.rating,
-      likes: summary.likes,
-      views: summary.views,
-      threadUrl: summary.threadUrl || details?.threadUrl,
-      prefixes: summary.prefixes,
-      tags: summary.tags,
-      timestamp: summary.timestamp,
-      updatedAt: summary.updatedAt,
-      screens: summary.screens,
-      packageHint
-    })
+    await window.api.shell.open(
+      url,
+      {
+        threadId: summary.threadId,
+        title,
+        version: contextVersion,
+        engine,
+        creator,
+        coverUrl: coverUrl || summary.coverUrl,
+        rating: summary.rating,
+        likes: summary.likes,
+        views: summary.views,
+        threadUrl: summary.threadUrl || details?.threadUrl,
+        prefixes: summary.prefixes,
+        tags: summary.tags,
+        timestamp: summary.timestamp,
+        updatedAt: summary.updatedAt,
+        screens: summary.screens,
+        packageHint
+      },
+      download ? { download: true } : undefined
+    )
   }
 
   async function approveTransfer(id: string, tags: PackageInstallTags): Promise<void> {
@@ -1743,50 +1748,18 @@ function GameDetailsPage({
   }
 
   function onProseClick(event: MouseEvent<HTMLElement>): void {
-    const spoilerButton = (event.target as HTMLElement).closest('.bbCodeSpoiler-button')
-    if (spoilerButton) {
-      event.preventDefault()
-      const spoiler = spoilerButton.closest('.bbCodeSpoiler')
-      spoiler?.classList.toggle('is-active')
-      return
-    }
-    const expandToggle = (event.target as HTMLElement).closest('.bbCodeBlock-expandToggle')
-    if (expandToggle instanceof HTMLElement) {
-      event.preventDefault()
-      const block = expandToggle.closest('.bbCodeBlock--expandable')
-      if (block) {
-        const expanded = block.classList.toggle('is-expanded')
-        expandToggle.textContent = expanded ? 'Show less' : 'Show more'
-        expandToggle.setAttribute('aria-expanded', expanded ? 'true' : 'false')
-      }
-      return
-    }
-    const target = (event.target as HTMLElement).closest('a')
+    const target = threadProseTarget(event, summary.threadId)
     if (!target) return
-    const href = target.getAttribute('href')
-    if (!href) return
-    event.preventDefault()
-    const postId =
-      Number(target.getAttribute('data-post-id') || 0) ||
-      Number(
-        (href.match(/\/posts\/(\d+)/i) ||
-          href.match(/\/post-(\d+)/i) ||
-          href.match(/goto\/post\?id=(\d+)/i) ||
-          href.match(/#(?:js-)?post-(\d+)/i))?.[1] || 0
-      )
-    const threadId = Number(target.getAttribute('data-thread-id') || 0)
-    const hrefId = href.match(/\/threads\/(?:[^/?#]*\.)?(\d+)/i)
-    const nextId = threadId || Number(hrefId?.[1] || 0)
-    if (postId && (!nextId || nextId === summary.threadId)) {
+    if (target.kind === 'post') {
       setTab('posts')
-      setPostsJump({ postId, key: Date.now() })
+      setPostsJump({ postId: target.postId, key: Date.now() })
       return
     }
-    if (nextId) {
-      onOpenThread(nextId, target.getAttribute('data-thread-title') || target.textContent?.trim() || '')
+    if (target.kind === 'thread') {
+      onOpenThread(target.threadId, target.title)
       return
     }
-    void openUrl(href)
+    void openUrl(target.href, undefined, target.download)
   }
 
   function copyThreadId(): void {
@@ -2353,9 +2326,17 @@ function GameDetailsPage({
                       <span className="muted">{open ? 'Hide' : 'Show'}</span>
                     </button>
                     {open ? (
-                      <div className="changelog-body" onClick={onProseClick}>
-                        {entry.text}
-                      </div>
+                      entry.html ? (
+                        <div
+                          className="changelog-body thread-prose"
+                          onClick={onProseClick}
+                          dangerouslySetInnerHTML={{ __html: entry.html }}
+                        />
+                      ) : (
+                        <div className="changelog-body" onClick={onProseClick}>
+                          {entry.text}
+                        </div>
+                      )
                     ) : null}
                   </section>
                 )
@@ -2913,6 +2894,7 @@ function GameDetailsPage({
               <div className="lightbox-stage" ref={lightboxStageRef}>
                 <ProgressiveCdnImg
                   src={gallery[lightbox]}
+                  full
                   draggable={false}
                   onClick={(event) => event.stopPropagation()}
                 />

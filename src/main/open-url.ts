@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron'
+import { isDirectFileHref } from '@shared/direct-file'
 import type { GameFileContext } from '@shared/types'
 import {
   registerGuestContents,
@@ -18,6 +19,7 @@ type GuestInfo = {
 
 const guests = new Map<BrowserWindow, GuestInfo>()
 let primary: BrowserWindow | null = null
+let mainWindow: BrowserWindow | null = null
 let mainContentsId: number | null = null
 
 const CLOSE_AFTER_DOWNLOAD_MS = 250
@@ -33,12 +35,12 @@ function parseHttpUrl(url: string): URL | null {
 }
 
 function isDirectFileUrl(url: URL): boolean {
-  return /\.(zip|7z|rar|exe)(\?|$)/i.test(url.pathname)
+  return isDirectFileHref(url.href)
 }
 
 function filenameFromUrl(url: URL): string {
-  const name = url.pathname.split('/').pop()
-  return name ? decodeURIComponent(name) : ''
+  const name = decodeURIComponent(url.pathname).split('/').filter(Boolean).pop()
+  return name || ''
 }
 
 function downloadInContents(
@@ -87,7 +89,15 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
   registerGuestContents(contentsId)
 
   win.webContents.on('will-navigate', (event, url) => {
-    if (!parseHttpUrl(url)) event.preventDefault()
+    const parsed = parseHttpUrl(url)
+    if (!parsed) {
+      event.preventDefault()
+      return
+    }
+    if (isDirectFileUrl(parsed)) {
+      event.preventDefault()
+      downloadInContents(win.webContents, parsed.href)
+    }
   })
 
   win.webContents.on('did-finish-load', () => {
@@ -174,6 +184,26 @@ export function dismissGuestsAfterDownload(contents?: Electron.WebContents | nul
   }, CLOSE_AFTER_DOWNLOAD_MS)
 }
 
+function startDirectDownload(
+  url: string,
+  options: {
+    context?: GameFileContext
+    opener?: BrowserWindow | null
+  } = {}
+): void {
+  const opener = options.opener && isUsableWindow(options.opener) ? options.opener : null
+  if (opener) {
+    downloadInContents(opener.webContents, url, options.context)
+    return
+  }
+  if (isUsableWindow(mainWindow)) {
+    downloadInContents(mainWindow.webContents, url, options.context)
+    return
+  }
+  const win = createGuest(false, null)
+  downloadInContents(win.webContents, url, options.context)
+}
+
 export async function openInAppWindow(
   url: string,
   options: {
@@ -181,11 +211,17 @@ export async function openInAppWindow(
     context?: GameFileContext
     show?: boolean
     opener?: BrowserWindow | null
+    download?: boolean
   } = {}
 ): Promise<void> {
   const parsed = parseHttpUrl(url)
   if (!parsed) {
     throw new Error('Invalid link')
+  }
+
+  if (options.download || isDirectFileUrl(parsed)) {
+    startDirectDownload(parsed.href, options)
+    return
   }
 
   const reuse = options.reuse !== false
@@ -226,17 +262,19 @@ export function closeAllInAppWindows(): void {
 }
 
 export function attachMainWindowGuards(
-  mainWindow: BrowserWindow,
+  window: BrowserWindow,
   isRendererUrl: (url: string) => boolean
 ): void {
-  mainContentsId = mainWindow.webContents.id
-  mainWindow.webContents.on('will-navigate', (event, url) => {
+  mainWindow = window
+  mainContentsId = window.webContents.id
+  window.webContents.on('will-navigate', (event, url) => {
     if (isRendererUrl(url)) return
     event.preventDefault()
     void openInAppWindow(url).catch(() => undefined)
   })
 
-  mainWindow.on('close', () => {
+  window.on('close', () => {
+    if (mainWindow === window) mainWindow = null
     closeAllInAppWindows()
   })
 }

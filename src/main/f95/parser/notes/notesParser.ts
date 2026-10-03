@@ -1,6 +1,7 @@
 import { load, type CheerioAPI, type Cheerio } from 'cheerio'
 import type { AnyNode, Element } from 'domhandler'
 import type { NoteSection } from '@shared/types'
+import { f95AttachmentThumbUrl } from '@shared/f95-cdn-url'
 
 export type { NoteSection } from '@shared/types'
 
@@ -44,7 +45,7 @@ export function isNotesLabel(raw: string): boolean {
   if (/^(?:installation|install(?:ation)?(?:\s+instructions?)?)$/.test(text)) return true
   if (/^instructions?(?:\s+for\s+.+)?$/.test(text)) return true
   if (/^(?:tutorial|howto|how\s*to)(?:\s*\/\s*help)?$/.test(text)) return true
-  if (/^(?:faq|help|troubleshooting)$/.test(text)) return true
+  if (/^(?:tips?|faq|help|troubleshooting)$/.test(text)) return true
   return false
 }
 
@@ -253,6 +254,28 @@ function sanitizeHtml(html: string): string {
     node.attr('href', abs)
     node.attr('target', '_blank')
     node.attr('rel', 'noreferrer')
+  })
+  root.find('img').each((_, el) => {
+    const node = $(el)
+    const raw =
+      node.attr('data-src') ||
+      node.attr('data-url') ||
+      node.attr('src') ||
+      (node.parent().is('a') ? node.parent().attr('href') : '') ||
+      ''
+    if (!raw || raw.startsWith('data:') || raw.startsWith('javascript:')) {
+      node.remove()
+      return
+    }
+    const abs = absolutize(raw)
+    if (!abs) {
+      node.remove()
+      return
+    }
+    node.attr('src', f95AttachmentThumbUrl(abs))
+    node.attr('data-url', abs)
+    node.removeAttr('srcset')
+    node.attr('referrerpolicy', 'no-referrer')
   })
   return (root.html() || '')
     .replace(/^(?:\s|:|<br\s*\/?>)+/i, '')

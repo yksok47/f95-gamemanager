@@ -2,6 +2,7 @@ import { load, type Cheerio, type CheerioAPI } from 'cheerio'
 import type { AnyNode } from 'domhandler'
 import type { ThreadReview, ThreadReviewsPage } from '@shared/types'
 import { extractThreadId } from '../../parse'
+import { f95AttachmentThumbUrl } from '@shared/f95-cdn-url'
 
 export type { ThreadReview } from '@shared/types'
 
@@ -512,7 +513,8 @@ export function sanitizeHtml(html: string, currentThreadId?: number): string {
       node.remove()
       return
     }
-    node.attr('src', src)
+    node.attr('src', f95AttachmentThumbUrl(src))
+    node.attr('data-url', src)
     node.removeAttr('srcset')
     node.attr('referrerpolicy', 'no-referrer')
   })

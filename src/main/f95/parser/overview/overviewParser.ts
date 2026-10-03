@@ -107,7 +107,7 @@ function isNotesLabel(raw: string): boolean {
   if (/^(?:installation|install(?:ation)?(?:\s+instructions?)?)$/.test(text)) return true
   if (/^instructions?(?:\s+for\s+.+)?$/.test(text)) return true
   if (/^(?:tutorial|howto|how\s*to)(?:\s*\/\s*help)?$/.test(text)) return true
-  if (/^(?:faq|help|troubleshooting)$/.test(text)) return true
+  if (/^(?:tips?|faq|help|troubleshooting)$/.test(text)) return true
   return false
 }
 

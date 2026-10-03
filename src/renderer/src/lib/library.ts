@@ -11,6 +11,7 @@ import type {
 import {
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
+  isRenpyOverlayKind,
   isRenpyOverlayPackage,
   renpyOverlayKind
 } from '@shared/types'
@@ -129,7 +130,7 @@ export function summarizeLibrary(
   return result
 }
 
-/** Installed Ren'Py game versions that can receive this uncensor or mod overlay. */
+/** Installed Ren'Py game versions that can receive this patch, uncensor, or mod overlay. */
 export function listUncensorPatchTargets(
   files: GameLibraryFile[],
   patch: GameLibraryFile
@@ -150,7 +151,7 @@ export function installedOverlayKind(
   patch: InstalledPatchRef,
   files: GameLibraryFile[]
 ): RenpyOverlayKind | null {
-  if (patch.kind === 'mod' || patch.kind === 'uncensor') return patch.kind
+  if (isRenpyOverlayKind(patch.kind)) return patch.kind
   const source = files.find(
     (file) => file.id === patch.patchId || (Boolean(patch.hash) && file.hash === patch.hash)
   )
@@ -175,12 +176,14 @@ export function summarizeInstalledOverlayKind(
 export function overlayListLabel(kind: RenpyOverlayKind | 'mixed' | null): string {
   if (kind === 'mod') return 'Mod'
   if (kind === 'uncensor') return 'Uncensor'
+  if (kind === 'patch') return 'Patch'
   return 'Applied'
 }
 
 export function overlayRemoveNoun(kind: RenpyOverlayKind | 'mixed' | null): string {
   if (kind === 'mod') return 'mod'
   if (kind === 'uncensor') return 'uncensor'
+  if (kind === 'patch') return 'patch'
   return 'overlay'
 }
 

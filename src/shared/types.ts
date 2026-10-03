@@ -327,7 +327,11 @@ export type GameFileContext = {
 }
 
 /** Ren'Py overlays applied into an installed game `/game` folder. */
-export type RenpyOverlayKind = 'uncensor' | 'mod'
+export type RenpyOverlayKind = 'patch' | 'uncensor' | 'mod'
+
+export function isRenpyOverlayKind(kind: unknown): kind is RenpyOverlayKind {
+  return kind === 'patch' || kind === 'uncensor' || kind === 'mod'
+}
 
 export type InstalledPatchRef = {
   patchId: string
@@ -376,12 +380,12 @@ export type GameLibraryFile = {
   /** Folder name under %APPDATA%/RenPy (or absolute path), or null when saves live in game/saves. */
   renpySaveDirectory?: string | null
   /**
-   * Ren'Py overlays (uncensor / mod) applied into this installed game version.
+   * Ren'Py overlays (patch / uncensor / mod) applied into this installed game version.
    * Cleared when the game is uninstalled.
    */
   installedPatches?: InstalledPatchRef[]
   /**
-   * Whether this Ren'Py overlay (uncensor or mod) has a supported .rpy/.rpyc or
+   * Whether this Ren'Py overlay (patch, uncensor, or mod) has a supported .rpy/.rpyc or
    * game-folder layout. Undefined until probed; false hides Install.
    */
   uncensorInstallable?: boolean
@@ -1080,7 +1084,7 @@ export const LIBRARY_FILE_SECTION_ORDER: ContentKind[] = [
 /**
  * Full game packages are installable as standalone extracts. Untagged legacy
  * library rows stay installable. Other kinds stay in the library; Ren'Py
- * uncensor and mod packages can be applied onto an installed game instead.
+ * patch, uncensor, and mod packages can be applied onto an installed game instead.
  */
 export function isInstallableLibraryPackage(tags?: PackageTagHint | null): boolean {
   if (!tags || !Number.isFinite(tags.contentKind)) return true
@@ -1089,9 +1093,15 @@ export function isInstallableLibraryPackage(tags?: PackageTagHint | null): boole
 
 export function renpyOverlayKind(tags?: PackageTagHint | null): RenpyOverlayKind | null {
   if (!tags || !Number.isFinite(tags.contentKind)) return null
+  if (tags.contentKind === CONTENT_KIND_IDS.patch) return 'patch'
   if (tags.contentKind === CONTENT_KIND_IDS.uncensor) return 'uncensor'
   if (tags.contentKind === CONTENT_KIND_IDS.mod) return 'mod'
   return null
+}
+
+/** Ren'Py patch overlays that can be applied into an installed game `/game` folder. */
+export function isRenpyPatchPackage(tags?: PackageTagHint | null): boolean {
+  return renpyOverlayKind(tags) === 'patch'
 }
 
 /** Ren'Py uncensor overlays that can be applied into an installed game `/game` folder. */
@@ -1104,7 +1114,7 @@ export function isRenpyModPackage(tags?: PackageTagHint | null): boolean {
   return renpyOverlayKind(tags) === 'mod'
 }
 
-/** Ren'Py uncensor or mod overlays that can be applied into an installed game `/game` folder. */
+/** Ren'Py patch, uncensor, or mod overlays that can be applied into an installed game `/game` folder. */
 export function isRenpyOverlayPackage(tags?: PackageTagHint | null): boolean {
   return renpyOverlayKind(tags) != null
 }
@@ -1112,10 +1122,11 @@ export function isRenpyOverlayPackage(tags?: PackageTagHint | null): boolean {
 export function renpyOverlayLabel(kind?: RenpyOverlayKind | null): string {
   if (kind === 'mod') return 'mod'
   if (kind === 'uncensor') return 'uncensor patch'
+  if (kind === 'patch') return 'patch'
   return 'overlay'
 }
 
-/** Whether an installed game already has this uncensor patch applied (by hash or library id). */
+/** Whether an installed game already has this overlay applied (by hash or library id). */
 export function gameHasInstalledPatch(
   game: { installedPatches?: InstalledPatchRef[] | null },
   patch: { id: string; hash: string }
@@ -1330,6 +1341,7 @@ export type ThreadPostEditDraft = {
 export type ChangelogEntry = {
   version: string
   text: string
+  html: string
 }
 
 export type NoteSection = {

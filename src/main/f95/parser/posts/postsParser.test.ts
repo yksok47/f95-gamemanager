@@ -76,6 +76,23 @@ describe('posts unit', () => {
     expect(posts[0]?.attachments).toEqual([])
   })
 
+  it('keeps later posts by the thread starter', () => {
+    const posts = parsePosts(`
+<article class="message message-threadStarterPost message--post js-post" data-author="OP" data-content="post-1" id="js-post-1">
+  <ul class="message-attribution-opposite"><li><a href="/threads/game.99/post-1">#1</a></li></ul>
+  <div class="message-userDetails"><a class="username" data-user-id="10">OP</a></div>
+  <article class="message-body"><div class="bbWrapper">First post body</div></article>
+</article>
+<article class="message message-threadStarterPost message--post js-post" data-author="OP" data-content="post-3" id="js-post-3">
+  <ul class="message-attribution-opposite"><li><a href="/threads/game.99/post-3">#3</a></li></ul>
+  <div class="message-userDetails"><a class="username" data-user-id="10">OP</a></div>
+  <article class="message-body"><div class="bbWrapper">OP follow-up</div></article>
+</article>
+`)
+    expect(posts.map((post) => post.postId)).toEqual([3])
+    expect(posts[0]?.html).toContain('OP follow-up')
+  })
+
   it('detects edit and delete actions on own posts', () => {
     const posts = parsePosts(`
 <article class="message message--post js-post" data-content="post-44" id="js-post-44">

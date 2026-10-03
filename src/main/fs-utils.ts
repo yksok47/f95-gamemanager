@@ -17,7 +17,7 @@ function overlayBaseName(filePath: string): string {
   return filePath.split(/[/\\]/).pop() || ''
 }
 
-/** Loose Ren'Py scripts that can be stored and applied as uncensor/mod overlays. */
+/** Loose Ren'Py scripts that can be stored and applied as patch/uncensor/mod overlays. */
 export function isRenpyScriptPath(filePath: string): boolean {
   return /\.rpyc?$/i.test(overlayBaseName(filePath))
 }

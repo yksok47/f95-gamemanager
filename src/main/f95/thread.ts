@@ -14,7 +14,7 @@ import {
 import { parseThreadPageDocument } from './parser/threadPage/threadPageParser'
 
 const HOST = 'https://f95zone.to'
-const CACHE_VERSION = 28
+const CACHE_VERSION = 29
 const DETAILS_TTL_MS = 10 * 60 * 1000
 
 const detailsCache = new Map<string, { at: number; value: ThreadDetails }>()

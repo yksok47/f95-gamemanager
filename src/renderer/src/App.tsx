@@ -878,6 +878,7 @@ export default function App(): JSX.Element {
             openDetailsWindow(summaryFromThread(threadId, title, subscriptions))
           }}
           onIgnoredChange={handleIgnoredChange}
+          onSessionExpired={handleSessionExpired}
         />
       )}
       </main>

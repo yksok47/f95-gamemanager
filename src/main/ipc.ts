@@ -1760,13 +1760,19 @@ export function registerIpc(): void {
     }
   )
 
-  ipcMain.handle('shell:open', async (_event, url: string, context?: GameFileContext) => {
-    try {
-      await openInAppWindow(String(url), { context })
-    } catch (error) {
-      throw toIpcError(error)
+  ipcMain.handle(
+    'shell:open',
+    async (_event, url: string, context?: GameFileContext, options?: { download?: boolean }) => {
+      try {
+        await openInAppWindow(String(url), {
+          context,
+          download: Boolean(options?.download)
+        })
+      } catch (error) {
+        throw toIpcError(error)
+      }
     }
-  })
+  )
 
   // --- P2P (WebTorrent main-process stubs) ---
   ipcMain.handle('p2p:status', async () => {

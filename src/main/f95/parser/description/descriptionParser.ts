@@ -1,6 +1,7 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio'
 import type { AnyNode, Element } from 'domhandler'
 import { extractThreadId } from '../../parse'
+import { f95AttachmentThumbUrl } from '@shared/f95-cdn-url'
 
 const HOST = 'https://f95zone.to'
 const LABEL_SELECTOR = 'b, strong, u, h1, h2, h3, h4'
@@ -470,7 +471,8 @@ function sanitizeHtml(html: string): string {
       node.remove()
       return
     }
-    node.attr('src', src)
+    node.attr('src', f95AttachmentThumbUrl(src))
+    node.attr('data-url', src)
     node.removeAttr('srcset')
     node.attr('referrerpolicy', 'no-referrer')
   })

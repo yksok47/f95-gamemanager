@@ -1,5 +1,6 @@
 import { load, type CheerioAPI, type Cheerio } from 'cheerio'
 import type { AnyNode, Element } from 'domhandler'
+import { sanitizeHtml } from '../reviews/reviewsParser'
 
 const LABEL_SELECTOR = 'b, strong, u, h1, h2, h3, h4'
 
@@ -281,16 +282,46 @@ function stripLeadingVersionHeading(text: string, version: string): string {
   return text
 }
 
+function stripLeadingVersionHeadingHtml(html: string, version: string): string {
+  if (!html.trim()) return ''
+  const $ = load(`<div id="h">${html}</div>`)
+  const root = $('#h')
+  const first = root.contents().toArray().find((node) => {
+    if (node.type === 'text') return Boolean(normalize(node.data || ''))
+    if (node.type === 'tag' && (node as Element).name === 'br') return false
+    return true
+  })
+  if (!first) return html.trim()
+  const label =
+    first.type === 'text'
+      ? labelText(first.data || '')
+      : $(first).is(LABEL_SELECTOR)
+        ? labelText(elementText($(first)))
+        : ''
+  const v = version.toLowerCase()
+  const matches =
+    Boolean(label) &&
+    ((v && (label.toLowerCase() === v || label.toLowerCase().startsWith(v))) || isVersionLine(label))
+  if (matches) $(first).remove()
+  return (root.html() || '').replace(/^(?:\s|<br\s*\/?>)+/i, '').trim()
+}
+
+export type ParsedChangelogEntry = {
+  version: string
+  text: string
+  html: string
+}
+
 /**
- * Parse changelog-section HTML into `[{ "<version>": "<plain text body>" }, ...]`.
+ * Parse changelog-section HTML into versioned entries.
  * Unclassified blocks use an empty-string version key.
  */
-export function parseChangelog(html: string): Array<Record<string, string>> {
+export function parseChangelogEntries(html: string): ParsedChangelogEntry[] {
   if (!html.trim()) return []
 
   const $ = load(`<div id="changelog-parse-root">${html}</div>`)
   const root = $('#changelog-parse-root')
-  const entries: Array<Record<string, string>> = []
+  const entries: ParsedChangelogEntry[] = []
   let version = ''
   let parts: string[] = []
 
@@ -299,8 +330,10 @@ export function parseChangelog(html: string): Array<Record<string, string>> {
     parts = []
     const pendingVersion = version
     version = ''
+    const htmlBody = sanitizeHtml(bodyHtml)
     let text = htmlToPlainText(bodyHtml)
-    if (!hasContent(text)) return
+    const hasMedia = /<img\b/i.test(htmlBody || bodyHtml)
+    if (!hasContent(text) && !hasMedia) return
     let label = versionLabel(pendingVersion)
     if (!label) {
       const firstLine =
@@ -311,9 +344,10 @@ export function parseChangelog(html: string): Array<Record<string, string>> {
       if (isVersionLine(firstLine)) label = versionLabel(firstLine)
     }
     text = stripLeadingVersionHeading(text, label)
-    if (!hasContent(text) && !label) return
+    const cleanedHtml = stripLeadingVersionHeadingHtml(htmlBody, label)
+    if (!hasContent(text) && !cleanedHtml && !label) return
     if (!hasContent(text)) text = ''
-    entries.push({ [label]: text })
+    entries.push({ version: label, text, html: cleanedHtml })
   }
 
   function startVersion(label: string): void {
@@ -342,14 +376,18 @@ export function parseChangelog(html: string): Array<Record<string, string>> {
       if (el.is('.bbCodeSpoiler')) {
         const title = spoilerTitle($, node as Element)
         const body = spoilerBody($, node as Element)
-        const titled = !isGenericSpoilerTitle(title) && isVersionLine(title)
+        // Section wrappers like "Changelog" contain every version — walk them.
+        // A spoiler titled with a version is one entry (common older layout).
+        if (isChangelogLabel(title) || isGenericSpoilerTitle(title)) {
+          walk(body.contents().toArray())
+          continue
+        }
+        const titled = isVersionLine(title)
         if (titled) {
-          // One spoiler per version — common older-changelog layout.
           startVersion(title)
           parts.push(body.html() || '')
           continue
         }
-        // Untitled / container spoiler — parse its body in place.
         walk(body.contents().toArray())
         continue
       }
@@ -385,4 +423,9 @@ export function parseChangelog(html: string): Array<Record<string, string>> {
   walk(root.contents().toArray())
   flush()
   return entries
+}
+
+/** Sample-test shape: `[{ "<version>": "<plain text body>" }, ...]`. */
+export function parseChangelog(html: string): Array<Record<string, string>> {
+  return parseChangelogEntries(html).map((entry) => ({ [entry.version]: entry.text }))
 }

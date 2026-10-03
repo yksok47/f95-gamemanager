@@ -11,6 +11,7 @@ import {
   asPackageTagHint,
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
+  isRenpyOverlayKind,
   isRenpyOverlayPackage,
   renpyOverlayKind,
   renpyOverlayLabel
@@ -453,7 +454,7 @@ function normalizeInstalledPatches(raw: unknown): InstalledPatchRef[] | undefine
     const filename = String(row.filename || '')
     const installedAt = Number(row.installedAt) || 0
     const uninstallSlot = row.uninstallSlot ? String(row.uninstallSlot) : undefined
-    const kind = row.kind === 'mod' || row.kind === 'uncensor' ? row.kind : undefined
+    const kind = isRenpyOverlayKind(row.kind) ? row.kind : undefined
     if (!patchId && !hash) continue
     patches.push({ patchId, hash, filename, installedAt, uninstallSlot, kind })
   }
@@ -938,7 +939,7 @@ export function listUncensorPatchTargets(
 }
 
 /**
- * Best-effort apply a Ren'Py uncensor or mod overlay into an installed game's `/game` folder.
+ * Best-effort apply a Ren'Py patch, uncensor, or mod overlay into an installed game's `/game` folder.
  * Records the overlay on the target game; cleared when that game is uninstalled.
  */
 export async function installUncensorPatch(
@@ -950,7 +951,7 @@ export async function installUncensorPatch(
   const noun = renpyOverlayLabel(renpyOverlayKind(patch?.packageTags))
   if (!patch) throw new Error(`That ${noun} is not in the library.`)
   if (!isRenpyOverlayPackage(patch.packageTags)) {
-    throw new Error('Only Ren\'Py uncensor patches and mods can be installed this way.')
+    throw new Error('Only Ren\'Py patches, uncensor patches, and mods can be installed this way.')
   }
   if (!patchSourceReady(patch)) {
     throw new Error(`The ${noun} file is missing from disk.`)

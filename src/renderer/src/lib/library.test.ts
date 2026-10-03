@@ -368,10 +368,11 @@ describe('libraryExclusiveKind', () => {
 
 describe('listUncensorPatchTargets', () => {
   const gameTags = { os: [0], contentKind: CONTENT_KIND_IDS.game, version: '1.0' }
+  const patchTags = { os: [0], contentKind: CONTENT_KIND_IDS.patch, version: '' }
   const uncensorTags = { os: [0], contentKind: CONTENT_KIND_IDS.uncensor, version: '' }
   const modTags = { os: [0], contentKind: CONTENT_KIND_IDS.mod, version: '' }
 
-  test('lists installed Ren\'Py games for uncensor and mod overlays', () => {
+  test('lists installed Ren\'Py games for patch, uncensor, and mod overlays', () => {
     const installed = libraryFile({
       id: 'game',
       threadId: 1,
@@ -379,6 +380,13 @@ describe('listUncensorPatchTargets', () => {
       engine: "Ren'Py",
       packageTags: gameTags,
       version: '1.0'
+    })
+    const patch = libraryFile({
+      id: 'fix',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: patchTags,
+      hash: 'fix-hash'
     })
     const uncensor = libraryFile({
       id: 'unc',
@@ -394,6 +402,9 @@ describe('listUncensorPatchTargets', () => {
       packageTags: modTags,
       hash: 'mod-hash'
     })
+    expect(listUncensorPatchTargets([installed, patch], patch).map((file) => file.id)).toEqual([
+      'game'
+    ])
     expect(listUncensorPatchTargets([installed, uncensor], uncensor).map((file) => file.id)).toEqual([
       'game'
     ])
@@ -431,8 +442,10 @@ describe('listUncensorPatchTargets', () => {
   test('labels mixed installed overlays as applied', () => {
     expect(overlayListLabel('mod')).toBe('Mod')
     expect(overlayListLabel('uncensor')).toBe('Uncensor')
+    expect(overlayListLabel('patch')).toBe('Patch')
     expect(overlayListLabel('mixed')).toBe('Applied')
     expect(overlayRemoveNoun('mod')).toBe('mod')
+    expect(overlayRemoveNoun('patch')).toBe('patch')
     expect(overlayRemoveNoun('mixed')).toBe('overlay')
     expect(
       summarizeInstalledOverlayKind(

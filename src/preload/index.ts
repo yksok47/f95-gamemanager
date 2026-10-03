@@ -585,8 +585,8 @@ const api = {
       ipcRenderer.invoke('htmlgame:deleteKeys', fileId, threadId, keys, title)
   },
   shell: {
-    open: (url: string, context?: GameFileContext): Promise<void> =>
-      ipcRenderer.invoke('shell:open', url, context)
+    open: (url: string, context?: GameFileContext, options?: { download?: boolean }): Promise<void> =>
+      ipcRenderer.invoke('shell:open', url, context, options)
   },
   p2p: {
     status: (): Promise<unknown> => ipcRenderer.invoke('p2p:status'),

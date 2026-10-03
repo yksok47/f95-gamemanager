@@ -7,7 +7,7 @@ import type {
   ThreadLink
 } from '@shared/types'
 import { parseBanner } from './banner/bannerParser'
-import { parseChangelog } from './changelog/changelogParser'
+import { parseChangelogEntries } from './changelog/changelogParser'
 import { parseChangelogSection } from './changelogSection/changelogSectionParser'
 import { parseDescription } from './description/descriptionParser'
 import { parseDownloads } from './downloads/downloadsParser'
@@ -45,10 +45,11 @@ export function composeFirstPost(html: string, threadId: number): FirstPostConte
   return {
     descriptionHtml: parseDescription(html),
     notes: parseNotes(html),
-    changelog: parseChangelog(changelogHtml).map((row) => {
-      const [version, text] = Object.entries(row)[0] ?? ['', '']
-      return { version: version || 'Changes', text: text || '' }
-    }),
+    changelog: parseChangelogEntries(changelogHtml).map((entry) => ({
+      version: entry.version || 'Changes',
+      text: entry.text || '',
+      html: entry.html || ''
+    })),
     gallery: parseGallery(html),
     banner: parseBanner(html),
     downloads: parseDownloads(downloadsHtml),
