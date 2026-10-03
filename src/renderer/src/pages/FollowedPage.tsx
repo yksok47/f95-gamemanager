@@ -17,6 +17,8 @@ import {
 } from '@shared/updates'
 import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
+import GameDateGroups from '../components/GameDateGroups'
+import GroupByUpdateDateButton from '../components/GroupByUpdateDateButton'
 import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
@@ -36,6 +38,7 @@ import {
   type FilterChipState
 } from '../components/FilterChip'
 import { useAdvancedFilters } from '../lib/use-advanced-filters'
+import { useGroupByUpdateDate } from '../lib/group-by-update-date'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 
 type FollowedSort = 'title' | 'date' | 'rating' | 'rarity' | 'likes' | 'views'
@@ -155,6 +158,7 @@ export default function FollowedPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<FollowedSort>('date')
   const [descending, setDescending] = useState(true)
+  const [groupByUpdateDate, toggleGroupByUpdateDate] = useGroupByUpdateDate()
   const updatesOnly = mode === 'updates'
   const [archiveFilter, setArchiveFilter] = useState<FilterChipState>('exclude')
   const [sync, setSync] = useState<FollowSyncStatus | null>(null)
@@ -389,6 +393,7 @@ export default function FollowedPage({
             </button>
           }
         />
+        <GroupByUpdateDateButton enabled={groupByUpdateDate} onToggle={toggleGroupByUpdateDate} />
         <button
           className={toolbarTriStateClass(advanced.favoritesFilter)}
           type="button"
@@ -548,8 +553,8 @@ export default function FollowedPage({
                     : 'No followed games match that filter.'}
         </div>
       ) : (
-        <div className="catalog-grid">
-          {visible.map((game, index) => (
+        <GameDateGroups games={visible} grouped={groupByUpdateDate}>
+          {(game, index) => (
             <LazyMount key={game.threadId} eager={index < EAGER_CARDS}>
               <GameCard
                 game={game}
@@ -587,8 +592,8 @@ export default function FollowedPage({
                 }
               />
             </LazyMount>
-          ))}
-        </div>
+          )}
+        </GameDateGroups>
       )}
     </div>
   )

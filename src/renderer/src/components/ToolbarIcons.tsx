@@ -229,6 +229,17 @@ export function CustomOrderIcon(): JSX.Element {
   )
 }
 
+export function GroupByDateIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M5.1 1.4h1.6v1.4h2.6V1.4h1.6v1.4h2.5v11.8H2.6V2.8h2.5zm7.3 4.2H3.6v7.4h8.8zM4.9 6.9h2.1v1.7H4.9zm3.1 0h2.1v1.7H8zm3.1 0h2.1v1.7h-2.1z"
+      />
+    </svg>
+  )
+}
+
 export function LibraryIcon(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

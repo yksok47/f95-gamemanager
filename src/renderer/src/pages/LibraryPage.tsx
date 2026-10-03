@@ -2,6 +2,8 @@ import { useMemo, useState, type JSX } from 'react'
 import type { CatalogGame, FavoriteTag, GameRarity, HatedTag, Subscription } from '@shared/types'
 import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/AdvancedFilterUi'
 import GameCard from '../components/GameCard'
+import GameDateGroups from '../components/GameDateGroups'
+import GroupByUpdateDateButton from '../components/GroupByUpdateDateButton'
 import LazyMount from '../components/LazyMount'
 import FooterPortal from '../components/FooterPortal'
 import SelectMenu from '../components/SelectMenu'
@@ -28,6 +30,7 @@ import {
   type FilterChipState
 } from '../components/FilterChip'
 import { toCatalogGame } from '../lib/catalog-game'
+import { useGroupByUpdateDate } from '../lib/group-by-update-date'
 import { useAdvancedFilters } from '../lib/use-advanced-filters'
 import {
   groupLibraryGames,
@@ -141,6 +144,7 @@ export default function LibraryPage({
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<LibrarySort>('played')
   const [descending, setDescending] = useState(true)
+  const [groupByUpdateDate, toggleGroupByUpdateDate] = useGroupByUpdateDate()
   const [followedFilter, setFollowedFilter] = useState<FilterChipState>('off')
   const [archivedFilter, setArchivedFilter] = useState<FilterChipState>('exclude')
   const [savesFilter, setSavesFilter] = useState<FilterChipState>('exclude')
@@ -303,6 +307,7 @@ export default function LibraryPage({
             </button>
           }
         />
+        <GroupByUpdateDateButton enabled={groupByUpdateDate} onToggle={toggleGroupByUpdateDate} />
         <button
           className={toolbarTriStateClass(advanced.favoritesFilter)}
           type="button"
@@ -472,8 +477,8 @@ export default function LibraryPage({
                               : 'No library games match that filter.'}
         </div>
       ) : (
-        <div className="catalog-grid">
-          {visible.map((game, index) => {
+        <GameDateGroups games={visible} grouped={groupByUpdateDate}>
+          {(game, index) => {
             const subscribed = followedIds.has(game.threadId)
             return (
               <LazyMount key={game.threadId} eager={index < EAGER_CARDS}>
@@ -504,8 +509,8 @@ export default function LibraryPage({
                 />
               </LazyMount>
             )
-          })}
-        </div>
+          }}
+        </GameDateGroups>
       )}
     </div>
   )

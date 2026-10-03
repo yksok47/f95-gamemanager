@@ -642,6 +642,65 @@ export function catalogTimestamp(value: number | string | undefined | null): num
   return n < 1e12 ? Math.round(n * 1000) : Math.round(n)
 }
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+
+function localCalendarDayUtc(ms: number): number {
+  const date = new Date(ms)
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+/** Whole local calendar days between an update timestamp and now. Future stamps count as today. */
+export function calendarDaysAgo(at: number | undefined | null, now = Date.now()): number | null {
+  const ms = catalogTimestamp(at)
+  if (!ms) return null
+  const days = Math.round((localCalendarDayUtc(now) - localCalendarDayUtc(ms)) / MS_PER_DAY)
+  return days < 0 ? 0 : days
+}
+
+export function updateDateGroupLabel(daysAgo: number | null): string {
+  if (daysAgo == null) return 'Unknown date'
+  if (daysAgo === 0) return 'Today'
+  if (daysAgo === 1) return 'Yesterday'
+  return `${daysAgo} days ago`
+}
+
+export type UpdateDateGroup<T> = {
+  key: string
+  label: string
+  daysAgo: number | null
+  items: T[]
+}
+
+/** Bucket items by local calendar day of their update timestamp. Original order is kept inside each bucket. */
+export function groupByUpdateDate<T>(
+  items: readonly T[],
+  getTimestamp: (item: T) => number | undefined | null,
+  now = Date.now()
+): UpdateDateGroup<T>[] {
+  const buckets = new Map<number | 'unknown', T[]>()
+  for (const item of items) {
+    const days = calendarDaysAgo(getTimestamp(item), now)
+    const key = days == null ? 'unknown' : days
+    const existing = buckets.get(key)
+    if (existing) existing.push(item)
+    else buckets.set(key, [item])
+  }
+  const keys = [...buckets.keys()].sort((a, b) => {
+    if (a === 'unknown') return 1
+    if (b === 'unknown') return -1
+    return a - b
+  })
+  return keys.map((key) => {
+    const daysAgo = key === 'unknown' ? null : key
+    return {
+      key: key === 'unknown' ? 'unknown' : String(key),
+      label: updateDateGroupLabel(daysAgo),
+      daysAgo,
+      items: buckets.get(key) ?? []
+    }
+  })
+}
+
 export function isRelativeDate(value: string | undefined | null): boolean {
   return /\b(ago|yesterday|today|just now)\b/i.test(value || '')
 }

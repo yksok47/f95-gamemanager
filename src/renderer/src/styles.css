@@ -1744,12 +1744,37 @@ input[type='search']::-webkit-search-results-decoration {
   padding: 12px 24px 0;
 }
 
+.catalog-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px 24px 16px;
+}
+
+.catalog-date-group {
+  display: grid;
+  gap: 10px;
+}
+
+.catalog-date-group-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .catalog-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   align-items: start;
   gap: 16px;
   padding: 12px 24px 16px;
+}
+
+.catalog-groups .catalog-grid {
+  padding: 0;
 }
 
 .roster-slot {

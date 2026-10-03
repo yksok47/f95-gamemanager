@@ -18,6 +18,8 @@ import {
 import { FilterOverlay, FilterToolbarSplit } from '../components/AdvancedFilterUi'
 import FilterShelf from '../components/FilterShelf'
 import GameCard from '../components/GameCard'
+import GameDateGroups from '../components/GameDateGroups'
+import GroupByUpdateDateButton from '../components/GroupByUpdateDateButton'
 import LazyMount from '../components/LazyMount'
 import SelectMenu from '../components/SelectMenu'
 import FooterPortal from '../components/FooterPortal'
@@ -30,6 +32,7 @@ import { PagerIcon, RefreshIcon, ThumbDownIcon, ThumbUpIcon } from '../component
 import ToolbarPortal from '../components/ToolbarPortal'
 import ToolbarSearch from '../components/ToolbarSearch'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
+import { useGroupByUpdateDate } from '../lib/group-by-update-date'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
 import { PageLoading } from '../components/Spinner'
 
@@ -123,6 +126,7 @@ export default function CatalogPage({
   const includeLimitReached = includedTags.length >= TAG_QUERY_LIMIT
   const excludeLimitReached = excludedTags.length >= TAG_QUERY_LIMIT
   const [sort, setSort] = useState<CatalogSort>('date')
+  const [groupByUpdateDate, toggleGroupByUpdateDate] = useGroupByUpdateDate()
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const filterQueryKey = JSON.stringify({
@@ -305,8 +309,8 @@ export default function CatalogPage({
 
   function renderGameGrid(games: CatalogGame[], pageNum: number): JSX.Element {
     return (
-      <div className="catalog-grid">
-        {games.map((game, index) => {
+      <GameDateGroups games={games} grouped={groupByUpdateDate}>
+        {(game, index) => {
           const play = followedPlayById.get(game.threadId)
           const eager = index < EAGER_CARDS
           return (
@@ -344,8 +348,8 @@ export default function CatalogPage({
               />
             </LazyMount>
           )
-        })}
-      </div>
+        }}
+      </GameDateGroups>
     )
   }
 
@@ -371,6 +375,7 @@ export default function CatalogPage({
           ariaLabel="Sort catalog"
           onChange={setSort}
         />
+        <GroupByUpdateDateButton enabled={groupByUpdateDate} onToggle={toggleGroupByUpdateDate} />
         <button
           className={toolbarTriStateClass(favoritesFilter)}
           type="button"

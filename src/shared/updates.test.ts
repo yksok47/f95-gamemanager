@@ -4,9 +4,12 @@ import {
   addVersionPlaytime,
   canonicalVersionName,
   ensureKnownVersion,
+  calendarDaysAgo,
   formatCatalogWatermark,
   formatDateTime,
   gameUpdateState,
+  groupByUpdateDate,
+  updateDateGroupLabel,
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
   latestKnownVersion,
@@ -354,6 +357,43 @@ describe('formatDateTime', () => {
     const shown = formatDateTime(Date.parse('2026-10-03T07:22:15.123Z'), { milliseconds: true })
     expect(shown).toMatch(/:15/)
     expect(shown).toMatch(/123/)
+  })
+})
+
+describe('groupByUpdateDate', () => {
+  const now = new Date(2026, 9, 3, 15).getTime()
+
+  test('labels today, yesterday, and older calendar days', () => {
+    expect(updateDateGroupLabel(calendarDaysAgo(new Date(2026, 9, 3, 8).getTime(), now))).toBe('Today')
+    expect(updateDateGroupLabel(calendarDaysAgo(new Date(2026, 9, 2, 23).getTime(), now))).toBe(
+      'Yesterday'
+    )
+    expect(updateDateGroupLabel(calendarDaysAgo(new Date(2026, 9, 1, 1).getTime(), now))).toBe(
+      '2 days ago'
+    )
+  })
+
+  test('keeps original order inside each day and puts unknown dates last', () => {
+    const grouped = groupByUpdateDate(
+      [
+        { id: 'old-a', at: new Date(2026, 8, 30, 12).getTime() },
+        { id: 'today-a', at: new Date(2026, 9, 3, 9).getTime() },
+        { id: 'none', at: 0 },
+        { id: 'today-b', at: new Date(2026, 9, 3, 18).getTime() },
+        { id: 'old-b', at: new Date(2026, 8, 30, 18).getTime() }
+      ],
+      (item) => item.at,
+      now
+    )
+    expect(grouped.map((group) => [group.label, group.items.map((item) => item.id)])).toEqual([
+      ['Today', ['today-a', 'today-b']],
+      ['3 days ago', ['old-a', 'old-b']],
+      ['Unknown date', ['none']]
+    ])
+  })
+
+  test('treats a future stamp as today', () => {
+    expect(calendarDaysAgo(new Date(2026, 9, 4, 1).getTime(), now)).toBe(0)
   })
 })
 
