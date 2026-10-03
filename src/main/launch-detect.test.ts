@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  compareHtmlEntries,
   compareLaunchCandidates,
+  isHtmlFileName,
+  isHtmlSkipDir,
   isLaunchCandidate,
+  scoreHtmlEntry,
   scoreLaunchPath
 } from './launch-detect'
 
@@ -66,5 +70,27 @@ describe('compareLaunchCandidates', () => {
     ]
     const ranked = [...files].sort((a, b) => compareLaunchCandidates(a, b, 'linux', 'x64'))
     expect(ranked[0]).toBe('/game/Title.sh')
+  })
+})
+
+describe('html entries', () => {
+  test('recognizes html files and skips engine/cache folders', () => {
+    expect(isHtmlFileName('Family business.html')).toBe(true)
+    expect(isHtmlFileName('index.HTM')).toBe(true)
+    expect(isHtmlFileName('game.js')).toBe(false)
+    expect(isHtmlSkipDir('node_modules')).toBe(true)
+    expect(isHtmlSkipDir('resources')).toBe(false)
+  })
+
+  test('prefers a root html file over assets and readmes', () => {
+    expect(scoreHtmlEntry('Family business.html')).toBeGreaterThan(scoreHtmlEntry('resources/help.html'))
+    expect(scoreHtmlEntry('index.html')).toBeGreaterThan(scoreHtmlEntry('Family business.html'))
+    expect(scoreHtmlEntry('game.html')).toBeGreaterThan(scoreHtmlEntry('readme.html'))
+  })
+
+  test('sorts the playable html file first', () => {
+    const files = ['resources/help.html', 'readme.html', 'Family business.html']
+    const ranked = [...files].sort(compareHtmlEntries)
+    expect(ranked[0]).toBe('Family business.html')
   })
 })

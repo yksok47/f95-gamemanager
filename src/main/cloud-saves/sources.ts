@@ -7,10 +7,12 @@ import {
   rpgMakerSavesRoot,
   syncRpgMakerSaves
 } from '../rpgmaker/saves'
+import { htmlBackupDir, htmlSavesRoot } from '../html-game/saves'
 import { pathExists } from '../win-path'
 import { folderKey } from './manifest'
 
 export const RPG_FOLDER = 'rpgmaker'
+export const HTML_FOLDER = 'html'
 
 export type LocalSaveSource = {
   key: string
@@ -37,6 +39,15 @@ export function isRpgMakerManagedSavePath(
   if (target === root || target.startsWith(`${root}/`)) return true
   if (target.endsWith('/www/save')) return true
   return false
+}
+
+function isHtmlManagedSavePath(savePath: string, threadId: number): boolean {
+  if (!savePath) return false
+  const target = normPath(savePath)
+  const backup = normPath(htmlBackupDir(threadId))
+  if (target === backup) return true
+  const root = normPath(htmlSavesRoot())
+  return target === root || target.startsWith(`${root}/`)
 }
 
 export async function listLocalSaveSources(
@@ -72,12 +83,14 @@ export async function listLocalSaveSources(
     title = title || rec.title
     if (!rec.savePath || !pathExists(rec.savePath)) continue
     if (isRpgMakerManagedSavePath(rec.savePath, backupPath, gameSavePath, rpgRoot)) continue
+    if (isHtmlManagedSavePath(rec.savePath, threadId)) continue
     addSource(folderKey(rec.folderName || basename(rec.savePath)), rec.title, rec.savePath)
   }
   for (const rec of identified) {
     title = title || rec.title
     if (!rec.savePath || pathExists(rec.savePath)) continue
     if (isRpgMakerManagedSavePath(rec.savePath, backupPath, gameSavePath, rpgRoot)) continue
+    if (isHtmlManagedSavePath(rec.savePath, threadId)) continue
     addSource(folderKey(rec.folderName || basename(rec.savePath)), rec.title, rec.savePath)
   }
 
@@ -90,6 +103,10 @@ export async function listLocalSaveSources(
   }
   if (pathExists(backupPath)) {
     addSource(RPG_FOLDER, title, backupPath)
+  }
+  const htmlBackup = htmlBackupDir(threadId)
+  if (pathExists(htmlBackup)) {
+    addSource(HTML_FOLDER, title, htmlBackup)
   }
   return { title: title || `Thread ${threadId}`, sources }
 }

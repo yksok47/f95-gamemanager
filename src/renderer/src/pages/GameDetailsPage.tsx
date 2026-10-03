@@ -38,7 +38,7 @@ import {
   type ContentKindId
 } from '@shared/types'
 import type { PackageInstallTags, P2pTransferProgress } from '@shared/p2p'
-import { engineKind, normalizeEngine } from '@shared/engines'
+import { engineKind, isHtmlPlayableEngine, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import {
   formatPlaytime,
@@ -74,6 +74,7 @@ import LibraryFileTagsDialog from '../components/LibraryFileTagsDialog'
 import VersionManagerDialog from '../components/VersionManagerDialog'
 import RenpySavesPanel from '../components/RenpySavesPanel'
 import RpgMakerSavesPanel from '../components/RpgMakerSavesPanel'
+import HtmlSavesPanel from '../components/HtmlSavesPanel'
 import OptionsPanel from '../components/OptionsPanel'
 import UnRenPanel from '../components/UnRenPanel'
 import UserNotesPanel from '../components/UserNotesPanel'
@@ -805,18 +806,30 @@ function GameDetailsPage({
     engineKind(engine) === 'renpy' || files.some((file) => engineKind(file.engine) === 'renpy')
   const isRpgMaker =
     engineKind(engine) === 'rpgmaker' || files.some((file) => engineKind(file.engine) === 'rpgmaker')
+  const isHtml =
+    isHtmlPlayableEngine(engine) ||
+    files.some(
+      (file) => isHtmlPlayableEngine(file.engine) || /\.html?$/i.test(file.executablePath || '')
+    )
   const saveKind = useMemo(() => {
-    const fromFiles = (list: GameLibraryFile[]): 'renpy' | 'rpgmaker' | null => {
+    const fromFiles = (list: GameLibraryFile[]): 'renpy' | 'rpgmaker' | 'html' | null => {
       if (list.some((file) => engineKind(file.engine) === 'renpy')) return 'renpy'
       if (list.some((file) => engineKind(file.engine) === 'rpgmaker')) return 'rpgmaker'
+      if (
+        list.some(
+          (file) => isHtmlPlayableEngine(file.engine) || /\.html?$/i.test(file.executablePath || '')
+        )
+      ) {
+        return 'html'
+      }
       return null
     }
     return (
       fromFiles(files.filter((file) => file.isInstalled)) ||
       fromFiles(files) ||
-      (isRenpy ? 'renpy' : isRpgMaker ? 'rpgmaker' : null)
+      (isRenpy ? 'renpy' : isRpgMaker ? 'rpgmaker' : isHtml ? 'html' : null)
     )
-  }, [files, isRenpy, isRpgMaker])
+  }, [files, isRenpy, isRpgMaker, isHtml])
   const previewCover = summary.coverUrl
   const guessedFull = catalogPreviewToFull(previewCover)
   const parsedCover = details?.coverUrl
@@ -889,7 +902,7 @@ function GameDetailsPage({
       },
       { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
       { id: 'changelog', label: 'Changelog', hidden: settled && !changelog.length },
-      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker && !saveThreadIds.has(summary.threadId) },
+      { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker && !isHtml && !saveThreadIds.has(summary.threadId) },
       { id: 'userNotes', label: 'Notes' },
       { id: 'renpy', label: 'Renpy', hidden: !isRenpy }
     ]
@@ -902,6 +915,7 @@ function GameDetailsPage({
     changelog.length,
     isRenpy,
     isRpgMaker,
+    isHtml,
     initialTab,
     saveThreadIds,
     summary.threadId
@@ -1702,7 +1716,9 @@ function GameDetailsPage({
     if (file.isInstalled) {
       items.push({
         id: 'change-exe',
-        label: 'Change exe',
+        label: isHtmlPlayableEngine(file.engine) || /\.html?$/i.test(file.executablePath || '')
+          ? 'Change HTML file'
+          : 'Change exe',
         onClick: () => void changeExecutable(file.id)
       })
       items.push({
@@ -1726,7 +1742,7 @@ function GameDetailsPage({
     }
   }
 
-  function onProseClick(event: MouseEvent<HTMLDivElement>): void {
+  function onProseClick(event: MouseEvent<HTMLElement>): void {
     const spoilerButton = (event.target as HTMLElement).closest('.bbCodeSpoiler-button')
     if (spoilerButton) {
       event.preventDefault()
@@ -2629,6 +2645,8 @@ function GameDetailsPage({
           <div hidden={tab !== 'saves'}>
             {saveKind === 'rpgmaker' ? (
               <RpgMakerSavesPanel files={files} threadId={summary.threadId} title={title} />
+            ) : saveKind === 'html' ? (
+              <HtmlSavesPanel files={files} threadId={summary.threadId} title={title} />
             ) : (
               <RenpySavesPanel files={files} title={title} threadId={summary.threadId} />
             )}

@@ -30,6 +30,7 @@ import {
   detectEngineFromInstall,
   detectExecutable,
   findRenpyGameRoot,
+  isHtmlLaunchPath,
   launchExecutable,
   pickExecutable
 } from './launch'
@@ -1178,18 +1179,38 @@ export async function playGameFile(
     await writeStore(files)
   }
   const exe = await resolvePlayableExe(file, parent)
-  if (getPlaySession(file.id)) return present(file)
-  await syncRpgMakerForFile(file, 'merge')
-  const launched = await launchExecutable(exe)
+  if (isHtmlLaunchPath(exe)) {
+    if (!file.engine) {
+      file.engine = 'HTML'
+      const files = await readStore()
+      const current = files.find((item) => item.id === file.id)
+      if (current && !current.engine) current.engine = 'HTML'
+      await writeStore(files)
+    }
+    const { launchHtmlGame } = await import('./html-game/window')
+    await launchHtmlGame({
+      fileId: file.id,
+      threadId: file.threadId,
+      title: file.title,
+      version: libraryFileVersion(file) || file.version,
+      installPath: file.installPath || dirname(exe),
+      htmlPath: exe,
+      parent
+    })
+  } else {
+    if (getPlaySession(file.id)) return present(file)
+    await syncRpgMakerForFile(file, 'merge')
+    const launched = await launchExecutable(exe)
+    startPlaySession({
+      fileId: file.id,
+      threadId: file.threadId,
+      version: libraryFileVersion(file) || file.version,
+      pid: launched.pid,
+      installPath: file.installPath || dirname(exe),
+      backupSaves: usesRpgMakerSaves(file)
+    })
+  }
   const playVersion = libraryFileVersion(file) || file.version
-  startPlaySession({
-    fileId: file.id,
-    threadId: file.threadId,
-    version: playVersion,
-    pid: launched.pid,
-    installPath: file.installPath || dirname(exe),
-    backupSaves: usesRpgMakerSaves(file)
-  })
   file.lastPlayedAt = Date.now()
   const files = await readStore()
   const current = files.find((item) => item.id === file.id)

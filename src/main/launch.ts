@@ -2,12 +2,15 @@ import { dirname } from 'path'
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import { dialog, type BrowserWindow, type OpenDialogOptions } from 'electron'
-import { supportedEngineId } from '@shared/engines'
+import { engineKind, isHtmlPlayableEngine } from '@shared/engines'
 import {
   compareLaunchCandidates,
   hostPlatformOf,
-  isLaunchCandidate
+  isHtmlFileName,
+  isLaunchCandidate,
+  scoreHtmlEntry
 } from './launch-detect'
+import { findHtmlEntry } from './html-game/detect'
 import { makePathExecutable } from './unix-exec'
 import {
   childPath,
@@ -109,6 +112,8 @@ export function findRpgMakerWww(installPath: string): string | null {
   return null
 }
 
+export { findHtmlEntry }
+
 export function rpgMakerSaveDirFromWww(www: string): string {
   return childPath(www, 'save')
 }
@@ -118,6 +123,7 @@ export function detectEngineFromInstall(installPath: string): string {
   if (findNamedDirs(installPath, 'renpy').length) return "Ren'Py"
   if (findNamedDirs(installPath, 'game').some(hasRenpyScripts)) return "Ren'Py"
   if (findRpgMakerWww(installPath)) return 'RPG Maker'
+  if (findHtmlEntry(installPath)) return 'HTML'
   return ''
 }
 
@@ -129,6 +135,7 @@ export function isLikelyGameRoot(installPath: string): boolean {
   if (names.has('renpy') && names.has('game')) return true
   if (names.has('www') && isRpgMakerWww(childPath(installPath, 'www'))) return true
   if (isRpgMakerWww(installPath)) return true
+  if ([...names].some((name) => isHtmlFileName(name) && scoreHtmlEntry(name) >= 0)) return true
   if (collectLaunchables(installPath).length > 0) return true
   const gameDir = childPath(installPath, 'game')
   if (pathExists(gameDir) && hasRenpyScripts(gameDir)) return true
@@ -167,28 +174,40 @@ function findGenericExecutable(installPath: string, maxDepth = 3): string | null
 
 export function detectExecutable(installPath: string, engine: string): string | null {
   if (!installPath || !pathExists(installPath)) return null
-  const id = supportedEngineId(engine)
-  if (id === 'renpy' || !engine || detectEngineFromInstall(installPath) === "Ren'Py") {
+  const kind = engineKind(engine)
+  const detected = detectEngineFromInstall(installPath)
+  if (kind === 'renpy' || detected === "Ren'Py" || (!engine && detected === "Ren'Py")) {
     const found = findRenpyExecutable(installPath)
     if (found) return found
   }
-  return findGenericExecutable(installPath)
+  if (isHtmlPlayableEngine(engine) || detected === 'HTML') {
+    const html = findHtmlEntry(installPath)
+    if (html) return html
+  }
+  const generic = findGenericExecutable(installPath)
+  if (generic) return generic
+  if (kind !== 'rpgmaker' && detected !== 'RPG Maker') return findHtmlEntry(installPath)
+  return null
+}
+
+export function isHtmlLaunchPath(filePath: string | undefined): boolean {
+  return Boolean(filePath && isHtmlFileName(filePath))
 }
 
 function pickerFilters(): OpenDialogOptions['filters'] {
+  const html = { name: 'HTML games', extensions: ['html', 'htm'] }
   if (process.platform === 'win32') {
-    return [
-      { name: 'Executables', extensions: ['exe'] },
-      { name: 'All files', extensions: ['*'] }
-    ]
+    return [html, { name: 'Executables', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
   }
   if (process.platform === 'darwin') {
     return [
+      html,
       { name: 'Applications', extensions: ['app', 'sh', 'command'] },
       { name: 'All files', extensions: ['*'] }
     ]
   }
   return [
+    html,
     { name: 'Executables', extensions: ['sh', 'x86_64', 'x86', 'arm64'] },
     { name: 'All files', extensions: ['*'] }
   ]
@@ -202,7 +221,7 @@ export async function pickExecutable(
     throw new Error('That game is not installed.')
   }
   const options: OpenDialogOptions = {
-    title: 'Choose game executable',
+    title: 'Choose game executable or HTML file',
     defaultPath: installPath,
     filters: pickerFilters(),
     properties: ['openFile']

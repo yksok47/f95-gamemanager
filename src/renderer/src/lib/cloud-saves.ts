@@ -45,6 +45,7 @@ export function useCloudSaveStatus(): CloudSaveSyncStatus | null {
 const EMPTY_CLOUD_FILES: CloudSaveRemoteFile[] = []
 
 export const RPG_CLOUD_FOLDER = 'rpgmaker'
+export const HTML_CLOUD_FOLDER = 'html'
 
 export function isPersistentSaveName(name: string): boolean {
   return name.toLowerCase().trim().startsWith('persistent')

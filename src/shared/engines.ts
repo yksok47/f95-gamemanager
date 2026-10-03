@@ -80,6 +80,12 @@ export function supportedEngineId(name: string | undefined): SupportedEngine | n
   return null
 }
 
+/** Engines that launch as an HTML page in an in-app window. */
+export function isHtmlPlayableEngine(name: string | undefined): boolean {
+  const kind = engineKind(name)
+  return kind === 'html' || kind === 'webgl' || kind === 'tyrano'
+}
+
 export function engineFromTitle(title: string): string {
   const match = title.match(
     /\b(Ren'?Py|RPG\s*Maker|RPGM|Unity|Unreal(?:\s+Engine)?|Godot|HTML5?|Java|WebGL|Wolf\s*RPG|Adrift|Flash|QSP|Tyrano(?:Builder)?|Visual\s*Novel)\b/i

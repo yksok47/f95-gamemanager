@@ -39,6 +39,7 @@ export function classifySaveName(name: string): CloudSaveKind | null {
     if (/^config/i.test(lower) || /^global/i.test(lower)) return 'always'
     return 'slot'
   }
+  if (lower === 'localstorage.json') return 'always'
   return null
 }
 

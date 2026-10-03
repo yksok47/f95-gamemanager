@@ -8,6 +8,8 @@ import { initAdblock } from "./adblock";
 import { attachGuestWindowOpenHandler, attachMainWindowGuards } from "./open-url";
 import { flushPlaySessions } from "./play-sessions";
 import { registerSaveThumbProtocol, SAVE_THUMB_SCHEME } from "./renpy/save-meta";
+import { HTML_GAME_SCHEME_PRIVILEGES } from "./html-game/protocol";
+import { registerHtmlGameRuntime } from "./html-game/window";
 import { getSettings } from "./settings-store";
 import { startCloudUserDataSync, flushCloudUserDataSync } from "./cloud-user-data/sync";
 import { destroyWebTorrent, onP2pEnabledChanged } from "./p2p";
@@ -35,7 +37,7 @@ import { getAppPaths } from "./paths";
 import { appIcon } from "./app-icon";
 import { startRendererServer } from "./renderer-server";
 
-protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME]);
+protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME, HTML_GAME_SCHEME_PRIVILEGES]);
 
 // SpareRenderer parks a hidden Chromium process (~80–150MB) before any window exists.
 app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
@@ -113,6 +115,7 @@ app.whenReady().then(async () => {
     );
   }
   registerSaveThumbProtocol();
+  registerHtmlGameRuntime();
   initAppUpdateStatus();
   setAppUpdateBeforeExitHook(async () => {
     await persistSessionNow().catch((error) =>

@@ -92,6 +92,11 @@ import {
   showRpgMakerSave
 } from './rpgmaker/saves'
 import {
+  deleteHtmlSaveKeys,
+  getHtmlGameInfo,
+  openHtmlSaves
+} from './html-game/saves'
+import {
   applyRenpySaveEditor,
   chooseRenpySaveDirectory,
   clearRenpySaveDirectory,
@@ -1710,6 +1715,44 @@ export function registerIpc(): void {
         return await deleteRpgMakerSaves(
           { fileId: String(fileId || ''), threadId: Number(threadId), title: String(title || '') },
           paths
+        )
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle(
+    'htmlgame:info',
+    async (_event, fileId: string, threadId: number, title?: string) => {
+      try {
+        return await getHtmlGameInfo({
+          fileId: String(fileId || ''),
+          threadId: Number(threadId),
+          title: String(title || '')
+        })
+      } catch (error) {
+        throw toIpcError(error)
+      }
+    }
+  )
+
+  ipcMain.handle('htmlgame:openSaves', async (_event, threadId: number, title?: string) => {
+    try {
+      await openHtmlSaves(Number(threadId), String(title || ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle(
+    'htmlgame:deleteKeys',
+    async (_event, fileId: string, threadId: number, keys: string[], title?: string) => {
+      try {
+        const list = Array.isArray(keys) ? keys.map((item) => String(item)) : []
+        return await deleteHtmlSaveKeys(
+          { fileId: String(fileId || ''), threadId: Number(threadId), title: String(title || '') },
+          list
         )
       } catch (error) {
         throw toIpcError(error)

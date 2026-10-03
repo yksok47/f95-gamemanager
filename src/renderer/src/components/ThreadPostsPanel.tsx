@@ -17,7 +17,7 @@ type ThreadPostsPanelProps = {
   active: boolean
   jumpToPostId?: number
   jumpKey?: number
-  onProseClick: (event: MouseEvent<HTMLDivElement>) => void
+  onProseClick: (event: MouseEvent<HTMLElement>) => void
   onSessionExpired: () => Promise<void>
 }
 
@@ -793,7 +793,7 @@ type ThreadPostCardProps = {
   busy: boolean
   threadId: number
   edit: { postId: number; draft: string; hash: string } | null
-  onProseClick: (event: MouseEvent<HTMLDivElement>) => void
+  onProseClick: (event: MouseEvent<HTMLElement>) => void
   onLike: () => void
   onQuote: () => void
   onReply: () => void

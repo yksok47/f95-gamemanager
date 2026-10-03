@@ -26,6 +26,7 @@ describe('classifySaveName', () => {
     expect(classifySaveName('file3.rpgsave')).toBe('slot')
     expect(classifySaveName('auto.rpgsave')).toBe('auto')
     expect(classifySaveName('config.rpgsave')).toBe('always')
+    expect(classifySaveName('localStorage.json')).toBe('always')
     expect(classifySaveName('screenshot.png')).toBe(null)
     expect(classifySaveName('game.txt')).toBe(null)
     expect(classifySaveName('manifest.json')).toBe(null)

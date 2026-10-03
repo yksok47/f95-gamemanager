@@ -27,13 +27,21 @@ export default defineConfig({
     resolve: { alias: sharedAlias },
     plugins: [copyP2pShimsPlugin()],
     build: {
-      rollupOptions: {
+      rolldownOptions: {
         external: ['original-fs', 'original-fs/promises']
       }
     }
   },
   preload: {
-    resolve: { alias: sharedAlias }
+    resolve: { alias: sharedAlias },
+    build: {
+      rolldownOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          'html-game': resolve('src/preload/html-game.ts')
+        }
+      }
+    }
   },
   renderer: {
     resolve: {

@@ -16,6 +16,7 @@ import type {
   GameFileContext,
   GameLibraryFile,
   GameRarity,
+  HtmlGameInfo,
   IdentifiedSaveFolder,
   RenpySaveEditPatch,
   RenpySaveEditorData,
@@ -574,6 +575,14 @@ const api = {
       ipcRenderer.invoke('rpgmaker:applySaveEditor', fileId, threadId, savePath, patches, title),
     deleteSaves: (fileId: string, threadId: number, savePaths: string[], title = ''): Promise<RpgMakerInfo> =>
       ipcRenderer.invoke('rpgmaker:deleteSaves', fileId, threadId, savePaths, title)
+  },
+  htmlgame: {
+    info: (fileId: string, threadId: number, title = ''): Promise<HtmlGameInfo> =>
+      ipcRenderer.invoke('htmlgame:info', fileId, threadId, title),
+    openSaves: (threadId: number, title = ''): Promise<void> =>
+      ipcRenderer.invoke('htmlgame:openSaves', threadId, title),
+    deleteKeys: (fileId: string, threadId: number, keys: string[], title = ''): Promise<HtmlGameInfo> =>
+      ipcRenderer.invoke('htmlgame:deleteKeys', fileId, threadId, keys, title)
   },
   shell: {
     open: (url: string, context?: GameFileContext): Promise<void> =>

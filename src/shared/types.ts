@@ -770,6 +770,24 @@ export type RpgMakerSaveEditorData = {
   variables: RpgMakerSaveEditVar[]
 }
 
+export type HtmlGameSaveKey = {
+  key: string
+  size: number
+  preview: string
+}
+
+export type HtmlGameInfo = {
+  fileId: string
+  threadId: number
+  entryPath: string | null
+  backupPath: string
+  backupPathExists: boolean
+  saveFolderBytes: number
+  keys: HtmlGameSaveKey[]
+  playing: boolean
+  message?: string
+}
+
 /**
  * Per-version history for a game (survives uninstall/remove of that build).
  * Entries may be unplayed — e.g. versions discovered when refreshing metadata.

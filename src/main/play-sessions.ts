@@ -12,13 +12,26 @@ type PlaySession = {
   pid: number
   installPath: string
   backupSaves: boolean
+  kind: 'process' | 'html'
   startedAt: number
   flushedAt: number
   lastSeenAt: number
   missingSince: number | null
 }
 
+type HtmlPlayHooks = {
+  isOpen: (fileId: string) => boolean
+  close: (fileId: string) => Promise<void>
+  backup: (fileId: string) => Promise<void>
+}
+
 const sessions = new Map<string, PlaySession>()
+let htmlHooks: HtmlPlayHooks | null = null
+
+export function setHtmlPlayHooks(hooks: HtmlPlayHooks): void {
+  htmlHooks = hooks
+}
+
 const FLUSH_EVERY_MS = 30_000
 const GONE_GRACE_MS = 5_000
 const POLL_MS = 2_000
@@ -54,6 +67,15 @@ async function addPlaytime(
   await addSubscriptionPlaytime(threadId, deltaMs, version)
 }
 
+async function backupHtmlSaves(session: PlaySession): Promise<void> {
+  if (session.kind !== 'html') return
+  try {
+    await htmlHooks?.backup(session.fileId)
+  } catch (error) {
+    console.warn('Could not backup HTML game saves', error)
+  }
+}
+
 async function backupRpgMakerSaves(session: PlaySession, skipUnstable = false): Promise<void> {
   if (!session.backupSaves) return
   try {
@@ -83,6 +105,7 @@ async function flushSession(session: PlaySession, until = now()): Promise<void> 
   session.flushedAt = until
   await addPlaytime(session.fileId, session.threadId, session.version, delta)
   await backupRpgMakerSaves(session, true)
+  await backupHtmlSaves(session)
 }
 
 async function endSession(fileId: string): Promise<void> {
@@ -91,6 +114,7 @@ async function endSession(fileId: string): Promise<void> {
   sessions.delete(fileId)
   await flushSession(session)
   await backupRpgMakerSaves(session, false)
+  await backupHtmlSaves(session)
   await syncCloudSaves(session.threadId)
   broadcast()
 }
@@ -108,10 +132,14 @@ async function adoptInstallProcess(session: PlaySession): Promise<boolean> {
 async function poll(): Promise<void> {
   const stamp = now()
   for (const session of [...sessions.values()]) {
-    if (pidAlive(session.pid)) {
+    const alive =
+      session.kind === 'html'
+        ? Boolean(htmlHooks?.isOpen(session.fileId))
+        : pidAlive(session.pid)
+    if (alive) {
       session.lastSeenAt = stamp
       session.missingSince = null
-    } else {
+    } else if (session.kind === 'process') {
       const adopted = await adoptInstallProcess(session)
       if (!adopted) {
         session.missingSince ??= stamp
@@ -119,6 +147,12 @@ async function poll(): Promise<void> {
           await endSession(session.fileId)
           continue
         }
+      }
+    } else {
+      session.missingSince ??= stamp
+      if (stamp - session.missingSince >= GONE_GRACE_MS) {
+        await endSession(session.fileId)
+        continue
       }
     }
     if (stamp - session.flushedAt >= FLUSH_EVERY_MS) {
@@ -162,6 +196,7 @@ export function startPlaySession(input: {
   pid: number
   installPath: string
   backupSaves?: boolean
+  kind?: 'process' | 'html'
 }): void {
   const existing = sessions.get(input.fileId)
   const startedAt = existing?.startedAt ?? now()
@@ -173,6 +208,7 @@ export function startPlaySession(input: {
     pid: input.pid,
     installPath: input.installPath,
     backupSaves: Boolean(input.backupSaves || existing?.backupSaves),
+    kind: input.kind || existing?.kind || 'process',
     startedAt,
     flushedAt,
     lastSeenAt: now(),
@@ -182,9 +218,18 @@ export function startPlaySession(input: {
   broadcast()
 }
 
+export async function finishPlaySession(fileId: string): Promise<void> {
+  await endSession(fileId)
+}
+
 export async function stopPlaySession(fileId: string): Promise<void> {
   const session = sessions.get(fileId)
   if (!session) return
+  if (session.kind === 'html') {
+    await htmlHooks?.close(fileId)
+    await endSession(fileId)
+    return
+  }
   await killProcessTree(session.pid)
   await killProcessesUnder(session.installPath)
   await endSession(fileId)
@@ -195,6 +240,7 @@ export async function flushPlaySessions(): Promise<void> {
   for (const session of sessions.values()) {
     await flushSession(session)
     await backupRpgMakerSaves(session, false)
+    await backupHtmlSaves(session)
   }
   for (const threadId of threadIds) {
     await syncCloudSaves(threadId)

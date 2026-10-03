@@ -78,3 +78,39 @@ export function compareLaunchCandidates(
   if (score) return score
   return a.length - b.length
 }
+
+const SKIP_HTML_NAME =
+  /^(readme|license|licence|changelog|credits|help|howto|how-to|instructions|patreon|discord|support|privacy|eula|tos|documentation|manual)(\.|$)/i
+
+const PREFERRED_HTML = /^(index|game|start|play|main|launch)\.html?$/i
+
+const HTML_ASSET_DIR = /^(resources|js|css|fonts|images|img|assets|lib|vendor|data|audio|video)$/i
+
+export function isHtmlFileName(name: string): boolean {
+  return /\.html?$/i.test(name)
+}
+
+export function isHtmlSkipDir(name: string): boolean {
+  if (!name || name.startsWith('.')) return true
+  return /^(lib|renpy|cache|__pycache__|tmp|temp|node_modules)$/i.test(name) || /\.app$/i.test(name)
+}
+
+export function scoreHtmlEntry(relativePath: string): number {
+  const normalized = relativePath.replace(/\\/g, '/')
+  const parts = normalized.split('/').filter(Boolean)
+  const name = (parts[parts.length - 1] || '').toLowerCase()
+  const depth = Math.max(0, parts.length - 1)
+  let score = 40 - depth * 18
+  if (name === 'index.html') score += 80
+  else if (name === 'index.htm') score += 70
+  else if (PREFERRED_HTML.test(name)) score += 40
+  if (SKIP_HTML_NAME.test(name)) score -= 100
+  if (parts.slice(0, -1).some((part) => HTML_ASSET_DIR.test(part))) score -= 35
+  return score
+}
+
+export function compareHtmlEntries(a: string, b: string): number {
+  const score = scoreHtmlEntry(b) - scoreHtmlEntry(a)
+  if (score) return score
+  return a.length - b.length
+}

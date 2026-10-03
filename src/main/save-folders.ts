@@ -1,7 +1,7 @@
 import { basename, isAbsolute, join, resolve, sep } from 'path'
 import { maxLikeCount, maxViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { asText } from '@shared/text'
-import { engineKind } from '@shared/engines'
+import { engineKind, isHtmlPlayableEngine } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import type {
   CatalogGame,
@@ -44,6 +44,11 @@ import {
   rpgMakerSavesRoot
 } from './rpgmaker/saves'
 import { wipeRpgMakerSaveDirs } from './rpgmaker/save-disk'
+import {
+  clearHtmlSavesForGame,
+  htmlSavesRoot,
+  listHtmlBackupFolders
+} from './html-game/saves'
 import {
   listFailedSaveFolders,
   listIdentifiedSaveFolders,
@@ -128,6 +133,7 @@ function peekShotLabel(save: {
 export async function listSaveFolderPeek(savePath: string): Promise<SaveFolderPeekShot[]> {
   const folder = assertManagedSavePath(savePath)
   if (isInside(folder, rpgMakerSavesRoot())) return []
+  if (isInside(folder, htmlSavesRoot())) return []
   const saves = await listRenpySaveFiles(folder)
   return saves
     .filter((save): save is typeof save & { thumbnailUrl: string } =>
@@ -146,8 +152,10 @@ export function assertManagedSavePath(savePath: string): string {
   const folder = resolve(savePath)
   const renpyRoot = resolve(renpySavesRoot())
   const rpgRoot = resolve(rpgMakerSavesRoot())
+  const htmlRoot = resolve(htmlSavesRoot())
   if (isInside(folder, renpyRoot) && folder !== renpyRoot) return folder
   if (isInside(folder, rpgRoot) && folder !== rpgRoot) return folder
+  if (isInside(folder, htmlRoot) && folder !== htmlRoot) return folder
   const libraryDir = getLibraryDirSync()
   if (libraryDir && isInside(folder, libraryDir) && /[/\\]saves?$/i.test(folder)) return folder
   throw new Error('That folder is not a managed save directory.')
@@ -555,6 +563,7 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
   const inGameRenpyByThread = new Map<number, { path: string; bytes: number }>()
   await mapLimit(remainingGames, 4, async (game) => {
     const kind = engineKind(game.engine)
+    if (isHtmlPlayableEngine(game.engine)) return
     if (kind === 'rpgmaker' || (!game.engine && game.inLibrary)) {
       const bytes = await measureRpgMakerSaveBytes({
         installPath: game.file?.installPath,
@@ -657,6 +666,53 @@ export async function collectSaveItems(files: GameLibraryFile[]): Promise<Librar
         identified: false,
         identifyFailed: Boolean(failed),
         engineHint: 'RPG Maker'
+      })
+    )
+  }
+
+  const htmlBackups = await listHtmlBackupFolders()
+  for (const folder of htmlBackups) {
+    if (claimedFolders.has(saveFolderKey(folder.path)) || claimedThreads.has(folder.threadId)) continue
+    const stored = identifiedByPath.get(saveFolderKey(folder.path))
+    const knownGame = known.get(folder.threadId) || (stored ? known.get(stored.threadId) : null)
+    if (knownGame || stored) {
+      const game =
+        knownGame ||
+        (stored
+          ? {
+              threadId: stored.threadId,
+              title: stored.title,
+              creator: '',
+              coverUrl: stored.coverUrl,
+              engine: stored.engine || 'HTML',
+              file: null,
+              inLibrary: false,
+              inFollowed: false
+            }
+          : null)
+      claim(
+        saveItem({
+          path: folder.path,
+          folderName: folder.name,
+          bytes: folder.bytes,
+          game,
+          identified: true,
+          identifyFailed: false,
+          engineHint: 'HTML'
+        })
+      )
+      continue
+    }
+    const failed = failedByPath.get(saveFolderKey(folder.path))
+    claim(
+      saveItem({
+        path: folder.path,
+        folderName: folder.name,
+        bytes: folder.bytes,
+        game: null,
+        identified: false,
+        identifyFailed: Boolean(failed),
+        engineHint: 'HTML'
       })
     )
   }
@@ -930,6 +986,34 @@ export async function identifySaveFolder(savePath: string): Promise<SaveFolderId
     }
   }
 
+  if (isInside(folder, htmlSavesRoot()) && /^\d+$/.test(folderName)) {
+    const threadId = Number(folderName)
+    const local = known.get(threadId)
+    if (local) return rememberIdentity(folder, local)
+    try {
+      const details = await fetchThreadDetails(threadId)
+      return rememberIdentity(folder, {
+        threadId,
+        title: details.title || `Thread ${threadId}`,
+        creator: details.creator || '',
+        coverUrl: details.coverUrl || null,
+        engine: details.engine || 'HTML',
+        version: details.version,
+        likes: details.likes,
+        views: details.views,
+        threadUrl: details.threadUrl,
+        timestamp: undefined,
+        updatedAt: details.updatedAt,
+        screens: details.gallery,
+        file: null,
+        inLibrary: false,
+        inFollowed: false
+      })
+    } catch {
+      return failIdentify(folder, folderName)
+    }
+  }
+
   const live = matchSaveFoldersToGames(
     [folderName],
     [...known.values()].filter((game) => game.title)
@@ -1004,6 +1088,14 @@ async function wipeManagedSaveFolder(savePath: string): Promise<void> {
       scheduleCloudSync(rec?.threadId)
       return
     }
+    if (isInside(folder, htmlSavesRoot())) {
+      const threadId = rec?.threadId || Number(basename(folder))
+      if (threadId) await clearHtmlSavesForGame(threadId)
+      else await clearSaveFolderContents(folder)
+      await forgetSaveFolderQuietly(folder)
+      scheduleCloudSync(rec?.threadId)
+      return
+    }
     await clearSaveFolderContents(folder)
   } catch {
     await forgetSaveFolderQuietly(savePath)
@@ -1034,6 +1126,10 @@ export async function clearGameSaves(threadId: number, savePath?: string): Promi
       await wipeManagedSaveFolder(path)
       return
     }
+    if (threadId && isInside(path, htmlSavesRoot())) {
+      await clearHtmlSavesForGame(threadId)
+      return
+    }
     await wipeManagedSaveFolder(path)
     return
   }
@@ -1047,7 +1143,13 @@ export async function clearGameSaves(threadId: number, savePath?: string): Promi
   }
 
   try {
-    if (preferred && engineKind(engineOf(files)) !== 'rpgmaker') {
+    await clearHtmlSavesForGame(threadId)
+  } catch {
+    // No HTML save backup for this game is fine.
+  }
+
+  try {
+    if (preferred && engineKind(engineOf(files)) !== 'rpgmaker' && !isHtmlPlayableEngine(engineOf(files))) {
       await clearRenpySaveFolder(preferred.id, title)
     }
   } catch {
