@@ -67,8 +67,34 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
   const decompileLocked = Boolean(
     tracked?.decompileLocked || (scripts && (tracked?.decompile || 0) > 0 && compiledWithRpy === 0)
   )
-  const canDeleteArchives = Boolean(scripts && scripts.rpaCount > 0 && (tracked?.extract || scripts.alreadyUnpacked))
+  const extractMode = tracked?.extractMode ?? null
+  const extracting = Boolean(
+    running && (status?.action === 'extract' || status?.action === 'extract-all')
+  )
+  const canExtractAll = Boolean(scripts && scripts.rpaCount > 0 && extractMode !== 'all')
+  const canDeleteArchives = Boolean(scripts && scripts.rpaCount > 0 && extractMode === 'all')
   const canDeleteCompiled = compiledWithRpy > 0
+
+  function unpackLabel(): string {
+    if (!scripts) return 'No scripts'
+    if (scripts.needsUnpack) return 'Still compressed'
+    if (!scripts.alreadyUnpacked) return 'No scripts'
+    if (scripts.rpaCount === 0 || extractMode === 'all') return 'Uncompressed'
+    return 'Scripts unpacked'
+  }
+
+  async function extractAll(): Promise<void> {
+    if (!activeId) return
+    const ok = await confirm({
+      title: 'Extract all files',
+      message:
+        'Unpack images, audio, and other assets as loose files. Ren\'Py has to index every file on startup, so this often makes the game load much slower. Prefer Extract scripts unless you need the assets on disk.',
+      confirmLabel: 'Extract all',
+      danger: true
+    })
+    if (!ok) return
+    runAction('extract-all')
+  }
 
   async function retractAction(action: UnRenAction): Promise<void> {
     if (!activeId) return
@@ -134,7 +160,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
             {scripts ? (
               <div className="library-file-flags">
                 <Flag on={scripts.alreadyUnpacked} warn={scripts.needsUnpack}>
-                  {scripts.needsUnpack ? 'Still compressed' : scripts.alreadyUnpacked ? 'Uncompressed' : 'No scripts'}
+                  {unpackLabel()}
                 </Flag>
                 <Flag on={scripts.alreadyDecompiled} warn={scripts.needsDecompile}>
                   {scripts.needsDecompile ? 'Still compiled' : scripts.alreadyDecompiled ? 'Decompiled' : 'No scripts'}
@@ -179,7 +205,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                   </div>
                 </div>
                 <div className="renpy-actions">
-                  {running && status?.action === 'extract' ? (
+                  {extracting ? (
                     <button
                       className="stop-btn"
                       type="button"
@@ -196,15 +222,26 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                         disabled={busy || running || !scripts.needsUnpack}
                         title={
                           scripts.needsUnpack
-                            ? undefined
+                            ? 'Unpack .rpy/.rpyc from archives. Images and audio stay packed so the game starts quickly.'
                             : scripts.alreadyUnpacked
-                              ? 'Already uncompressed'
+                              ? 'Scripts are already on disk'
                               : 'No archives to extract'
                         }
                         onClick={() => runAction('extract')}
                       >
-                        Extract RPA
+                        Extract scripts
                       </button>
+                      {canExtractAll ? (
+                        <button
+                          className="ghost-btn"
+                          type="button"
+                          disabled={busy || running}
+                          title="Unpack every file, including images. This usually makes startup much slower."
+                          onClick={() => void extractAll()}
+                        >
+                          Extract all
+                        </button>
+                      ) : null}
                       {tracked?.extract ? (
                         <button
                           className="warn-btn"
@@ -225,7 +262,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                           className="danger-btn"
                           type="button"
                           disabled={busy || running}
-                          title="Permanently delete original RPA archives"
+                          title="Permanently delete original RPA archives. Only safe after Extract all, because assets still live in the archives after Extract scripts."
                           onClick={() => void discardAction('extract')}
                         >
                           Delete RPA

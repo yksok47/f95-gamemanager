@@ -21,6 +21,8 @@ describe('unrpyc python 3.12 import compatibility', () => {
     const rpatool = readFileSync(join(here, '../../../resources/unren/rpatool-py3.py'), 'utf8')
     expect(rpatool).toContain('extract_files_parallel')
     expect(rpatool).toContain('F95_UNREN_WORKERS')
+    expect(rpatool).toContain('--scripts')
+    expect(rpatool).toContain('_is_script_name')
     const deob = readFileSync(join(here, '../../../resources/unren/unrpyc-py3/deobfuscate.py'), 'utf8')
     expect(deob).toContain('_count_keys_are_bytes')
     expect(deob).toMatch(/i in alphabet/)

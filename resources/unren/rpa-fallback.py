@@ -96,11 +96,18 @@ def mkdirp(path):
             os.mkdir(d)
 
 
+_SCRIPT_EXTS = ('.rpy', '.rpyc', '.rpym', '.rpymc')
+
 if __name__ == "__main__":
+    import os
     import sys
     rpa = RPA(sys.argv[1])
+    scripts_only = os.environ.get('F95_UNREN_SCRIPTS_ONLY') == '1'
     for file, contents in rpa.files.items():
-        # print("{0:10} {1}".format(len(contents), file))
+        if scripts_only:
+            base = file.replace('\\', '/').split('/')[-1].lower()
+            if not base.endswith(_SCRIPT_EXTS):
+                continue
         mkdirp(os.path.dirname(file))
         with open(file, 'wb') as f:
             f.write(contents)

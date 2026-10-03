@@ -340,6 +340,17 @@ def _read_indexed(archive, filename):
         return prefix_data + src.read(length - len(prefix))
 
 
+_SCRIPT_EXTS = ('.rpy', '.rpyc', '.rpym', '.rpymc')
+
+
+def _is_script_name(filename):
+    name = _unicode(filename).replace('\\', '/').split('/')[-1]
+    if name.find('=') != -1:
+        parts = name.split('=', 2)
+        name = parts[1] if len(parts) > 1 else parts[0]
+    return name.lower().endswith(_SCRIPT_EXTS)
+
+
 def extract_files_parallel(archive, files, output):
     jobs = []
     for filename in files:
@@ -417,6 +428,7 @@ if __name__ == "__main__":
 
     parser.add_argument('-l', '--list', action='store_true', help='List files in archive ARCHIVE.')
     parser.add_argument('-x', '--extract', action='store_true', help='Extract FILEs from ARCHIVE.')
+    parser.add_argument('--scripts', action='store_true', help='Extract only Ren\'Py script files (.rpy, .rpyc, .rpym, .rpymc).')
     parser.add_argument('-c', '--create', action='store_true', help='Creative ARCHIVE from FILEs.')
     parser.add_argument('-d', '--delete', action='store_true', help='Delete FILEs from ARCHIVE.')
     parser.add_argument('-a', '--append', action='store_true', help='Append FILEs to ARCHIVE.')
@@ -527,6 +539,8 @@ if __name__ == "__main__":
             files = arguments.files
         else:
             files = archive.list()
+        if arguments.scripts:
+            files = [name for name in files if _is_script_name(name)]
         extract_files_parallel(archive, files, output)
     elif arguments.list:
         # Print the sorted file list.

@@ -538,7 +538,9 @@ export type PlaySessionStatus = {
   elapsedMs: number
 }
 
-export type UnRenAction = 'extract' | 'decompile'
+export type UnRenAction = 'extract' | 'extract-all' | 'decompile'
+
+export type UnRenExtractMode = 'scripts' | 'all'
 
 export type UnRenStatusAction = UnRenAction | 'locate' | 'delete-archives' | 'delete-compiled'
 
@@ -659,6 +661,7 @@ export type RenpyTrackedFiles = {
   decompile: number
   extractLocked: boolean
   decompileLocked: boolean
+  extractMode: UnRenExtractMode | null
 }
 
 export type RenpyLastRun = {

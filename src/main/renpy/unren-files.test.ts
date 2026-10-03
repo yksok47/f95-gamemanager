@@ -4,13 +4,17 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'bun:test'
 import {
   addTrackedFiles,
+  coalesceExtractMode,
   diffNewRels,
   discardSourceFiles,
+  inferExtractMode,
+  isScriptRel,
   mergeTracked,
   parseTrackedFiles,
   recordNewGameFiles,
   retractBlockedReason,
   retractTrackedFiles,
+  setExtractMode,
   shouldTrackRel,
   snapshotGameRels,
   toPosixRel,
@@ -65,7 +69,8 @@ describe('tracked path helpers', () => {
       extract: ['bg.png'],
       decompile: ['script.rpy'],
       extractLocked: true,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: 'all' as const
     }
     expect(retractBlockedReason(extracted, 'extract', { archiveCount: 1, compiledWithRpy: 1 })).toBe(
       'Cannot remove extracted files after the archives have been deleted.'
@@ -88,14 +93,16 @@ describe('tracked path helpers', () => {
       extract: [],
       decompile: [],
       extractLocked: false,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: null
     })
     expect(parseTrackedFiles({ extract: ['a.rpyc', 'a.rpyc'], decompile: [1, 'b.rpy'] })).toEqual({
       version: 1,
       extract: ['a.rpyc'],
       decompile: ['b.rpy'],
       extractLocked: false,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: 'scripts'
     })
     expect(
       parseTrackedFiles({ extract: ['a.png'], extractLocked: true, decompileLocked: 1 })
@@ -104,7 +111,8 @@ describe('tracked path helpers', () => {
       extract: ['a.png'],
       decompile: [],
       extractLocked: true,
-      decompileLocked: true
+      decompileLocked: true,
+      extractMode: 'all'
     })
   })
 })
@@ -130,7 +138,8 @@ describe('tracked file persistence', () => {
       extract: 2,
       decompile: 1,
       extractLocked: false,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: 'all'
     })
 
     const extracted = await retractTrackedFiles(root, 'extract')
@@ -140,7 +149,8 @@ describe('tracked file persistence', () => {
       extract: [],
       decompile: ['script.rpy'],
       extractLocked: false,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: null
     })
     expect(readFileSync(join(game, 'keep.rpy'), 'utf8')).toContain('label start')
     expect(readFileSync(join(game, 'archive.rpa'), 'utf8')).toBe('rpa2')
@@ -154,7 +164,8 @@ describe('tracked file persistence', () => {
       extract: [],
       decompile: [],
       extractLocked: false,
-      decompileLocked: false
+      decompileLocked: false,
+      extractMode: null
     })
   })
 
@@ -248,5 +259,30 @@ describe('tracked file persistence', () => {
     expect(unlocked.extractLocked).toBe(false)
     const extracted = await retractTrackedFiles(root, 'extract')
     expect(extracted.removed).toBe(2)
+  })
+
+  test('keeps archives when only scripts were extracted', async () => {
+    const root = tempDir()
+    const game = join(root, 'game')
+    mkdirSync(game, { recursive: true })
+    writeFileSync(join(game, 'archive.rpa'), 'rpa')
+    writeFileSync(join(game, 'script.rpyc'), 'rpyc')
+    await addTrackedFiles(root, 'extract', ['script.rpyc'])
+    await expect(discardSourceFiles(root, 'extract')).rejects.toThrow(
+      'Archives still hold images and audio'
+    )
+    expect(readFileSync(join(game, 'archive.rpa'), 'utf8')).toBe('rpa')
+  })
+
+  test('upgrades extract mode from scripts to all', async () => {
+    const root = tempDir()
+    const game = join(root, 'game')
+    mkdirSync(game, { recursive: true })
+    await addTrackedFiles(root, 'extract', ['script.rpyc'])
+    expect(inferExtractMode(['script.rpyc'])).toBe('scripts')
+    expect(isScriptRel('images/bg.png')).toBe(false)
+    expect(coalesceExtractMode('scripts', ['script.rpyc', 'bg.png'])).toBe('all')
+    const upgraded = await setExtractMode(root, 'all')
+    expect(upgraded.extractMode).toBe('all')
   })
 })

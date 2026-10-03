@@ -19,6 +19,7 @@ import {
   getTrackedCounts,
   recordNewGameFiles,
   retractTrackedFiles,
+  setExtractMode,
   shouldTrackRel,
   snapshotGameRels,
   toPosixRel
@@ -121,7 +122,7 @@ function outputText(result: { stdout: string; stderr: string }): string {
 }
 
 function cancelledSummary(action: UnRenAction, done: number, total: number, added: number): string {
-  const noun = action === 'extract' ? 'archive(s)' : 'script(s)'
+  const noun = action === 'decompile' ? 'script(s)' : 'archive(s)'
   const work = total
     ? `Finished ${done}/${total} ${noun} before stopping.`
     : 'Stopped before any files were written.'
@@ -136,14 +137,20 @@ async function extractArchive(
   gameDir: string,
   threads: number,
   timeoutMs: number,
+  scriptsOnly: boolean,
   signal?: AbortSignal
 ): Promise<void> {
   const archive = stripNamespace(archivePath)
   const outDir = stripNamespace(gameDir)
-  const extraEnv = { F95_UNREN_WORKERS: String(threads) }
+  const extraEnv = {
+    F95_UNREN_WORKERS: String(threads),
+    ...(scriptsOnly ? { F95_UNREN_SCRIPTS_ONLY: '1' } : {})
+  }
+  const args = [vendor.rpatool, '-x', archive, '-o', outDir]
+  if (scriptsOnly) args.push('--scripts')
   const primary = await runGamePython(
     runtime,
-    [vendor.rpatool, '-x', archive, '-o', outDir],
+    args,
     outDir,
     [],
     timeoutMs,
@@ -226,8 +233,10 @@ async function runExtract(
   gameRoot: string,
   fileId: string,
   startedAt: number,
-  signal: AbortSignal
+  signal: AbortSignal,
+  scriptsOnly: boolean
 ): Promise<RenpyLastRun> {
+  const extractAction = scriptsOnly ? 'extract' : 'extract-all'
   const gameDir = gameDirFromRoot(gameRoot)
   const before = await scanScripts(gameRoot)
   const archives = before.rpaFiles
@@ -239,9 +248,9 @@ async function runExtract(
     const summary = before.unpacked
       ? `Already uncompressed. ${before.rpyCount + before.rpycCount} script files are on disk and there are no .rpa archives.`
       : 'No .rpa archives found, and there are no loose scripts either.'
-    emit(fileId, 'extract', summary, { log: `${log}${summary}\n`, done: 0, total: 0, percent: 100 })
+    emit(fileId, extractAction, summary, { log: `${log}${summary}\n`, done: 0, total: 0, percent: 100 })
     return finish(fileId, {
-      action: 'extract',
+      action: extractAction,
       startedAt,
       finishedAt: Date.now(),
       ok: before.unpacked,
@@ -255,17 +264,20 @@ async function runExtract(
     })
   }
 
+  log += scriptsOnly
+    ? `Extracting scripts only from ${archives.length} archive(s). Images and audio stay packed.\n`
+    : `Extracting every file from ${archives.length} archive(s). Loose assets make startup slower.\n`
   log += before.unpacked
-    ? `Already uncompressed (${before.rpyCount} rpy, ${before.rpycCount} rpyc). Extracting ${archives.length} archive(s) anyway.\n`
-    : `Still compressed. Extracting ${archives.length} archive(s).\n`
-  emit(fileId, 'extract', `Extracting 0/${archives.length}…`, { log, done: 0, total: archives.length, percent: 0 })
+    ? `Scripts already on disk (${before.rpyCount} rpy, ${before.rpycCount} rpyc).\n`
+    : `Still compressed.\n`
+  emit(fileId, extractAction, `Extracting 0/${archives.length}…`, { log, done: 0, total: archives.length, percent: 0 })
 
   const runtime = await detectGamePython(gameRoot, signal)
   const vendor = getUnrenVendor(runtime)
   const parallel = extractParallelism(archives.length)
   log += `Using Python ${runtime.major} (${runtime.python})\n`
   log += `Unpacking with ${parallel.archives} archive worker(s), ${parallel.threads} thread(s) each.\n`
-  emit(fileId, 'extract', `Using Python ${runtime.major}`, { log, done: 0, total: archives.length, percent: 0 })
+  emit(fileId, extractAction, `Using Python ${runtime.major}`, { log, done: 0, total: archives.length, percent: 0 })
 
   let done = 0
   let failed = 0
@@ -280,7 +292,7 @@ async function runExtract(
     await mapLimit(archives, parallel.archives, async (archive) => {
       throwIfUnRenCancelled(signal)
       const label = basename(archive.path)
-      emit(fileId, 'extract', `Extracting ${done + failed + 1}/${archives.length}: ${label}`, {
+      emit(fileId, extractAction, `Extracting ${done + failed + 1}/${archives.length}: ${label}`, {
         log: `${log}Extracting ${label}…\n`,
         done: done + failed,
         total: archives.length,
@@ -294,6 +306,7 @@ async function runExtract(
           gameDir,
           parallel.threads,
           extractTimeoutMs(archive.size),
+          scriptsOnly,
           signal
         )
         done += 1
@@ -304,7 +317,7 @@ async function runExtract(
         log += `Failed ${label}: ${error instanceof Error ? error.message : String(error)}\n`
       }
       doneBytes += Math.max(0, archive.size)
-      emit(fileId, 'extract', `Extracting ${done + failed}/${archives.length}`, {
+      emit(fileId, extractAction, `Extracting ${done + failed}/${archives.length}`, {
         log,
         done: done + failed,
         total: archives.length,
@@ -318,15 +331,16 @@ async function runExtract(
   }
 
   await recordNewGameFiles(gameRoot, 'extract', snapshot)
+  if (!cancelled && done > 0) await setExtractMode(gameRoot, scriptsOnly ? 'scripts' : 'all')
   const written = snapshot.size - snapshotStart
   let scriptCount = 0
   for (const rel of snapshot) {
     if (/\.rpyc?$/i.test(rel)) scriptCount += 1
   }
   if (cancelled) {
-    const summary = cancelledSummary('extract', done, archives.length, written)
+    const summary = cancelledSummary(extractAction, done, archives.length, written)
     return finish(fileId, {
-      action: 'extract',
+      action: extractAction,
       startedAt,
       finishedAt: Date.now(),
       ok: false,
@@ -344,9 +358,11 @@ async function runExtract(
   const summary =
     failed && !done
       ? `Failed to extract ${failed} archive(s).`
-      : `Extracted ${done} archive(s)${failed ? `, ${failed} failed` : ''}. ${scriptCount} script files on disk.`
+      : scriptsOnly
+        ? `Extracted scripts from ${done} archive(s)${failed ? `, ${failed} failed` : ''}. ${scriptCount} script files on disk. Assets remain in the archives.`
+        : `Extracted ${done} archive(s)${failed ? `, ${failed} failed` : ''}. ${scriptCount} script files on disk.`
   return finish(fileId, {
-    action: 'extract',
+    action: scriptsOnly ? 'extract' : 'extract-all',
     startedAt,
     finishedAt: Date.now(),
     ok: failed === 0 && (done > 0 || before.unpacked),
@@ -520,12 +536,12 @@ async function runDecompile(
 
 async function runJob(
   gameRoot: string,
-  action: 'extract' | 'decompile',
+  action: UnRenAction,
   fileId: string,
   signal: AbortSignal
 ): Promise<RenpyLastRun> {
   const startedAt = Date.now()
-  emit(fileId, action, action === 'extract' ? 'Preparing extract…' : 'Preparing decompile…', {
+  emit(fileId, action, action === 'decompile' ? 'Preparing decompile…' : 'Preparing extract…', {
     log: '',
     error: null,
     cancelling: false,
@@ -534,9 +550,9 @@ async function runJob(
     percent: 0
   })
   try {
-    return action === 'extract'
-      ? await runExtract(stripNamespace(gameRoot), fileId, startedAt, signal)
-      : await runDecompile(stripNamespace(gameRoot), fileId, startedAt, signal)
+    return action === 'decompile'
+      ? await runDecompile(stripNamespace(gameRoot), fileId, startedAt, signal)
+      : await runExtract(stripNamespace(gameRoot), fileId, startedAt, signal, action !== 'extract-all')
   } catch (error) {
     if (isUnRenCancelled(error)) {
       const summary = cancelledSummary(action, 0, 0, 0)
@@ -573,7 +589,7 @@ async function runJob(
   }
 }
 
-export async function runUnRen(gameRoot: string, action: 'extract' | 'decompile', fileId: string): Promise<RenpyLastRun> {
+export async function runUnRen(gameRoot: string, action: UnRenAction, fileId: string): Promise<RenpyLastRun> {
   const root = stripNamespace(gameRoot)
   const pending = jobsByRoot.get(root)
   if (pending) await pending.promise.catch(() => undefined)
