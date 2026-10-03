@@ -25,8 +25,6 @@ export const F95_IMG_SCHEME = {
 
 type CachedImage = { bytes: Buffer; mime: string }
 
-/** URLs currently downloaded by the cache — must not be redirected back into f95-img. */
-const bypassRedirect = new Set<string>()
 const inflight = new Map<string, Promise<CachedImage>>()
 let registered = false
 
@@ -38,20 +36,6 @@ function cachePath(url: string): string {
   return join(cacheDir(), imageCacheFileName(url))
 }
 
-function markBypass(url: string): void {
-  bypassRedirect.add(url)
-  bypassRedirect.add(normalizeImageCacheUrl(url))
-}
-
-function unmarkBypass(url: string): void {
-  bypassRedirect.delete(url)
-  bypassRedirect.delete(normalizeImageCacheUrl(url))
-}
-
-function shouldBypassRedirect(url: string): boolean {
-  return bypassRedirect.has(url) || bypassRedirect.has(normalizeImageCacheUrl(url))
-}
-
 export async function initF95ImageCache(): Promise<void> {
   const dir = cacheDir()
   await rm(dir, { recursive: true, force: true })
@@ -60,7 +44,6 @@ export async function initF95ImageCache(): Promise<void> {
 
 export async function clearF95ImageCache(): Promise<void> {
   inflight.clear()
-  bypassRedirect.clear()
   await rm(cacheDir(), { recursive: true, force: true })
 }
 
@@ -97,38 +80,33 @@ function imageResponse(bytes: Buffer, mime: string): Response {
 }
 
 async function fetchRemoteImageOnce(url: string): Promise<CachedImage> {
-  markBypass(url)
-  try {
-    const response = await session.defaultSession.fetch(url, {
-      bypassCustomProtocolHandlers: true,
-      credentials: 'include',
-      headers: {
-        Referer: F95_REFERER,
-        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-        'User-Agent': session.defaultSession.getUserAgent()
-      },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
-    })
-    if (!response.ok) {
-      throw new Error(`CDN ${response.status}`)
-    }
-
-    const bytes = Buffer.from(await response.arrayBuffer())
-    const sniffed = sniffImageMime(bytes)
-    const contentType = response.headers.get('content-type') || ''
-    const mime =
-      sniffed || (contentType.toLowerCase().startsWith('image/') ? contentType.split(';')[0].trim() : '')
-    if (!bytes.length || !mime) {
-      throw new Error('CDN response was not an image')
-    }
-
-    await writeCachedFile(cachePath(url), bytes).catch((error) => {
-      console.warn('[image-cache] failed to write', url, error)
-    })
-    return { bytes, mime }
-  } finally {
-    unmarkBypass(url)
+  const response = await session.defaultSession.fetch(url, {
+    bypassCustomProtocolHandlers: true,
+    credentials: 'include',
+    headers: {
+      Referer: F95_REFERER,
+      Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+      'User-Agent': session.defaultSession.getUserAgent()
+    },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+  })
+  if (!response.ok) {
+    throw new Error(`CDN ${response.status}`)
   }
+
+  const bytes = Buffer.from(await response.arrayBuffer())
+  const sniffed = sniffImageMime(bytes)
+  const contentType = response.headers.get('content-type') || ''
+  const mime =
+    sniffed || (contentType.toLowerCase().startsWith('image/') ? contentType.split(';')[0].trim() : '')
+  if (!bytes.length || !mime) {
+    throw new Error('CDN response was not an image')
+  }
+
+  await writeCachedFile(cachePath(url), bytes).catch((error) => {
+    console.warn('[image-cache] failed to write', url, error)
+  })
+  return { bytes, mime }
 }
 
 async function fetchRemoteImage(url: string): Promise<CachedImage> {
