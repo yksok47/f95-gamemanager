@@ -1894,6 +1894,40 @@ function GameDetailsPage({
           onAuxClick={closeOnMiddleButton}
           onContextMenu={minimizeOnContextMenu}
         >
+        <button
+          className="details-modal-close"
+          type="button"
+          aria-label="Close"
+          title="Close"
+          onClick={onClose}
+        >
+          <ClearIcon />
+        </button>
+        <div className="details-modal-chrome">
+          <DelayedMount busy={busy && !previewCover && !fullCover}>
+            <div className="details-hero-spinner" role="status" aria-label="Loading thread">
+              <Spinner size="sm" />
+            </div>
+          </DelayedMount>
+          <DelayedMount busy={cloudSaveSyncing}>
+            <div
+              className="details-hero-spinner details-hero-cloud-sync"
+              role="status"
+              aria-label={
+                cloudSaveStatus?.currentTitle
+                  ? `Syncing cloud saves for ${cloudSaveStatus.currentTitle}`
+                  : 'Syncing cloud saves'
+              }
+              title={
+                cloudSaveStatus?.currentTitle
+                  ? `Syncing ${cloudSaveStatus.currentTitle}`
+                  : 'Syncing cloud saves'
+              }
+            >
+              <Spinner size="sm" />
+            </div>
+          </DelayedMount>
+        </div>
         <div
           className="details-modal"
           ref={modalScrollRef}
@@ -1936,33 +1970,6 @@ function GameDetailsPage({
                 </>
               )}
             </div>
-            <DelayedMount busy={busy && !previewCover && !fullCover}>
-              <div className="details-hero-spinner" role="status" aria-label="Loading thread">
-                <Spinner size="sm" />
-              </div>
-            </DelayedMount>
-            <DelayedMount busy={cloudSaveSyncing}>
-              <div
-                className={
-                  busy && !previewCover && !fullCover
-                    ? 'details-hero-spinner details-hero-cloud-sync is-offset'
-                    : 'details-hero-spinner details-hero-cloud-sync'
-                }
-                role="status"
-                aria-label={
-                  cloudSaveStatus?.currentTitle
-                    ? `Syncing cloud saves for ${cloudSaveStatus.currentTitle}`
-                    : 'Syncing cloud saves'
-                }
-                title={
-                  cloudSaveStatus?.currentTitle
-                    ? `Syncing ${cloudSaveStatus.currentTitle}`
-                    : 'Syncing cloud saves'
-                }
-              >
-                <Spinner size="sm" />
-              </div>
-            </DelayedMount>
             <FollowButton
               variant="modal"
               subscribed={subscribed}

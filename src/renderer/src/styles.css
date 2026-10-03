@@ -3521,11 +3521,54 @@ body.is-roster-dragging * {
   border-bottom: 1px solid var(--border);
 }
 
-.details-hero-spinner {
+.details-modal-chrome {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 6;
+  top: 14px;
+  left: 14px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.details-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 8;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(18, 20, 26, 0.72);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.details-modal-close svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.details-modal-close:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(24, 28, 38, 0.88);
+  transform: translateY(-1px);
+}
+
+.details-hero-spinner {
   width: 36px;
   height: 36px;
   margin: 0;
@@ -3543,10 +3586,6 @@ body.is-roster-dragging * {
   border-width: 2px;
   border-color: rgba(255, 255, 255, 0.28);
   border-top-color: var(--accent);
-}
-
-.details-hero-cloud-sync.is-offset {
-  left: 56px;
 }
 
 
@@ -3579,7 +3618,7 @@ body.is-roster-dragging * {
 
 .details-hero > .follow-btn-modal {
   top: 14px;
-  right: 14px;
+  right: 62px;
 }
 
 .details-hero-banner {
