@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve, sep } from 'path'
 import type { BrowserWindow } from 'electron'
 import { shell } from 'electron'
 import { engineKind, normalizeEngine } from '@shared/engines'
+import { asText } from '@shared/text'
 import { compareLibraryFilesByVersion, latestInstalledLibraryFile, libraryFileVersion, type LatestInstalledHint } from '@shared/updates'
 import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
 import type { GameFileContext, GameLibraryFile, InstalledPatchRef } from '@shared/types'
@@ -102,9 +103,10 @@ function sameScreens(left?: string[], right?: string[]): boolean {
   return left.every((url, index) => url === right[index])
 }
 
-function firstText(...values: Array<string | null | undefined>): string {
+function firstText(...values: unknown[]): string {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value
+    const text = asText(value)
+    if (text) return text
   }
   return ''
 }
@@ -246,7 +248,7 @@ export function metadataFromSubscription(game: {
 }): ThreadMeta {
   return {
     threadId: game.threadId,
-    title: game.title,
+    title: asText(game.title),
     creator: game.creator,
     coverUrl: game.coverUrl,
     rating: game.rating,
@@ -401,6 +403,7 @@ async function readStore(): Promise<StoredGameFile[]> {
     const parsed = JSON.parse(raw) as { files?: StoredGameFile[] } | StoredGameFile[]
     loaded = (Array.isArray(parsed) ? parsed : (parsed.files ?? [])).map((file) => ({
       ...file,
+      title: asText(file.title) || `Thread ${Number(file.threadId) || 0}`,
       engine: file.engine || '',
       executablePath: file.executablePath ?? null,
       lastPlayedAt: file.lastPlayedAt ?? null,
@@ -598,7 +601,7 @@ export async function addGameFileFromDownload(
   const entry: StoredGameFile = {
     id: nextId(),
     threadId: context.threadId,
-    title: context.title || meta.title || 'Unknown',
+    title: firstText(context.title, meta.title) || 'Unknown',
     version: packageTags ? packageTags.version : context.version || '',
     engine: normalizeEngine(context.engine) || normalizeEngine(meta.engine),
     filename: basename(archivePath),
@@ -698,7 +701,7 @@ export async function addImportedLibraryFile(opts: {
   const entry: StoredGameFile = {
     id: nextId(),
     threadId: opts.context.threadId,
-    title: opts.context.title || meta.title || 'Unknown',
+    title: firstText(opts.context.title, meta.title) || 'Unknown',
     version,
     engine: engine || '',
     filename: basename(opts.path),

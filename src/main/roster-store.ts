@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname } from 'path'
 import type { CatalogGame, RosterGame } from '@shared/types'
 import { pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
+import { asText } from '@shared/text'
 import { catalogTimestamp } from '@shared/updates'
 import { uniqueScreenUrls } from './f95/catalog'
 import { getAppPaths } from './paths'
@@ -32,7 +33,7 @@ function normalizeGame(value: unknown): RosterGame | null {
   const raw = value as Partial<RosterGame>
   const threadId = Number(raw.threadId)
   if (!Number.isFinite(threadId) || threadId <= 0) return null
-  const title = typeof raw.title === 'string' ? raw.title : ''
+  const title = asText(raw.title)
   return {
     threadId,
     title,
@@ -78,9 +79,9 @@ export function rosterFromCatalog(game: CatalogGame, addedAt = Date.now()): Rost
   const threadId = Number(game.threadId)
   return {
     threadId,
-    title: (game.title || '').trim(),
-    creator: (game.creator || '').trim(),
-    version: (game.version || '').trim(),
+    title: asText(game.title),
+    creator: asText(game.creator),
+    version: asText(game.version),
     coverUrl: game.coverUrl || null,
     rating: Number(game.rating) || 0,
     likes: saneLikeCount(game.likes),

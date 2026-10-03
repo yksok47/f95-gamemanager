@@ -1,3 +1,4 @@
+import { asText } from '@shared/text'
 import { cleanThreadTitle, parseGameTitle } from '../f95/parse'
 
 export function normalizeSaveKey(value: string): string {
@@ -70,9 +71,11 @@ function acronymBoundaryMatch(folderKey: string, acro: string): boolean {
 }
 
 export function scoreSaveFolder(folderName: string, title: string): number {
+  const text = asText(title)
+  if (!text) return 0
   const matchName = saveFolderMatchName(folderName)
-  const parsed = parseGameTitle(title)
-  const needle = normalizeSaveKey(parsed.title || title)
+  const parsed = parseGameTitle(text)
+  const needle = normalizeSaveKey(parsed.title || text)
   if (needle.length < 3) return 0
   const key = normalizeSaveKey(matchName)
   if (!key) return 0
@@ -86,7 +89,7 @@ export function scoreSaveFolder(folderName: string, title: string): number {
     needle !== key &&
     !needle.startsWith(key)
 
-  for (const acro of titleAcronyms(title)) {
+  for (const acro of titleAcronyms(text)) {
     if (acro.length < 3) continue
     if (acronymBoundaryMatch(key, acro)) {
       // Classic Ren'Py pattern: ACRONYM-timestamp
@@ -123,10 +126,11 @@ export function scoreSaveFolder(folderName: string, title: string): number {
  * Returns null when there is no clear winner.
  */
 export function matchRenpySaveFolder(title: string, folderNames: string[]): string | null {
-  if (!title.trim() || !folderNames.length) return null
+  const text = asText(title)
+  if (!text || !folderNames.length) return null
 
   const scored = folderNames
-    .map((name) => ({ name, score: scoreSaveFolder(name, title) }))
+    .map((name) => ({ name, score: scoreSaveFolder(name, text) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
 
@@ -165,8 +169,9 @@ export function matchSaveFoldersToGames<T extends { title: string; threadId: num
   const pairs: Array<SaveFolderGameMatch<T>> = []
   for (const folderName of folderNames) {
     for (const game of games) {
-      if (!game.title.trim() || !game.threadId) continue
-      const score = scoreSaveFolder(folderName, game.title)
+      const title = asText(game.title)
+      if (!title || !game.threadId) continue
+      const score = scoreSaveFolder(folderName, title)
       if (score > 0) pairs.push({ folderName, game, score })
     }
   }

@@ -1,4 +1,5 @@
 import { basename, dirname, extname } from 'path'
+import { asText } from '@shared/text'
 import { cleanThreadTitle } from './f95/parse'
 import { scoreSaveFolder } from './renpy/save-folder-match'
 import {
@@ -191,7 +192,7 @@ export function normalizeTitleKey(value: string): string {
 export function scoreImportTitle(name: string, gameTitle: string): number {
   const parsed = parseImportName(name)
   const needle = normalizeTitleKey(parsed.title || name)
-  const title = normalizeTitleKey(gameTitle)
+  const title = normalizeTitleKey(asText(gameTitle))
   if (!needle || !title || title.length < 2) return 0
 
   let score = 0
@@ -204,7 +205,7 @@ export function scoreImportTitle(name: string, gameTitle: string): number {
     score = 70 + Math.min(20, overlap)
   }
 
-  const fromSave = scoreSaveFolder(parsed.title || name, gameTitle)
+  const fromSave = scoreSaveFolder(parsed.title || name, asText(gameTitle))
   return Math.max(score, fromSave)
 }
 

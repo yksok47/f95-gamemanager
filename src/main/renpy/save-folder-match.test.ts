@@ -99,6 +99,14 @@ describe('matchSaveFoldersToGames', () => {
     expect(matched.map((item) => item.folderName).sort()).toEqual(['CAG-11111111', 'CAG-22222222'])
     expect(matched.every((item) => item.game.threadId === 1)).toBe(true)
   })
+
+  test('does not throw when a stored title is a number instead of a string', () => {
+    const matched = matchSaveFoldersToGames(['365-1749650324'], [
+      { threadId: 1, title: 365 as unknown as string },
+      { threadId: 2, title: { en: 'Cool Adventure Game' } as unknown as string }
+    ])
+    expect(matched.map((item) => item.game.threadId)).toEqual([1])
+  })
 })
 
 describe('folderSearchQueries', () => {

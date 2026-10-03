@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { basename, dirname, join } from 'path'
 import { engineFromPrefixIds } from '@shared/prefixes'
+import { asText } from '@shared/text'
 import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
 import {
   OS_KIND_IDS,
@@ -200,7 +201,7 @@ function uniqueCatalogHit(
 function guessFromKnown(game: KnownGame): LibraryImportGameGuess {
   return {
     threadId: game.threadId,
-    title: game.title,
+    title: asText(game.title),
     coverUrl: game.coverUrl,
     creator: game.creator,
     engine: game.engine,
@@ -220,7 +221,7 @@ function guessFromKnown(game: KnownGame): LibraryImportGameGuess {
 function guessFromCatalog(game: CatalogGame): LibraryImportGameGuess {
   return {
     threadId: game.threadId,
-    title: game.title,
+    title: asText(game.title),
     coverUrl: game.coverUrl,
     creator: game.creator,
     engine: game.engine || engineFromPrefixIds(game.prefixes) || '',
@@ -240,15 +241,16 @@ function guessFromCatalog(game: CatalogGame): LibraryImportGameGuess {
 async function loadKnownGames(): Promise<KnownGame[]> {
   const byThread = new Map<number, KnownGame>()
   const upsert = (game: KnownGame): void => {
-    if (!game.threadId || !game.title) return
+    if (!game.threadId || !asText(game.title)) return
     const prev = byThread.get(game.threadId)
     if (!prev) {
-      byThread.set(game.threadId, game)
+      byThread.set(game.threadId, { ...game, title: asText(game.title) })
       return
     }
     byThread.set(game.threadId, {
       ...prev,
       ...game,
+      title: asText(game.title) || prev.title,
       coverUrl: game.coverUrl || prev.coverUrl,
       inLibrary: prev.inLibrary || game.inLibrary,
       inFollowed: prev.inFollowed || game.inFollowed
@@ -313,7 +315,7 @@ async function identifyFromCatalog(title: string): Promise<CatalogGame | null> {
         { skipSessionOptions: true }
       )
       for (const game of page.games) {
-        const score = scoreImportTitle(title, game.title)
+        const score = scoreImportTitle(title, asText(game.title))
         if (score < IMPORT_IDENTIFY_MIN_SCORE) continue
         const prev = bestByThread.get(game.threadId)
         if (!prev || score > prev.score) bestByThread.set(game.threadId, { game, score })
@@ -333,7 +335,7 @@ async function identifyFromCatalog(title: string): Promise<CatalogGame | null> {
 async function guessGame(title: string, known: KnownGame[]): Promise<LibraryImportGameGuess | null> {
   if (!title.trim()) return null
   const ranked = known
-    .map((game) => ({ game, score: scoreImportTitle(title, game.title) }))
+    .map((game) => ({ game, score: scoreImportTitle(title, asText(game.title)) }))
     .filter((item) => item.score >= IMPORT_IDENTIFY_MIN_SCORE)
     .sort((a, b) => b.score - a.score || a.game.threadId - b.game.threadId)
   const local = uniqueCatalogHit(ranked)
@@ -483,7 +485,7 @@ function contextFromGuess(
 ): GameFileContext {
   return {
     threadId: game.threadId,
-    title: game.title,
+    title: asText(game.title),
     version: tags.version || game.version || '',
     engine: game.engine,
     creator: game.creator,
@@ -533,7 +535,7 @@ export async function approvePendingImport(
 ): Promise<void> {
   const pending = await getPendingImport(filePath)
   if (!pending) throw new Error('That file is not waiting to be imported.')
-  if (!game.threadId || !game.title.trim()) throw new Error('Pick a game before importing.')
+  if (!game.threadId || !asText(game.title)) throw new Error('Pick a game before importing.')
   const normalized = normalizePackageInstallTags(tags)
   const context = contextFromGuess(game, normalized)
   const size =

@@ -1,5 +1,6 @@
 import { basename, isAbsolute, join, resolve, sep } from 'path'
 import { maxLikeCount, maxViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
+import { asText } from '@shared/text'
 import { engineKind } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import type {
@@ -84,9 +85,10 @@ type KnownGame = {
   inFollowed: boolean
 }
 
-function firstText(...values: Array<string | null | undefined>): string {
+function firstText(...values: unknown[]): string {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value
+    const text = asText(value)
+    if (text) return text
   }
   return ''
 }
@@ -172,7 +174,7 @@ function upsertKnown(byThread: Map<number, KnownGame>, game: KnownGame): void {
   }
   byThread.set(game.threadId, {
     threadId: game.threadId,
-    title: game.title || prev.title,
+    title: firstText(game.title, prev.title),
     creator: game.creator || prev.creator,
     coverUrl: game.coverUrl || prev.coverUrl,
     engine: game.engine || prev.engine,
@@ -227,7 +229,7 @@ async function loadKnownGames(files: GameLibraryFile[]): Promise<Map<number, Kno
   for (const game of followed) {
     upsertKnown(byThread, {
       threadId: game.threadId,
-      title: game.title,
+      title: firstText(game.title) || `Thread ${game.threadId}`,
       creator: game.creator || '',
       coverUrl: game.coverUrl ?? null,
       engine: game.engine || engineFromPrefixIds(game.prefixes) || '',
@@ -822,7 +824,7 @@ export async function assignSaveFolder(
   const folder = assertManagedSavePath(savePath)
   if (!pathExists(folder)) throw new Error('The save folder does not exist yet.')
   const threadId = Number(game.threadId)
-  const title = typeof game.title === 'string' ? game.title.trim() : ''
+  const title = asText(game.title)
   if (!Number.isFinite(threadId) || threadId <= 0 || !title) {
     throw new Error('Pick a game to assign this save folder to.')
   }

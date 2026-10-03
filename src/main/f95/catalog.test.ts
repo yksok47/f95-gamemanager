@@ -12,7 +12,7 @@ mock.module('./http', () => ({
   f95Fetch: (path: string, init?: RequestInit) => f95Fetch(path, init)
 }))
 
-const { fetchCatalog, fetchCatalogFilters, resetCatalogRequestState } = await import('./catalog')
+const { fetchCatalog, fetchCatalogFilters, mapGame, resetCatalogRequestState } = await import('./catalog')
 
 function okResponse(body: string): FetchResult {
   return { body, response: new Response(body, { status: 200 }) }
@@ -124,6 +124,25 @@ describe('fetchCatalog', () => {
     expect(lists).toBe(2)
     expect(first.games[0]?.threadId).toBe(1)
     expect(second.games[0]?.threadId).toBe(2)
+  })
+})
+
+describe('mapGame', () => {
+  test('stringifies numeric title, creator, and version from SAM JSON', () => {
+    const game = mapGame({
+      thread_id: 42,
+      title: 365,
+      creator: 7,
+      version: 1.2,
+      views: 10,
+      likes: 2,
+      rating: 4.5,
+      date: '2026-01-01',
+      ts: 1700000000
+    })
+    expect(game.title).toBe('365')
+    expect(game.creator).toBe('7')
+    expect(game.version).toBe('1.2')
   })
 })
 

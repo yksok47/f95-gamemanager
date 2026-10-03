@@ -3,6 +3,7 @@ import { dirname } from 'path'
 import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, type SubscriptionSource, type VersionPlayStatus } from '@shared/types'
 import { engineFromTitle } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
+import { asText } from '@shared/text'
 import {
   addVersionAlias,
   addVersionPlaytime,
@@ -47,9 +48,9 @@ function isRarity(value: unknown): value is GameRarity {
 function resolveEngine(game: {
   engine?: string
   prefixes?: number[]
-  title?: string
+  title?: unknown
 }): string {
-  return game.engine || engineFromPrefixIds(game.prefixes) || engineFromTitle(game.title || '')
+  return game.engine || engineFromPrefixIds(game.prefixes) || engineFromTitle(asText(game.title))
 }
 
 function emptyDetails(): Pick<
@@ -104,7 +105,7 @@ export function subscriptionFromCatalog(
 ): Subscription {
   return {
     threadId: game.threadId,
-    title: game.title,
+    title: asText(game.title),
     creator: game.creator,
     version: game.version,
     coverUrl: game.coverUrl,
@@ -157,9 +158,10 @@ function recordKnownVersion(
 }
 
 function needsDetails(game: Subscription): boolean {
+  const title = asText(game.title)
   if (!game.coverUrl || isWeakCover(game.coverUrl) || !game.creator) return true
-  const parsed = parseGameTitle(game.title)
-  return parsed.title !== game.title.replace(/\s+/g, ' ').trim()
+  const parsed = parseGameTitle(title)
+  return parsed.title !== title.replace(/\s+/g, ' ').trim()
 }
 
 let enriching: Promise<Subscription[]> | null = null
@@ -192,6 +194,7 @@ async function readStore(): Promise<Subscription[]> {
       return {
         ...emptyDetails(),
         ...game,
+        title: asText(game.title),
         rarity: isRarity(game.rarity) ? game.rarity : 'regular',
         tags: Array.isArray(game.tags) ? game.tags.filter((id) => Number.isFinite(id)) : [],
         prefixes: Array.isArray(game.prefixes) ? game.prefixes.filter((id) => Number.isFinite(id)) : [],
@@ -653,8 +656,8 @@ function applyCatalogGameFields(game: Subscription, incoming: CatalogGame, check
   const version = preferNewerVersion(game.version, incoming.version)
   const incomingTs = catalogTimestamp(incoming.timestamp)
   const timestamp = incomingTs > (game.timestamp || 0) ? incomingTs : game.timestamp || 0
-  const title = (incoming.title || '').trim() || game.title
-  const creator = (incoming.creator || '').trim() || game.creator
+  const title = asText(incoming.title) || asText(game.title)
+  const creator = asText(incoming.creator) || asText(game.creator)
   const coverUrl =
     incoming.coverUrl && !isWeakCover(incoming.coverUrl) ? incoming.coverUrl : game.coverUrl
   const rating = Number(incoming.rating) || game.rating

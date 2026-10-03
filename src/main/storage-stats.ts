@@ -6,6 +6,7 @@ import type {
   LibraryStorageScan,
   LibraryStorageStats
 } from '@shared/types'
+import { asText } from '@shared/text'
 import { fileBytes, folderBytes, mapLimit } from './disk-usage'
 import { listGameFiles } from './game-files-store'
 import { expectedInstallPath, installLayoutMatches } from './install-layout'
@@ -18,9 +19,10 @@ import { sendToRenderer } from './windows'
 const INSTALL_CONCURRENCY = 4
 const ARCHIVE_CONCURRENCY = 8
 
-function firstText(...values: Array<string | null | undefined>): string {
+function firstText(...values: unknown[]): string {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value
+    const text = asText(value)
+    if (text) return text
   }
   return ''
 }
@@ -173,7 +175,7 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
         id: `archive:${file.id}`,
         kind: 'archive',
         threadId: file.threadId,
-        title: file.title,
+        title: firstText(file.title) || `Thread ${file.threadId}`,
         creator: file.creator || '',
         version: file.version,
         filename: file.filename,
@@ -193,7 +195,7 @@ async function computeLibraryStorageStats(): Promise<LibraryStorageStats> {
         id: `install:${file.id}`,
         kind: 'install',
         threadId: file.threadId,
-        title: file.title,
+        title: firstText(file.title) || `Thread ${file.threadId}`,
         creator: file.creator || '',
         version: file.version,
         filename: file.filename,

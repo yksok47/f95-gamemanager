@@ -53,4 +53,8 @@ describe('scoreImportTitle', () => {
     expect(scoreImportTitle('Being a DIK-0.9.1-win.zip', 'Being a DIK')).toBeGreaterThanOrEqual(90)
     expect(scoreImportTitle('Other Game-1.0-win.zip', 'Being a DIK')).toBeLessThan(40)
   })
+
+  test('accepts a numeric catalog title without throwing', () => {
+    expect(scoreImportTitle('365-1.0-win.zip', 365 as unknown as string)).toBeGreaterThanOrEqual(40)
+  })
 })

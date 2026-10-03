@@ -6,6 +6,7 @@ import {
   prefixesFromUnknown
 } from '@shared/prefixes'
 import { saneLikeCount, saneViewCount } from '@shared/counts'
+import { asText } from '@shared/text'
 import { catalogTimestamp } from '@shared/updates'
 import { sanitizeCatalogQuery } from './sanitize-query'
 import type {
@@ -22,9 +23,9 @@ import { coalesceInflight } from './inflight'
 
 type LatestDataGame = {
   thread_id: number
-  title: string
-  creator: string
-  version: string
+  title: string | number
+  creator: string | number
+  version: string | number
   views: number
   likes: number
   prefixes?: number[]
@@ -166,9 +167,9 @@ export function mapGame(entry: LatestDataGame, catalog?: CatalogPrefix[]): Catal
   const prefixes = entry.prefixes ?? []
   return {
     threadId: Number(entry.thread_id),
-    title: entry.title,
-    creator: entry.creator,
-    version: typeof entry.version === 'string' ? entry.version : String(entry.version ?? ''),
+    title: asText(entry.title),
+    creator: asText(entry.creator),
+    version: asText(entry.version),
     views: saneViewCount(entry.views),
     likes: saneLikeCount(entry.likes),
     rating: Number(entry.rating) || 0,
