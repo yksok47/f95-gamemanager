@@ -132,38 +132,28 @@ function registerWebRequest(): void {
   registered = true
 
   session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-    // App renderer is not a forum page — skip EasyList. CDN images load directly
-    // (Referer rewritten in cdn-request-headers); guest windows keep f95zone CSP.
-    if (!isGuestContentsId(details.webContentsId)) {
-      callback({})
-      return
-    }
-    const pageUrl = (() => {
-      const contents = details.webContents
-      if (contents && !contents.isDestroyed()) {
-        try {
-          return contents.getURL()
-        } catch {
-          /* destroyed between the check and getURL */
-        }
+    // Never read details.webContents here — Chromium can crash when a navigation
+    // is turning into a MediaFire (or other hoster) download.
+    try {
+      if (!isGuestContentsId(details.webContentsId)) {
+        callback({})
+        return
       }
-      return details.referrer || ''
-    })()
-    const decision = matchNetworkRequest({
-      url: details.url,
-      pageUrl,
-      resourceType: details.resourceType,
-      engines: engines()
-    })
-    if (decision.redirectURL) {
-      callback({ redirectURL: decision.redirectURL })
-      return
+      const decision = matchNetworkRequest({
+        url: details.url,
+        pageUrl: details.referrer || '',
+        resourceType: details.resourceType,
+        engines: engines()
+      })
+      callback(decision.cancel ? { cancel: true } : {})
+    } catch (error) {
+      console.warn('[adblock] onBeforeRequest failed', error)
+      try {
+        callback({})
+      } catch {
+        /* callback already used */
+      }
     }
-    if (decision.cancel) {
-      callback({ cancel: true })
-      return
-    }
-    callback({})
   })
 
   session.defaultSession.setPermissionRequestHandler((contents, _permission, grant) => {

@@ -11,6 +11,12 @@ export function setDownloadContext(contentsId: number, context: GameFileContext)
   lastContext = { context, at: Date.now() }
 }
 
+/** Remember context for session.downloadURL, which has no WebContents. */
+export function rememberDownloadContext(context?: GameFileContext): void {
+  if (!context) return
+  lastContext = { context, at: Date.now() }
+}
+
 export function clearDownloadContext(contentsId: number): void {
   byContents.delete(contentsId)
 }

@@ -242,14 +242,17 @@ describe('matchNetworkRequest', () => {
     ).toBe(false)
   })
 
-  test('still cancels ad scripts on a forum thread', () => {
+  test('cancels filter-list redirects instead of rewriting the URL', () => {
+    const redirecting = {
+      match: () => ({ match: true, redirect: { dataUrl: 'data:text/javascript,' } })
+    }
     expect(
       matchNetworkRequest({
-        url: 'https://ads.example.net/banner.js',
-        pageUrl: 'https://f95zone.to/threads/game.123/',
+        url: 'https://ads.example.net/tracker.js',
+        pageUrl: 'https://www.mediafire.com/file/abc',
         resourceType: 'script',
-        engines: [ads]
-      }).cancel
-    ).toBe(true)
+        engines: [redirecting]
+      })
+    ).toEqual({ cancel: true })
   })
 })

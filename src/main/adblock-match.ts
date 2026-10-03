@@ -215,6 +215,15 @@ export function matchNetworkRequest({
   engines
 }: NetworkCheck): NetworkDecision {
   if (resourceType === 'mainFrame') return { cancel: false }
+  // Hosted file transfers show up as `other`. Do not let EasyList cancel them.
+  if (resourceType === 'other') {
+    try {
+      const host = new URL(url).hostname
+      if (isKnownFileHost(host) || isLikelyFileCdn(host)) return { cancel: false }
+    } catch {
+      // Invalid URL — fall through to the filter engines.
+    }
+  }
   // Screenshots in threads are often on third-party image hosts. EasyList is
   // too aggressive there; guest windows load those images directly.
   if (
@@ -223,9 +232,9 @@ export function matchNetworkRequest({
   ) {
     return { cancel: false }
   }
+  // EasyList $redirect data: URLs crash Chromium when applied via webRequest.
   const type = (resourceType || 'other') as RequestType
   const result = engineMatch(engines, url, pageUrl, type)
-  if (result.redirectURL) return { cancel: false, redirectURL: result.redirectURL }
-  if (result.match) return { cancel: true }
+  if (result.redirectURL || result.match) return { cancel: true }
   return { cancel: false }
 }

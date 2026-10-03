@@ -43,6 +43,20 @@ protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME, HTML_GA
 app.commandLine.appendSwitch("disable-features", "SpareRendererForSitePerProcess");
 app.commandLine.appendSwitch("disk-cache-size", String(64 * 1024 * 1024));
 
+app.on("render-process-gone", (_event, contents, details) => {
+  const url = (() => {
+    try {
+      return contents.isDestroyed() ? "" : contents.getURL();
+    } catch {
+      return "";
+    }
+  })();
+  console.warn("[crash] render-process-gone", details.reason, details.exitCode, url);
+});
+app.on("child-process-gone", (_event, details) => {
+  console.warn("[crash] child-process-gone", details.type, details.reason, details.exitCode);
+});
+
 let rendererOrigin = "";
 
 async function createWindow(): Promise<void> {

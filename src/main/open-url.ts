@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, session } from 'electron'
 import { isDirectFileHref } from '@shared/direct-file'
 import type { GameFileContext } from '@shared/types'
 import {
@@ -8,7 +8,13 @@ import {
   unregisterGuestContents
 } from './adblock'
 import { appIcon } from './app-icon'
-import { clearDownloadContext, getDownloadContext, setDownloadContext } from './download-context'
+import {
+  clearDownloadContext,
+  getDownloadContext,
+  rememberDownloadContext,
+  setDownloadContext
+} from './download-context'
+import { isMediaFirePageUrl, resolveMediaFireDownload } from './mediafire'
 import { isUsableWindow } from './windows'
 
 type GuestInfo = {
@@ -18,6 +24,8 @@ type GuestInfo = {
 }
 
 const guests = new Map<BrowserWindow, GuestInfo>()
+/** Guest windows that started a download and must stay alive until it is underway. */
+const pendingDownloadKeeps = new Map<BrowserWindow, number>()
 let primary: BrowserWindow | null = null
 let mainWindow: BrowserWindow | null = null
 let mainContentsId: number | null = null
@@ -43,15 +51,38 @@ function filenameFromUrl(url: URL): string {
   return name || ''
 }
 
-function downloadInContents(
+function refererFromContents(contents: Electron.WebContents): string {
+  if (contents.isDestroyed()) return ''
+  try {
+    const current = contents.getURL()
+    return parseHttpUrl(current)?.href || ''
+  } catch {
+    return ''
+  }
+}
+
+function sessionDownload(url: string, context?: GameFileContext, referer = ''): void {
+  rememberDownloadContext(context)
+  const headers: Record<string, string> = {}
+  if (referer) headers.Referer = referer
+  try {
+    session.defaultSession.downloadURL(url, Object.keys(headers).length ? { headers } : undefined)
+  } catch (error) {
+    console.warn('Could not start download', error)
+  }
+}
+
+/** Start a download after the current Chromium navigation/open callback returns. */
+function queueDownload(
   contents: Electron.WebContents,
   url: string,
   context?: GameFileContext
 ): void {
-  if (contents.isDestroyed()) return
+  const referer = refererFromContents(contents)
   const next = context ?? getDownloadContext(contents)
-  if (next) setDownloadContext(contents.id, next)
-  contents.downloadURL(url)
+  setImmediate(() => {
+    sessionDownload(url, next, referer)
+  })
 }
 
 function closeGuest(win: BrowserWindow): void {
@@ -81,7 +112,10 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      webgl: false,
+      spellcheck: false,
+      plugins: false
     }
   })
 
@@ -94,10 +128,8 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
       event.preventDefault()
       return
     }
-    if (isDirectFileUrl(parsed)) {
-      event.preventDefault()
-      downloadInContents(win.webContents, parsed.href)
-    }
+    // Let Chromium convert a file navigation into a download itself.
+    // preventDefault + downloadURL here crashes on MediaFire CDN redirects.
   })
 
   win.webContents.on('did-finish-load', () => {
@@ -121,6 +153,7 @@ function createGuest(show: boolean, opener: BrowserWindow | null): BrowserWindow
   win.on('closed', () => {
     unregisterGuestContents(contentsId)
     guests.delete(win)
+    pendingDownloadKeeps.delete(win)
     for (const info of guests.values()) {
       if (info.opener === win) info.opener = null
     }
@@ -161,9 +194,11 @@ function isBlankGuest(win: BrowserWindow): boolean {
 }
 
 /**
- * A download is all we wanted from the provider, so dismiss the window that started it
- * plus everything it opened along the way, and any leftover blank popup. Windows are
- * hidden right away and closed once the download item is underway.
+ * A download is all we wanted from the provider, so hide the window that started it
+ * plus everything it opened along the way, and any leftover blank popup.
+ *
+ * The initiating WebContents must stay alive until Chromium finishes starting the
+ * download (MediaFire CDN hops). Closing it from `will-download` crashes the app.
  */
 export function dismissGuestsAfterDownload(contents?: Electron.WebContents | null): void {
   const source = guestForContents(contents)
@@ -179,9 +214,32 @@ export function dismissGuestsAfterDownload(contents?: Electron.WebContents | nul
     if (!win.isDestroyed() && win.isVisible()) win.hide()
   }
 
+  if (source && !source.isDestroyed()) {
+    pendingDownloadKeeps.set(source, (pendingDownloadKeeps.get(source) ?? 0) + 1)
+  }
+
   setTimeout(() => {
-    for (const win of doomed) closeGuest(win)
+    for (const win of doomed) {
+      if (win === source) continue
+      if ((pendingDownloadKeeps.get(win) ?? 0) > 0) continue
+      closeGuest(win)
+    }
   }, CLOSE_AFTER_DOWNLOAD_MS)
+}
+
+/** Close the hidden initiator once the Session owns the download. */
+export function releaseGuestsAfterDownload(contents?: Electron.WebContents | null): void {
+  const source = guestForContents(contents)
+  if (!source) return
+  const current = pendingDownloadKeeps.get(source)
+  if (!current) return
+  const remaining = current - 1
+  if (remaining > 0) {
+    pendingDownloadKeeps.set(source, remaining)
+    return
+  }
+  pendingDownloadKeeps.delete(source)
+  closeGuest(source)
 }
 
 function startDirectDownload(
@@ -192,16 +250,8 @@ function startDirectDownload(
   } = {}
 ): void {
   const opener = options.opener && isUsableWindow(options.opener) ? options.opener : null
-  if (opener) {
-    downloadInContents(opener.webContents, url, options.context)
-    return
-  }
-  if (isUsableWindow(mainWindow)) {
-    downloadInContents(mainWindow.webContents, url, options.context)
-    return
-  }
-  const win = createGuest(false, null)
-  downloadInContents(win.webContents, url, options.context)
+  const referer = opener ? refererFromContents(opener.webContents) : ''
+  sessionDownload(url, options.context, referer)
 }
 
 export async function openInAppWindow(
@@ -222,6 +272,14 @@ export async function openInAppWindow(
   if (options.download || isDirectFileUrl(parsed)) {
     startDirectDownload(parsed.href, options)
     return
+  }
+
+  if (isMediaFirePageUrl(parsed.href)) {
+    const direct = await resolveMediaFireDownload(parsed.href)
+    if (direct) {
+      sessionDownload(direct, options.context, parsed.href)
+      return
+    }
   }
 
   const reuse = options.reuse !== false
@@ -258,6 +316,7 @@ export function closeAllInAppWindows(): void {
     if (!win.isDestroyed()) win.close()
   }
   guests.clear()
+  pendingDownloadKeeps.clear()
   primary = null
 }
 
@@ -306,7 +365,7 @@ export function attachGuestWindowOpenHandler(): void {
         ) {
           return { action: 'deny' }
         }
-        downloadInContents(contents, parsed.href, context)
+        queueDownload(contents, parsed.href, context)
         return { action: 'deny' }
       }
 

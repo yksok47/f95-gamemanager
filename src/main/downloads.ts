@@ -20,7 +20,7 @@ import {
 import { isReviewablePackagePath } from './fs-utils'
 import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
-import { dismissGuestsAfterDownload } from './open-url'
+import { dismissGuestsAfterDownload, releaseGuestsAfterDownload } from './open-url'
 import { flagPackageAs, onLibraryPackageAdded } from './p2p/controller'
 import { signMessageBytes } from './p2p/identity'
 import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
@@ -60,12 +60,20 @@ let broadcastTimer: ReturnType<typeof setTimeout> | null = null
 let historyTimer: ReturnType<typeof setTimeout> | null = null
 let lastHistoryFingerprint = ''
 
+const WINDOWS_RESERVED_NAME = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i
+const MAX_FILENAME_LEN = 150
+
 function sanitizeFilename(name: string): string {
-  const cleaned = name
+  let cleaned = name
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/^\.+/, '')
+    .replace(/[. ]+$/g, '')
     .trim()
-  return cleaned || 'download'
+  if (!cleaned || WINDOWS_RESERVED_NAME.test(cleaned)) cleaned = 'download'
+  const ext = extname(cleaned)
+  const stem = ext ? cleaned.slice(0, -ext.length) : cleaned
+  const maxStem = Math.max(1, MAX_FILENAME_LEN - ext.length)
+  return `${stem.slice(0, maxStem)}${ext}` || 'download'
 }
 
 function uniquePath(dir: string, filename: string): string {
@@ -626,12 +634,13 @@ export function registerDownloadHandler(): void {
     console.warn('Could not restore download history', error)
   })
   session.defaultSession.on('will-download', (event, item, webContents) => {
-    if (isGuestContents(webContents)) {
-      const pageUrl = webContents.isDestroyed() ? '' : webContents.getURL()
+    try {
+    const initiator = webContents && !webContents.isDestroyed() ? webContents : null
+    if (initiator && isGuestContents(initiator)) {
       if (
         shouldBlockDownload({
           url: item.getURL(),
-          pageUrl,
+          pageUrl: '',
           filename: item.getFilename(),
           mimeType: item.getMimeType(),
           urlChain: item.getURLChain()
@@ -650,10 +659,16 @@ export function registerDownloadHandler(): void {
       console.warn('Could not create untrusted downloads folder', error)
     }
     const filename = item.getFilename() || 'download'
-    item.setSavePath(downloadSavePath(dir, filename))
+    try {
+      item.setSavePath(downloadSavePath(dir, filename))
+    } catch (error) {
+      console.warn('Could not set download path', error)
+      event.preventDefault()
+      return
+    }
 
     const now = Date.now()
-    const context = getDownloadContext(webContents)
+    const context = getDownloadContext(initiator)
     const entry: TrackedDownload = {
       id: nextId(),
       item,
@@ -675,7 +690,14 @@ export function registerDownloadHandler(): void {
     }
     tracked.set(entry.id, entry)
     broadcast()
-    dismissGuestsAfterDownload(webContents)
+    dismissGuestsAfterDownload(initiator)
+
+    let releasedGuest = false
+    const releaseGuest = (): void => {
+      if (releasedGuest) return
+      releasedGuest = true
+      releaseGuestsAfterDownload(initiator)
+    }
 
     item.on('updated', () => {
       syncFromItem(entry)
@@ -697,7 +719,11 @@ export function registerDownloadHandler(): void {
         unlink(entry.savePath, () => undefined)
       }
       broadcast()
+      releaseGuest()
       if (state === 'completed') void prepareArchiveForReview(entry)
     })
+    } catch (error) {
+      console.warn('will-download handler failed', error)
+    }
   })
 }

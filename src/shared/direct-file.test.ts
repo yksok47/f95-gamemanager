@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isDirectDownloadName, isDirectFileHref } from './direct-file'
+import { isDirectDownloadName, isDirectFileHref, isFileLockerLandingHost } from './direct-file'
 
 describe('isDirectDownloadName', () => {
   test('matches archives, installers, and Ren\'Py overlay files', () => {
@@ -26,6 +26,15 @@ describe('isDirectDownloadName', () => {
   })
 })
 
+describe('isFileLockerLandingHost', () => {
+  test('matches locker front pages, not their download CDNs', () => {
+    expect(isFileLockerLandingHost('www.mediafire.com')).toBe(true)
+    expect(isFileLockerLandingHost('mediafire.com')).toBe(true)
+    expect(isFileLockerLandingHost('download1234.mediafire.com')).toBe(false)
+    expect(isFileLockerLandingHost('store1.gofile.io')).toBe(false)
+  })
+})
+
 describe('isDirectFileHref', () => {
   test('reads the filename from F95 attachment CDN paths', () => {
     expect(
@@ -49,5 +58,20 @@ describe('isDirectFileHref', () => {
       isDirectFileHref('https://f95zone.to/attachments/2512345/', 'uncensor.rpy')
     ).toBe(true)
     expect(isDirectFileHref('https://f95zone.to/attachments/2512345/', 'shot.png')).toBe(false)
+  })
+
+  test('does not treat file-locker landing pages as direct downloads', () => {
+    expect(isDirectFileHref('https://www.mediafire.com/file/abc123/Game-v1.zip')).toBe(false)
+    expect(isDirectFileHref('https://www.mediafire.com/file/abc123/Game-v1.zip/file')).toBe(false)
+    expect(isDirectFileHref('https://mediafire.com/file/abc123')).toBe(false)
+    expect(isDirectFileHref('https://www.mediafire.com/file/abc123/Game.zip', 'Game.zip')).toBe(
+      false
+    )
+    expect(isDirectFileHref('https://dropbox.com/s/abc/Game.zip')).toBe(false)
+  })
+
+  test('still treats locker CDN URLs with a filename as direct files', () => {
+    expect(isDirectFileHref('https://download1234.mediafire.com/token/Game-v1.zip')).toBe(true)
+    expect(isDirectFileHref('https://store1.gofile.io/download/Game.zip')).toBe(true)
   })
 })
