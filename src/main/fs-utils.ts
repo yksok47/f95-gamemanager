@@ -13,14 +13,28 @@ export function isArchivePath(filePath: string): boolean {
   return /\.(zip|7z|rar)$/i.test(filePath)
 }
 
-/** Loose Ren'Py scripts that can be stored and applied as uncensor patches. */
+function overlayBaseName(filePath: string): string {
+  return filePath.split(/[/\\]/).pop() || ''
+}
+
+/** Loose Ren'Py scripts that can be stored and applied as uncensor/mod overlays. */
 export function isRenpyScriptPath(filePath: string): boolean {
-  return /\.(?:rpy|rpyc)$/i.test(filePath)
+  return /\.rpyc?$/i.test(overlayBaseName(filePath))
+}
+
+/** Packed Ren'Py archives that drop into an installed game `/game` folder. */
+export function isRenpyArchiveAssetPath(filePath: string): boolean {
+  return /\.rp[au]$/i.test(overlayBaseName(filePath))
+}
+
+/** Scripts or .rpa/.rpu archives that can be applied as a Ren'Py overlay. */
+export function isRenpyOverlayFilePath(filePath: string): boolean {
+  return isRenpyScriptPath(filePath) || isRenpyArchiveAssetPath(filePath)
 }
 
 /** Packages that should hash and wait for tag approval before library insert. */
 export function isReviewablePackagePath(filePath: string): boolean {
-  return isArchivePath(filePath) || isRenpyScriptPath(filePath)
+  return isArchivePath(filePath) || isRenpyOverlayFilePath(filePath)
 }
 
 export function archiveKind(filePath: string): 'zip' | '7z' | 'rar' | null {

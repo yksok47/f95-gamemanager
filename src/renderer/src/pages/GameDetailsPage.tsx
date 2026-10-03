@@ -31,8 +31,9 @@ import {
   downloadHostPreference,
   downloadMatchesHostOs,
   isInstallableLibraryPackage,
-  isRenpyUncensorPackage,
   osKindFromNavigator,
+  renpyOverlayKind,
+  renpyOverlayLabel,
   type ContentKind,
   type ContentKindId
 } from '@shared/types'
@@ -88,7 +89,11 @@ import {
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import {
   gamesWithPatchInstalled,
+  installedOverlayKind,
   listUncensorPatchTargets,
+  overlayListLabel,
+  overlayRemoveNoun,
+  summarizeInstalledOverlayKind,
   useIdentifiedSaveThreadIds,
   usePlaySessions
 } from '../lib/library'
@@ -1450,14 +1455,17 @@ function GameDetailsPage({
   }
 
   async function installUncensorPatch(patchId: string, targetFileId: string): Promise<void> {
+    const source = files.find((file) => file.id === patchId)
+    const noun = renpyOverlayLabel(renpyOverlayKind(source?.packageTags))
     try {
       await window.api.library.installUncensorPatch(patchId, targetFileId)
     } catch (err) {
-      notifyCaught(err, 'Could not install that uncensor patch.')
+      notifyCaught(err, `Could not install that ${noun}.`)
     }
   }
 
   async function uninstallUncensorPatch(gameFileId: string, patch: InstalledPatchRef): Promise<void> {
+    const noun = renpyOverlayLabel(patch.kind || installedOverlayKind(patch, files))
     try {
       await window.api.library.uninstallUncensorPatch(gameFileId, {
         patchId: patch.patchId,
@@ -1465,7 +1473,7 @@ function GameDetailsPage({
         uninstallSlot: patch.uninstallSlot
       })
     } catch (err) {
-      notifyCaught(err, 'Could not remove that uncensor patch.')
+      notifyCaught(err, `Could not remove that ${noun}.`)
     }
   }
 
@@ -2394,15 +2402,19 @@ function GameDetailsPage({
                     {section.items.map((file) => {
                       const canInstall =
                         file.hasArchive && isInstallableLibraryPackage(file.packageTags)
-                      const isUncensor = isRenpyUncensorPackage(file.packageTags)
-                      const canInstallUncensor =
-                        isUncensor && file.hasArchive && file.uncensorInstallable === true
-                      const uncensorTargets = canInstallUncensor
+                      const overlayKind = renpyOverlayKind(file.packageTags)
+                      const canInstallOverlay =
+                        overlayKind != null && file.hasArchive && file.uncensorInstallable === true
+                      const overlayTargets = canInstallOverlay
                         ? listUncensorPatchTargets(files, file)
                         : []
-                      const uncensorInstalledOn = isUncensor
+                      const overlayInstalledOn = overlayKind
                         ? gamesWithPatchInstalled(files, file)
                         : []
+                      const appliedOverlayKind = summarizeInstalledOverlayKind(
+                        file.installedPatches,
+                        files
+                      )
                       const tags = file.packageTags
                       // Approved tags are authoritative; never fall back to thread/game version.
                       const approvedVersion = tags
@@ -2453,16 +2465,16 @@ function GameDetailsPage({
                             ) : null}
                             {file.installedPatches?.length ? (
                               <p className="muted library-file-meta">
-                                Uncensor:{' '}
+                                {overlayListLabel(appliedOverlayKind)}:{' '}
                                 {file.installedPatches
                                   .map((patch) => patch.filename || patch.hash.slice(0, 8))
                                   .join(', ')}
                               </p>
                             ) : null}
-                            {uncensorInstalledOn.length ? (
+                            {overlayInstalledOn.length ? (
                               <p className="muted library-file-meta">
                                 Installed on{' '}
-                                {uncensorInstalledOn
+                                {overlayInstalledOn
                                   .map(
                                     (game) =>
                                       game.packageTags?.version?.trim() ||
@@ -2528,9 +2540,9 @@ function GameDetailsPage({
                                     : 'Install'}
                               </button>
                             ) : null}
-                            {canInstallUncensor ? (
+                            {canInstallOverlay ? (
                               <UncensorInstallButton
-                                targets={uncensorTargets}
+                                targets={overlayTargets}
                                 disabled={file.installPercent != null}
                                 installingLabel={
                                   file.installPercent != null
@@ -2545,6 +2557,7 @@ function GameDetailsPage({
                             {file.isInstalled && file.installedPatches?.length ? (
                               <UncensorRemoveButton
                                 patches={file.installedPatches}
+                                noun={overlayRemoveNoun(appliedOverlayKind)}
                                 disabled={file.installPercent != null}
                                 onRemove={(patch) => void uninstallUncensorPatch(file.id, patch)}
                               />

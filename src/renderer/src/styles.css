@@ -6850,7 +6850,7 @@ body.is-save-dragging * {
 
 .f95-request-log-row {
   display: grid;
-  grid-template-columns: minmax(9.5rem, auto) 4.5rem minmax(0, 1fr) auto;
+  grid-template-columns: minmax(14.5rem, auto) 4.5rem minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   padding: 8px 10px;

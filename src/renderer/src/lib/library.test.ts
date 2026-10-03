@@ -1,12 +1,17 @@
 import { describe, expect, test } from 'bun:test'
 import type { GameLibraryFile, IdentifiedSaveFolder, Subscription } from '@shared/types'
+import { CONTENT_KIND_IDS } from '@shared/types'
 import type { ThreadDownloadProgress } from './downloads'
 import {
   hasLibraryCopy,
   libraryExclusiveKind,
+  listUncensorPatchTargets,
   mergeDownloadingLibraryGames,
+  overlayListLabel,
+  overlayRemoveNoun,
   saveOnlyLibraryGames,
   saveThreadIds,
+  summarizeInstalledOverlayKind,
   summarizeLibrary,
   withSavePresence,
   type LibraryGame
@@ -330,6 +335,86 @@ describe('libraryExclusiveKind', () => {
       })
     ).toBe(null)
     expect(libraryExclusiveKind(libraryGame({ threadId: 5, title: 'Downloading' }))).toBe(null)
+  })
+})
+
+describe('listUncensorPatchTargets', () => {
+  const gameTags = { os: [0], contentKind: CONTENT_KIND_IDS.game, version: '1.0' }
+  const uncensorTags = { os: [0], contentKind: CONTENT_KIND_IDS.uncensor, version: '' }
+  const modTags = { os: [0], contentKind: CONTENT_KIND_IDS.mod, version: '' }
+
+  test('lists installed Ren\'Py games for uncensor and mod overlays', () => {
+    const installed = libraryFile({
+      id: 'game',
+      threadId: 1,
+      isInstalled: true,
+      engine: "Ren'Py",
+      packageTags: gameTags,
+      version: '1.0'
+    })
+    const uncensor = libraryFile({
+      id: 'unc',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: uncensorTags,
+      hash: 'unc-hash'
+    })
+    const mod = libraryFile({
+      id: 'mod',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: modTags,
+      hash: 'mod-hash'
+    })
+    expect(listUncensorPatchTargets([installed, uncensor], uncensor).map((file) => file.id)).toEqual([
+      'game'
+    ])
+    expect(listUncensorPatchTargets([installed, mod], mod).map((file) => file.id)).toEqual(['game'])
+  })
+
+  test('ignores non-overlay kinds and already-applied overlays', () => {
+    const installed = libraryFile({
+      id: 'game',
+      threadId: 1,
+      isInstalled: true,
+      engine: "Ren'Py",
+      packageTags: gameTags,
+      installedPatches: [
+        { patchId: 'mod', hash: 'mod-hash', filename: 'cool-mod.zip', installedAt: 1, kind: 'mod' }
+      ]
+    })
+    const walkthrough = libraryFile({
+      id: 'guide',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: { os: [0], contentKind: CONTENT_KIND_IDS.walkthrough, version: '' }
+    })
+    const appliedMod = libraryFile({
+      id: 'mod',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: modTags,
+      hash: 'mod-hash'
+    })
+    expect(listUncensorPatchTargets([installed, walkthrough], walkthrough)).toEqual([])
+    expect(listUncensorPatchTargets([installed, appliedMod], appliedMod)).toEqual([])
+  })
+
+  test('labels mixed installed overlays as applied', () => {
+    expect(overlayListLabel('mod')).toBe('Mod')
+    expect(overlayListLabel('uncensor')).toBe('Uncensor')
+    expect(overlayListLabel('mixed')).toBe('Applied')
+    expect(overlayRemoveNoun('mod')).toBe('mod')
+    expect(overlayRemoveNoun('mixed')).toBe('overlay')
+    expect(
+      summarizeInstalledOverlayKind(
+        [
+          { patchId: 'a', hash: 'a', filename: 'a.rpy', installedAt: 1, kind: 'mod' },
+          { patchId: 'b', hash: 'b', filename: 'b.rpy', installedAt: 2, kind: 'uncensor' }
+        ],
+        []
+      )
+    ).toBe('mixed')
   })
 })
 

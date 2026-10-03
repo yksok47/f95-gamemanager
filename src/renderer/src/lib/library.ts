@@ -2,14 +2,17 @@ import { useEffect, useMemo, useState } from 'react'
 import type {
   GameLibraryFile,
   IdentifiedSaveFolder,
+  InstalledPatchRef,
   PlaySessionStatus,
+  RenpyOverlayKind,
   Subscription,
   VersionPlayStat
 } from '@shared/types'
 import {
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
-  isRenpyUncensorPackage
+  isRenpyOverlayPackage,
+  renpyOverlayKind
 } from '@shared/types'
 import { maxLikeCount, maxViewCount } from '@shared/counts'
 import { engineKind } from '@shared/engines'
@@ -123,12 +126,12 @@ export function summarizeLibrary(
   return result
 }
 
-/** Installed Ren'Py game versions that can receive this uncensor patch. */
+/** Installed Ren'Py game versions that can receive this uncensor or mod overlay. */
 export function listUncensorPatchTargets(
   files: GameLibraryFile[],
   patch: GameLibraryFile
 ): GameLibraryFile[] {
-  if (!isRenpyUncensorPackage(patch.packageTags)) return []
+  if (!isRenpyOverlayPackage(patch.packageTags)) return []
   return files
     .filter((file) => {
       if (file.threadId !== patch.threadId) return false
@@ -138,6 +141,44 @@ export function listUncensorPatchTargets(
       return !gameHasInstalledPatch(file, patch)
     })
     .sort(compareLibraryFilesByVersion)
+}
+
+export function installedOverlayKind(
+  patch: InstalledPatchRef,
+  files: GameLibraryFile[]
+): RenpyOverlayKind | null {
+  if (patch.kind === 'mod' || patch.kind === 'uncensor') return patch.kind
+  const source = files.find(
+    (file) => file.id === patch.patchId || (Boolean(patch.hash) && file.hash === patch.hash)
+  )
+  return source ? renpyOverlayKind(source.packageTags) : null
+}
+
+export function summarizeInstalledOverlayKind(
+  patches: InstalledPatchRef[] | null | undefined,
+  files: GameLibraryFile[]
+): RenpyOverlayKind | 'mixed' | null {
+  if (!patches?.length) return null
+  const kinds = new Set<RenpyOverlayKind>()
+  for (const patch of patches) {
+    const kind = installedOverlayKind(patch, files)
+    if (kind) kinds.add(kind)
+  }
+  if (kinds.size === 1) return [...kinds][0]
+  if (kinds.size > 1) return 'mixed'
+  return null
+}
+
+export function overlayListLabel(kind: RenpyOverlayKind | 'mixed' | null): string {
+  if (kind === 'mod') return 'Mod'
+  if (kind === 'uncensor') return 'Uncensor'
+  return 'Applied'
+}
+
+export function overlayRemoveNoun(kind: RenpyOverlayKind | 'mixed' | null): string {
+  if (kind === 'mod') return 'mod'
+  if (kind === 'uncensor') return 'uncensor'
+  return 'overlay'
 }
 
 export function gamesWithPatchInstalled(

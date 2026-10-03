@@ -11,7 +11,9 @@ import {
   asPackageTagHint,
   gameHasInstalledPatch,
   isInstallableLibraryPackage,
-  isRenpyUncensorPackage
+  isRenpyOverlayPackage,
+  renpyOverlayKind,
+  renpyOverlayLabel
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
 import { extractArchive } from './extract'
@@ -37,7 +39,7 @@ import { startPlaySession, getPlaySession, hasPlaySessionUnder, stopPlaySession 
 import { listProcessExecutables, killProcessesUnder, pathIsInside } from './processes'
 import { ensureRenpyOptionsForLibraryFile } from './renpy/options-prefs'
 import { gameDirFromRoot } from './renpy/scan'
-import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyScriptPath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
+import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyOverlayFilePath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
 import { syncRpgMakerSaves } from './rpgmaker/saves'
 import { rebaseSaveFolderPaths } from './save-folders-store'
 import {
@@ -62,10 +64,13 @@ import {
 } from './p2p/webtorrent-service'
 import { removeTorrentMapEntry } from './p2p/torrent-map-store'
 
+/** Bump when overlay layout detection changes so cached false flags are re-probed. */
+const OVERLAY_PROBE = 2
+
 type StoredGameFile = Omit<
   GameLibraryFile,
   'hasArchive' | 'isInstalled' | 'installPercent' | 'playing'
-> & { installError?: string }
+> & { installError?: string; overlayProbe?: number }
 
 const installing = new Map<string, { percent: number; error?: string }>()
 let loaded: StoredGameFile[] | null = null
@@ -367,8 +372,9 @@ function nextId(): string {
 function present(file: StoredGameFile): GameLibraryFile {
   const job = installing.get(file.id)
   const installPath = file.installPath
+  const { overlayProbe: _overlayProbe, ...stored } = file
   return {
-    ...file,
+    ...stored,
     engine: file.engine || '',
     executablePath: file.executablePath || null,
     lastPlayedAt: file.lastPlayedAt ?? null,
@@ -442,8 +448,9 @@ function normalizeInstalledPatches(raw: unknown): InstalledPatchRef[] | undefine
     const filename = String(row.filename || '')
     const installedAt = Number(row.installedAt) || 0
     const uninstallSlot = row.uninstallSlot ? String(row.uninstallSlot) : undefined
+    const kind = row.kind === 'mod' || row.kind === 'uncensor' ? row.kind : undefined
     if (!patchId && !hash) continue
-    patches.push({ patchId, hash, filename, installedAt, uninstallSlot })
+    patches.push({ patchId, hash, filename, installedAt, uninstallSlot, kind })
   }
   return patches.length ? patches : undefined
 }
@@ -507,7 +514,7 @@ export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[
   let changed = await hydrateLaunchInfo(files)
   if (propagateThreadMetadata(files)) changed = true
   if (await syncMetadataFromSubscriptions(files)) changed = true
-  if (await hydrateUncensorInstallableFlags(files)) changed = true
+  if (await hydrateOverlayInstallableFlags(files)) changed = true
   if (changed) {
     await writeStore(files)
     broadcast()
@@ -522,12 +529,13 @@ export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[
   return visible.map(present).sort((a, b) => b.downloadedAt - a.downloadedAt)
 }
 
-async function hydrateUncensorInstallableFlags(files: StoredGameFile[]): Promise<boolean> {
+async function hydrateOverlayInstallableFlags(files: StoredGameFile[]): Promise<boolean> {
   let changed = false
   for (const file of files) {
-    if (!isRenpyUncensorPackage(file.packageTags)) {
-      if (file.uncensorInstallable !== undefined) {
+    if (!isRenpyOverlayPackage(file.packageTags)) {
+      if (file.uncensorInstallable !== undefined || file.overlayProbe !== undefined) {
         delete file.uncensorInstallable
+        delete file.overlayProbe
         changed = true
       }
       continue
@@ -539,12 +547,15 @@ async function hydrateUncensorInstallableFlags(files: StoredGameFile[]): Promise
       }
       continue
     }
-    if (typeof file.uncensorInstallable === 'boolean') continue
+    if (typeof file.uncensorInstallable === 'boolean' && file.overlayProbe === OVERLAY_PROBE) {
+      continue
+    }
     try {
       file.uncensorInstallable = await isUncensorPatchInstallable(file.archivePath)
     } catch {
       file.uncensorInstallable = false
     }
+    file.overlayProbe = OVERLAY_PROBE
     changed = true
   }
   return changed
@@ -591,6 +602,7 @@ export async function addGameFileFromDownload(
     }
     existing.engine = normalizeEngine(context.engine) || existing.engine || ''
     existing.uncensorInstallable = undefined
+    existing.overlayProbe = undefined
     applyMetaToFile(existing, meta)
     applyMetaToThread(files, meta)
     await writeStore(files)
@@ -903,12 +915,12 @@ function isRenpyInstalledGame(file: StoredGameFile): boolean {
   return Boolean(findRenpyGameRoot(file.installPath))
 }
 
-/** Installed Ren'Py game versions on the same thread that do not already have this patch. */
+/** Installed Ren'Py game versions on the same thread that do not already have this overlay. */
 export function listUncensorPatchTargets(
   files: GameLibraryFile[],
   patch: GameLibraryFile
 ): GameLibraryFile[] {
-  if (!isRenpyUncensorPackage(patch.packageTags)) return []
+  if (!isRenpyOverlayPackage(patch.packageTags)) return []
   return files
     .filter((file) => {
       if (file.threadId !== patch.threadId) return false
@@ -921,8 +933,8 @@ export function listUncensorPatchTargets(
 }
 
 /**
- * Best-effort apply a Ren'Py uncensor patch into an installed game's `/game` folder.
- * Records the patch on the target game; cleared when that game is uninstalled.
+ * Best-effort apply a Ren'Py uncensor or mod overlay into an installed game's `/game` folder.
+ * Records the overlay on the target game; cleared when that game is uninstalled.
  */
 export async function installUncensorPatch(
   patchId: string,
@@ -930,16 +942,17 @@ export async function installUncensorPatch(
 ): Promise<GameLibraryFile> {
   const files = await readStore()
   const patch = files.find((item) => item.id === patchId)
-  if (!patch) throw new Error('That uncensor patch is not in the library.')
-  if (!isRenpyUncensorPackage(patch.packageTags)) {
-    throw new Error('Only uncensor patches can be installed this way.')
+  const noun = renpyOverlayLabel(renpyOverlayKind(patch?.packageTags))
+  if (!patch) throw new Error(`That ${noun} is not in the library.`)
+  if (!isRenpyOverlayPackage(patch.packageTags)) {
+    throw new Error('Only Ren\'Py uncensor patches and mods can be installed this way.')
   }
   if (!patchSourceReady(patch)) {
-    throw new Error('The uncensor patch file is missing from disk.')
+    throw new Error(`The ${noun} file is missing from disk.`)
   }
   const sourcePath = patch.archivePath
-  if (!isArchivePath(sourcePath) && !isRenpyScriptPath(sourcePath)) {
-    throw new Error('Uncensor patches must be a .rpy/.rpyc file or a zip/7z/rar archive.')
+  if (!isArchivePath(sourcePath) && !isRenpyOverlayFilePath(sourcePath)) {
+    throw new Error(`A ${noun} must be a .rpy/.rpyc/.rpa file or a zip/7z/rar archive.`)
   }
   if (installing.has(patchId) || installing.has(targetFileId)) {
     throw new Error('An install is already in progress for that file.')
@@ -948,13 +961,13 @@ export async function installUncensorPatch(
   const target = files.find((item) => item.id === targetFileId)
   if (!target) throw new Error('That game version is not in the library.')
   if (target.threadId !== patch.threadId) {
-    throw new Error('That uncensor patch belongs to a different game.')
+    throw new Error(`That ${noun} belongs to a different game.`)
   }
   if (!isRenpyInstalledGame(target)) {
-    throw new Error('Install a Ren\'Py game version first, then apply the uncensor patch.')
+    throw new Error(`Install a Ren'Py game version first, then apply the ${noun}.`)
   }
   if (gameHasInstalledPatch(target, patch)) {
-    throw new Error('That uncensor patch is already installed on this game version.')
+    throw new Error(`That ${noun} is already installed on this game version.`)
   }
 
   const gameRoot = findRenpyGameRoot(target.installPath || '')
@@ -974,7 +987,7 @@ export async function installUncensorPatch(
   try {
     const installable = await isUncensorPatchInstallable(sourcePath)
     if (!installable) {
-      throw new Error('That file is not a supported Ren\'Py uncensor patch layout.')
+      throw new Error('That file is not a supported Ren\'Py overlay layout.')
     }
     const meta = {
       patchId: patch.id,
@@ -997,7 +1010,8 @@ export async function installUncensorPatch(
       hash: patch.hash,
       filename: patch.filename || basename(sourcePath),
       installedAt: Date.now(),
-      uninstallSlot: applied.uninstallSlot || getUncensorUninstallSlot(meta)
+      uninstallSlot: applied.uninstallSlot || getUncensorUninstallSlot(meta),
+      kind: renpyOverlayKind(patch.packageTags) || undefined
     }
     const existing = target.installedPatches ?? []
     target.installedPatches = [
@@ -1007,12 +1021,13 @@ export async function installUncensorPatch(
     if (!target.engine) target.engine = "Ren'Py"
     patch.installError = undefined
     patch.uncensorInstallable = true
+    patch.overlayProbe = OVERLAY_PROBE
     await writeStore(files)
     installing.delete(patchId)
     broadcast()
     return present(target)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Could not install that uncensor patch.'
+    const message = error instanceof Error ? error.message : `Could not install that ${noun}.`
     installing.delete(patchId)
     patch.installError = message
     await writeStore(files)
@@ -1024,8 +1039,8 @@ export async function installUncensorPatch(
 }
 
 /**
- * Remove an applied uncensor patch from an installed game using on-disk `.uninstall` instructions.
- * Works even if the original patch archive was removed from the library.
+ * Remove an applied Ren'Py overlay from an installed game using on-disk `.uninstall` instructions.
+ * Works even if the original overlay archive was removed from the library.
  */
 export async function uninstallUncensorPatch(
   gameFileId: string,
@@ -1051,7 +1066,7 @@ export async function uninstallUncensorPatch(
     uninstallSlot: patchRef.uninstallSlot
   }
   if (!match.patchId && !match.hash && !match.uninstallSlot) {
-    throw new Error('Which uncensor patch should be removed?')
+    throw new Error('Which overlay should be removed?')
   }
 
   installing.set(gameFileId, { percent: 5 })
@@ -1322,6 +1337,16 @@ export async function updateGameFileTags(
     version: normalized.version
   }
   file.version = normalized.version
+  file.uncensorInstallable = undefined
+  file.overlayProbe = undefined
+  if (isRenpyOverlayPackage(file.packageTags) && file.archivePath && pathExists(file.archivePath)) {
+    try {
+      file.uncensorInstallable = await isUncensorPatchInstallable(file.archivePath)
+    } catch {
+      file.uncensorInstallable = false
+    }
+    file.overlayProbe = OVERLAY_PROBE
+  }
   await writeStore(files)
   broadcast()
   void reportInstallTags(file.hash, normalized).catch((error) => {

@@ -720,7 +720,10 @@ export function formatRelativeTime(at: number | undefined | null, now = Date.now
   return relativeUnit(Math.max(1, years), 'year')
 }
 
-export function formatDateTime(at: number | undefined | null): string {
+export function formatDateTime(
+  at: number | undefined | null,
+  options?: { milliseconds?: boolean }
+): string {
   if (!at) return ''
   return new Date(at).toLocaleString(undefined, {
     year: 'numeric',
@@ -728,7 +731,8 @@ export function formatDateTime(at: number | undefined | null): string {
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    second: '2-digit'
+    second: '2-digit',
+    ...(options?.milliseconds ? { fractionalSecondDigits: 3 } : {})
   })
 }
 

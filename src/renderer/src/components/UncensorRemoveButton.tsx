@@ -5,12 +5,14 @@ import { MenuPopover, type MenuItem } from './MenuPopover'
 type UncensorRemoveButtonProps = {
   patches: InstalledPatchRef[]
   disabled?: boolean
+  noun?: string
   onRemove: (patch: InstalledPatchRef) => void
 }
 
 export default function UncensorRemoveButton({
   patches,
   disabled = false,
+  noun = 'uncensor',
   onRemove
 }: UncensorRemoveButtonProps): JSX.Element | null {
   const [open, setOpen] = useState(false)
@@ -26,14 +28,14 @@ export default function UncensorRemoveButton({
         disabled={disabled}
         onClick={() => onRemove(patches[0])}
       >
-        Remove uncensor
+        Remove {noun}
       </button>
     )
   }
 
   const items: MenuItem[] = patches.map((patch, index) => ({
     id: patch.uninstallSlot || patch.hash || patch.patchId || String(index),
-    label: patch.filename || patch.hash.slice(0, 12) || 'Uncensor patch',
+    label: patch.filename || patch.hash.slice(0, 12) || noun,
     onClick: () => onRemove(patch)
   }))
 
@@ -48,7 +50,7 @@ export default function UncensorRemoveButton({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        Remove uncensor ▾
+        Remove {noun} ▾
       </button>
       {open && buttonRef.current ? (
         <MenuPopover

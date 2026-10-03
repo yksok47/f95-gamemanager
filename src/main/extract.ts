@@ -52,10 +52,11 @@ function asarUnpacked(filePath: string): string {
 function sevenZipBin(): string {
   const exe = process.platform === 'win32' ? '7za.exe' : '7za'
   const platformDir = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux'
-  const candidates = [
-    join(process.resourcesPath, '7zip', platformDir, process.arch, exe),
-    asarUnpacked(path7za)
-  ]
+  const candidates: string[] = []
+  if (typeof process.resourcesPath === 'string' && process.resourcesPath) {
+    candidates.push(join(process.resourcesPath, '7zip', platformDir, process.arch, exe))
+  }
+  candidates.push(asarUnpacked(path7za))
   if (!path7za.includes(`${sep}app.asar${sep}`)) candidates.push(path7za)
   const found = candidates.find((bin) => pathExists(bin))
   if (!found) {

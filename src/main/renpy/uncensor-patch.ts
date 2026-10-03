@@ -1,7 +1,7 @@
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'path'
 import { extractArchive, listArchiveEntries } from '../extract'
-import { isArchivePath, isRenpyScriptPath, sanitizeSegment } from '../fs-utils'
+import { isArchivePath, isRenpyOverlayFilePath, isRenpyScriptPath, sanitizeSegment } from '../fs-utils'
 import { childPath, listDirents, pathExists, toFsPath } from '../win-path'
 
 const JUNK_NAMES = new Set(['__macosx', '.ds_store', 'thumbs.db', 'desktop.ini'])
@@ -21,9 +21,11 @@ const UNINSTALL_DIR = '.uninstall'
 const BACKUP_SUFFIX = '.f95bak'
 const MANIFEST_NAME = 'instructions.json'
 
+export type OverlayPlanFile = { absolute: string; relative: string }
+
 export type UncensorPatchPlan =
-  | { mode: 'merge-game'; sourceGameDir: string }
-  | { mode: 'scripts'; files: Array<{ absolute: string; relative: string }> }
+  | { mode: 'merge-game'; sourceGameDir: string; extraFiles: OverlayPlanFile[] }
+  | { mode: 'scripts'; files: OverlayPlanFile[] }
 
 export type UncensorUninstallManifest = {
   version: 1
@@ -43,7 +45,7 @@ export type UncensorPatchMeta = {
   filename: string
 }
 
-export { isRenpyScriptPath }
+export { isRenpyOverlayFilePath, isRenpyScriptPath }
 
 function isJunkName(name: string): boolean {
   const lower = name.toLowerCase()
@@ -82,17 +84,17 @@ export function unwrapArchiveEntries(entries: string[]): string[] {
   return paths
 }
 
-/** True when archive/file contents look like a supported Ren'Py uncensor layout. */
+/** True when archive/file contents look like a supported Ren'Py overlay layout. */
 export function entriesSuggestUncensorInstall(entries: string[]): boolean {
   const paths = unwrapArchiveEntries(entries)
   if (!paths.length) return false
   if (paths.some((path) => path.split('/')[0]?.toLowerCase() === 'game')) return true
-  return paths.some((path) => isRenpyScriptPath(path))
+  return paths.some((path) => isRenpyOverlayFilePath(path))
 }
 
 export async function isUncensorPatchInstallable(sourcePath: string): Promise<boolean> {
   if (!sourcePath || !pathExists(sourcePath)) return false
-  if (isRenpyScriptPath(sourcePath) && !isArchivePath(sourcePath)) return true
+  if (isRenpyOverlayFilePath(sourcePath) && !isArchivePath(sourcePath)) return true
   if (!isArchivePath(sourcePath)) return false
   try {
     const entries = await listArchiveEntries(sourcePath)
@@ -132,7 +134,7 @@ export function findRenpyScripts(root: string, maxDepth = 8): string[] {
     for (const entry of listDirents(dir)) {
       if (isJunkName(entry.name)) continue
       const full = childPath(dir, entry.name)
-      if (entry.isFile() && isRenpyScriptPath(entry.name)) {
+      if (entry.isFile() && isRenpyOverlayFilePath(entry.name)) {
         found.push(full)
         continue
       }
@@ -170,16 +172,37 @@ function toGameRelative(path: string): string {
   return path.split(/[/\\]/).join(sep)
 }
 
-/** Decide how to apply an extracted (or staged) patch tree into the installed game `/game` folder. */
+function toPlanRelative(root: string, absolute: string): string {
+  return relative(root, absolute).split(/[/\\]/).join(sep) || basename(absolute)
+}
+
+/** Scripts that sit outside a `game/` folder still drop into the installed `/game` directory. */
+export function extraScriptsOutsideGame(extractedRoot: string, gameDir: string): OverlayPlanFile[] {
+  const parent = dirname(gameDir)
+  return findRenpyScripts(extractedRoot)
+    .filter((absolute) => !isInsideOrEqual(absolute, gameDir))
+    .map((absolute) => ({
+      absolute,
+      relative: isInsideOrEqual(absolute, parent)
+        ? toPlanRelative(parent, absolute)
+        : basename(absolute)
+    }))
+}
+
+/** Decide how to apply an extracted (or staged) overlay tree into the installed game `/game` folder. */
 export function planUncensorPatch(extractedRoot: string): UncensorPatchPlan {
   const gameDirs = findPatchGameDirs(extractedRoot)
   if (gameDirs[0]) {
-    return { mode: 'merge-game', sourceGameDir: gameDirs[0] }
+    return {
+      mode: 'merge-game',
+      sourceGameDir: gameDirs[0],
+      extraFiles: extraScriptsOutsideGame(extractedRoot, gameDirs[0])
+    }
   }
 
   const scripts = findRenpyScripts(extractedRoot)
   if (!scripts.length) {
-    throw new Error('No .rpy/.rpyc files or game folder found in that uncensor patch.')
+    throw new Error('No .rpy/.rpyc/.rpa files or game folder found in that overlay.')
   }
 
   const root = commonDirectory(scripts)
@@ -187,7 +210,7 @@ export function planUncensorPatch(extractedRoot: string): UncensorPatchPlan {
     mode: 'scripts',
     files: scripts.map((absolute) => ({
       absolute,
-      relative: relative(root, absolute).split(/[/\\]/).join(sep) || basename(absolute)
+      relative: toPlanRelative(root, absolute)
     }))
   }
 }
@@ -210,10 +233,9 @@ async function collectMergeFiles(source: string, prefix = ''): Promise<Array<{ a
   return out
 }
 
-function planFiles(plan: UncensorPatchPlan): Array<{ absolute: string; relative: string }> {
+function planFiles(plan: UncensorPatchPlan): OverlayPlanFile[] {
   if (plan.mode === 'scripts') return plan.files
-  // merge-game collected async — caller uses collectMergeFiles
-  return []
+  return plan.extraFiles
 }
 
 function uninstallSlotName(meta: UncensorPatchMeta): string {
@@ -388,7 +410,7 @@ export async function applyUncensorPatchToGameDir(
   onProgress?: (percent: number) => void
 ): Promise<{ filesCopied: number; uninstallDir: string; uninstallSlot: string }> {
   if (!sourcePath || !pathExists(sourcePath)) {
-    throw new Error('The uncensor patch file is missing from disk.')
+    throw new Error('The overlay file is missing from disk.')
   }
   if (!targetGameDir) {
     throw new Error('The game folder is missing.')
@@ -397,7 +419,7 @@ export async function applyUncensorPatchToGameDir(
   onProgress?.(2)
   await mkdir(toFsPath(targetGameDir), { recursive: true })
 
-  if (isRenpyScriptPath(sourcePath) && !isArchivePath(sourcePath)) {
+  if (isRenpyOverlayFilePath(sourcePath) && !isArchivePath(sourcePath)) {
     const files = [{ absolute: sourcePath, relative: basename(sourcePath) }]
     const result = await writeUninstallBundle(targetGameDir, meta, files)
     onProgress?.(100)
@@ -405,7 +427,7 @@ export async function applyUncensorPatchToGameDir(
   }
 
   if (!isArchivePath(sourcePath)) {
-    throw new Error('Uncensor patches must be a .rpy/.rpyc file or a zip/7z/rar archive.')
+    throw new Error('Overlays must be a .rpy/.rpyc/.rpa file or a zip/7z/rar archive.')
   }
 
   await mkdir(toFsPath(tempParentDir), { recursive: true })
@@ -418,10 +440,10 @@ export async function applyUncensorPatchToGameDir(
     const plan = planUncensorPatch(tempDir)
     const files =
       plan.mode === 'merge-game'
-        ? await collectMergeFiles(plan.sourceGameDir)
+        ? [...(await collectMergeFiles(plan.sourceGameDir)), ...plan.extraFiles]
         : planFiles(plan)
     if (!files.length) {
-      throw new Error('Nothing was copied from that uncensor patch.')
+      throw new Error('Nothing was copied from that overlay.')
     }
     onProgress?.(92)
     const result = await writeUninstallBundle(targetGameDir, meta, files)

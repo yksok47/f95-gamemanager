@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isReviewablePackagePath } from './fs-utils'
+import { isRenpyArchiveAssetPath, isRenpyOverlayFilePath, isReviewablePackagePath } from './fs-utils'
 
 describe('isReviewablePackagePath', () => {
   test('reviews archives and loose Ren\'Py patch scripts', () => {
@@ -10,6 +10,16 @@ describe('isReviewablePackagePath', () => {
     expect(isReviewablePackagePath('C:\\downloads\\untrusted\\patch (1).rpy')).toBe(true)
     expect(isReviewablePackagePath('uncensor.rpy')).toBe(true)
     expect(isReviewablePackagePath('UNCENSOR.RPYC')).toBe(true)
+    expect(isReviewablePackagePath('mods/unlock.rpyc')).toBe(true)
+    expect(isReviewablePackagePath('modwtasahibito.rpa')).toBe(true)
+    expect(isReviewablePackagePath('game/archive.rpu')).toBe(true)
+  })
+
+  test('treats packed Ren\'Py archives as overlay files', () => {
+    expect(isRenpyArchiveAssetPath('modwtasahibito.rpa')).toBe(true)
+    expect(isRenpyArchiveAssetPath('game/extra.RPU')).toBe(true)
+    expect(isRenpyOverlayFilePath('modwtasahibito.rpa')).toBe(true)
+    expect(isRenpyArchiveAssetPath('unlock.rpy')).toBe(false)
   })
 
   test('leaves other finished files out of approval', () => {

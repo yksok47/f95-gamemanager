@@ -5,6 +5,7 @@ import {
   canonicalVersionName,
   ensureKnownVersion,
   formatCatalogWatermark,
+  formatDateTime,
   gameUpdateState,
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
@@ -345,6 +346,14 @@ describe('version aliases', () => {
         { version: '0.9', releasedAt: 0, lastPlayedAt: 0, playtimeMs: 0, aliases: ['v0.9'] }
       ])
     ).toBe('0.9')
+  })
+})
+
+describe('formatDateTime', () => {
+  test('includes seconds and milliseconds when requested', () => {
+    const shown = formatDateTime(Date.parse('2026-10-03T07:22:15.123Z'), { milliseconds: true })
+    expect(shown).toMatch(/:15/)
+    expect(shown).toMatch(/123/)
   })
 })
 

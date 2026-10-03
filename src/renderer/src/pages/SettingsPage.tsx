@@ -460,7 +460,9 @@ function F95RequestLogPanel(): JSX.Element {
         <ul className="f95-request-log">
           {entries.map((entry) => (
             <li key={entry.id} className="f95-request-log-row">
-              <span className="f95-request-log-time">{formatDateTime(entry.at)}</span>
+              <span className="f95-request-log-time">
+                {formatDateTime(entry.at, { milliseconds: true })}
+              </span>
               <span className="f95-request-log-method">{entry.method}</span>
               <span className="f95-request-log-url" title={entry.url}>
                 {entry.url}
