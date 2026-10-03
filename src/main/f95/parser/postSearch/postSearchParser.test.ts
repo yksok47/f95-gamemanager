@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractSearchId, parsePostSearch } from './postSearchParser'
+import { extractSearchId, parsePostSearch, searchResultsPath } from './postSearchParser'
 import { defineParserTests } from '../test-harness'
 
 defineParserTests('postSearch', parsePostSearch)
@@ -69,7 +69,7 @@ const SAMPLE = `
 </ol>
 <nav class="pageNav">
   <li class="pageNav-page pageNav-page--current"><a href="/search/555001/">1</a></li>
-  <li class="pageNav-page"><a href="/search/555001/page-3">3</a></li>
+  <li class="pageNav-page"><a href="/search/555001/?page=3">3</a></li>
 </nav>
 </div>
 </body>
@@ -116,7 +116,16 @@ describe('postSearch unit', () => {
 describe('extractSearchId', () => {
   it('reads the XenForo search record from result urls', () => {
     expect(extractSearchId('https://f95zone.to/search/555001/')).toBe(555001)
+    expect(extractSearchId('https://f95zone.to/search/555001/?page=2')).toBe(555001)
     expect(extractSearchId('https://f95zone.to/search/555001/page-2')).toBe(555001)
     expect(extractSearchId('https://f95zone.to/search/?type=post')).toBeNull()
+  })
+})
+
+describe('searchResultsPath', () => {
+  it('uses query-string pages because /search/{id}/page-N 404s on F95zone', () => {
+    expect(searchResultsPath(555001)).toBe('/search/555001/')
+    expect(searchResultsPath(555001, 1)).toBe('/search/555001/')
+    expect(searchResultsPath(555001, 2)).toBe('/search/555001/?page=2')
   })
 })

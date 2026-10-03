@@ -12,7 +12,7 @@ import { F95Error, f95Fetch, f95PostForm, f95Url } from './http'
 import { xfErrorMessage, xfTokenFromHtml } from './ignore-parse'
 import { extractPostId, extractThreadId, threadUrl } from './parse'
 import { parsePostEditForm, postsPageFromDocument } from './parser/posts/postsParser'
-import { parsePostSearch } from './parser/postSearch/postSearchParser'
+import { parsePostSearch, searchResultsPath } from './parser/postSearch/postSearchParser'
 
 const HOST = 'https://f95zone.to'
 const CACHE_VERSION = 1
@@ -384,14 +384,17 @@ export async function searchThreadPosts(
 }
 
 async function loadSavedSearchPage(threadId: number, searchId: number, page: number): Promise<string> {
-  const path = page > 1 ? `/search/${searchId}/page-${page}` : `/search/${searchId}/`
-  const { body } = await f95Fetch(
+  const path = searchResultsPath(searchId, page)
+  const { body, response } = await f95Fetch(
     path,
     {
       headers: { Referer: threadUrl(threadId) }
     },
     { timeoutMs: 45000 }
   )
+  if (response.status >= 400) {
+    throw new F95Error('Could not load that search page.', 'network')
+  }
   rememberToken(threadId, body)
   return body
 }

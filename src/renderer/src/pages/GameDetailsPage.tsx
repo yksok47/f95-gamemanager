@@ -866,25 +866,23 @@ function GameDetailsPage({
 
   const tabs = useMemo(() => {
     const settled = !busy
-    const items: Array<{ id: DetailsTab; label: string; count?: number; hidden?: boolean }> = [
+    const items: Array<{ id: DetailsTab; label: string; hidden?: boolean }> = [
       { id: 'overview', label: 'Overview' },
-      { id: 'downloads', label: 'Downloads', count: downloadCount || undefined },
-      { id: 'files', label: 'Files', count: files.length },
+      { id: 'downloads', label: 'Downloads' },
+      { id: 'files', label: 'Files' },
       {
         id: 'reviews',
         label: 'Reviews',
-        count: details?.reviewsTotal || details?.reviews.length,
         hidden: settled && !details?.reviews.length && !details?.reviewsTotal
       },
       { id: 'posts', label: 'Posts' },
       {
         id: 'gallery',
         label: 'Gallery',
-        count: gallery.length,
         hidden: settled && !gallery.length && initialTab !== 'gallery'
       },
       { id: 'about', label: 'About', hidden: settled && !aboutModes.length },
-      { id: 'changelog', label: 'Changelog', count: changelog.length, hidden: settled && !changelog.length },
+      { id: 'changelog', label: 'Changelog', hidden: settled && !changelog.length },
       { id: 'saves', label: 'Saves', hidden: !isRenpy && !isRpgMaker && !saveThreadIds.has(summary.threadId) },
       { id: 'userNotes', label: 'Notes' },
       { id: 'renpy', label: 'Renpy', hidden: !isRenpy }
@@ -894,10 +892,8 @@ function GameDetailsPage({
     busy,
     details,
     gallery.length,
-    downloadCount,
     aboutModes.length,
     changelog.length,
-    files,
     isRenpy,
     isRpgMaker,
     initialTab,
@@ -2243,7 +2239,6 @@ function GameDetailsPage({
                 }}
           >
             {item.label}
-            {item.count ? <span className="details-tab-count">{item.count}</span> : null}
           </button>
         ))}
       </div>

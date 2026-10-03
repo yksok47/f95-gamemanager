@@ -131,6 +131,12 @@ export function extractSearchId(value: string | undefined | null): number | null
   return Number.isFinite(id) && id > 0 ? id : null
 }
 
+/** F95zone search results paginate with `?page=`, not `/page-N`. */
+export function searchResultsPath(searchId: number, page = 1): string {
+  if (page > 1) return `/search/${searchId}/?page=${page}`
+  return `/search/${searchId}/`
+}
+
 export function parseSearchPageNavDocument($: CheerioAPI): { page: number; totalPages: number } {
   const current =
     Number(
