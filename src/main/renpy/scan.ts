@@ -1,6 +1,7 @@
 import { stat } from 'fs/promises'
 import { join } from 'path'
 import type { RenpyArchiveFile, RenpyScriptStatus } from '@shared/types'
+import type { WeightedPath } from './unren-work'
 import { yieldToEventLoop } from '../disk-usage'
 import {
   childPath,
@@ -55,13 +56,21 @@ async function fileSize(filePath: string): Promise<number> {
   }
 }
 
+export type ScriptScan = {
+  status: RenpyScriptStatus
+  pendingRpyc: WeightedPath[]
+}
+
 export async function scanScripts(gameRoot: string): Promise<RenpyScriptStatus> {
+  return (await scanScriptsWithPending(gameRoot)).status
+}
+
+export async function scanScriptsWithPending(gameRoot: string): Promise<ScriptScan> {
   const gameDir = gameDirFromRoot(gameRoot)
   const rpaFiles: RenpyArchiveFile[] = []
+  const rpycFiles: { path: string; stem: string }[] = []
   let rpycCount = 0
   let rpyCount = 0
-  let rpycWithoutRpy = 0
-  const rpycNames = new Set<string>()
   const rpyNames = new Set<string>()
   let ops = 0
 
@@ -86,7 +95,7 @@ export async function scanScripts(gameRoot: string): Promise<RenpyScriptStatus> 
       } else if (lower.endsWith('.rpyc')) {
         if (lower === 'un.rpyc' || isRenpyToolScript(lower.replace(/c$/, ''))) continue
         rpycCount += 1
-        rpycNames.add(join(dir, lower.slice(0, -5)).toLowerCase())
+        rpycFiles.push({ path: full, stem: join(dir, lower.slice(0, -5)).toLowerCase() })
       } else if (lower.endsWith('.rpy')) {
         if (isRenpyToolScript(entry.name)) continue
         rpyCount += 1
@@ -96,31 +105,38 @@ export async function scanScripts(gameRoot: string): Promise<RenpyScriptStatus> 
   }
 
   if (await pathExistsAsync(gameDir)) await walk(gameDir, 0)
-  for (const key of rpycNames) {
-    if (!rpyNames.has(key)) rpycWithoutRpy += 1
+
+  const pendingRpyc: WeightedPath[] = []
+  for (const file of rpycFiles) {
+    if (rpyNames.has(file.stem)) continue
+    pendingRpyc.push({ path: await resolveLongPathAsync(file.path), size: await fileSize(file.path) })
   }
+  const rpycWithoutRpy = pendingRpyc.length
 
   rpaFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 
   return {
-    gameRoot: await resolveLongPathAsync(gameRoot),
-    gameDir: await resolveLongPathAsync(gameDir),
-    pythonPath: findGamePython(gameRoot),
-    rpaCount: rpaFiles.length,
-    rpaBytes: rpaFiles.reduce((sum, file) => sum + file.size, 0),
-    rpaFiles,
-    rpycCount,
-    rpyCount,
-    rpycWithoutRpy,
-    optionsRpy: (await findNamedFiles(gameDir, 'options.rpy')).length > 0,
-    optionsRpyc: (await findNamedFiles(gameDir, 'options.rpyc')).length > 0,
-    packed: rpaFiles.length > 0,
-    unpacked: rpyCount + rpycCount > 0,
-    compiled: rpycWithoutRpy > 0,
-    alreadyUnpacked: rpyCount + rpycCount > 0,
-    alreadyDecompiled: rpyCount > 0 && rpycWithoutRpy === 0,
-    needsUnpack: rpaFiles.length > 0 && rpyCount + rpycCount === 0,
-    needsDecompile: rpycWithoutRpy > 0
+    status: {
+      gameRoot: await resolveLongPathAsync(gameRoot),
+      gameDir: await resolveLongPathAsync(gameDir),
+      pythonPath: findGamePython(gameRoot),
+      rpaCount: rpaFiles.length,
+      rpaBytes: rpaFiles.reduce((sum, file) => sum + file.size, 0),
+      rpaFiles,
+      rpycCount,
+      rpyCount,
+      rpycWithoutRpy,
+      optionsRpy: (await findNamedFiles(gameDir, 'options.rpy')).length > 0,
+      optionsRpyc: (await findNamedFiles(gameDir, 'options.rpyc')).length > 0,
+      packed: rpaFiles.length > 0,
+      unpacked: rpyCount + rpycCount > 0,
+      compiled: rpycWithoutRpy > 0,
+      alreadyUnpacked: rpyCount + rpycCount > 0,
+      alreadyDecompiled: rpyCount > 0 && rpycWithoutRpy === 0,
+      needsUnpack: rpaFiles.length > 0 && rpyCount + rpycCount === 0,
+      needsDecompile: rpycWithoutRpy > 0
+    },
+    pendingRpyc
   }
 }
 
@@ -129,31 +145,5 @@ export async function listRpaFiles(gameRoot: string): Promise<RenpyArchiveFile[]
 }
 
 export async function listRpycNeedingDecompile(gameRoot: string): Promise<string[]> {
-  const gameDir = gameDirFromRoot(gameRoot)
-  const pending: string[] = []
-  let ops = 0
-
-  async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > 8) return
-    for (const entry of await listDirentsAsync(dir)) {
-      const full = childPath(dir, entry.name)
-      ops += 1
-      if (ops >= YIELD_EVERY) {
-        ops = 0
-        await yieldToEventLoop()
-      }
-      if (entry.isDirectory()) {
-        if (SKIP_DIRS.has(entry.name.toLowerCase())) continue
-        await walk(full, depth + 1)
-        continue
-      }
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.rpyc')) continue
-      if (/^un\.rpyc$/i.test(entry.name) || isRenpyToolScript(entry.name.replace(/c$/i, ''))) continue
-      const rpy = full.replace(/\.rpyc$/i, '.rpy')
-      if (!(await pathExistsAsync(rpy))) pending.push(await resolveLongPathAsync(full))
-    }
-  }
-
-  if (await pathExistsAsync(gameDir)) await walk(gameDir, 0)
-  return pending
+  return (await scanScriptsWithPending(gameRoot)).pendingRpyc.map((file) => file.path)
 }

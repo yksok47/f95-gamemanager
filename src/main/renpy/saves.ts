@@ -604,7 +604,7 @@ export async function getRenpyInfo(
     : optionsThreadId
       ? await ensureDesiredOnGameDir(optionsThreadId, gameDir, savePath)
       : gameDir
-        ? readRenpyOptions(gameDir, savePath)
+        ? await readRenpyOptions(gameDir, savePath)
         : { ...EMPTY_OPTIONS }
   const saveLocations = renpySaveLocationOptions(await identifiedFoldersForLookup(lookup), savePath)
 

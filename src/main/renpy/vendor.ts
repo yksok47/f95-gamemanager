@@ -1,4 +1,5 @@
 import { cpSync, mkdirSync, rmSync } from 'fs'
+import { rm } from 'fs/promises'
 import { join } from 'path'
 import { app } from 'electron'
 import { pathExists, stripNamespace } from '../win-path'
@@ -62,6 +63,6 @@ export function stageUnrpycTree(gameRoot: string, fromDir: string, folderName = 
   return stage
 }
 
-export function removeUnrpycStage(gameRoot: string, folderName = UNRPYC_STAGE_NAME): void {
-  rmSync(join(stripNamespace(gameRoot), folderName), { recursive: true, force: true })
+export async function removeUnrpycStage(gameRoot: string, folderName = UNRPYC_STAGE_NAME): Promise<void> {
+  await rm(join(stripNamespace(gameRoot), folderName), { recursive: true, force: true })
 }

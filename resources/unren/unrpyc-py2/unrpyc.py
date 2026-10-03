@@ -28,6 +28,7 @@ import itertools
 import traceback
 import struct
 import re
+import sys
 from operator import itemgetter
 
 # Ren'Py's python.exe ships multiprocessing.py but not _multiprocessing.
@@ -172,6 +173,7 @@ def decompile_rpyc(input_filename, overwrite=False, dump=False, decompile_python
 
     with printlock:
         print("Decompiling %s to %s..." % (input_filename, out_filename))
+        sys.stdout.flush()
 
         if not overwrite and path.exists(out_filename):
             print("Output file already exists. Pass --clobber to overwrite.")
@@ -275,7 +277,10 @@ def main():
                         "This is always safe to enable if the game's Ren'Py version supports init offset statements, "
                         "and the generated code is exactly equivalent, only less cluttered.")
 
-    parser.add_argument('file', type=str, nargs='+',
+    parser.add_argument('--file-list', dest='file_list', action='store', default=None,
+                        help="read additional filenames from a UTF-8 text file, one path per line")
+
+    parser.add_argument('file', type=str, nargs='*',
                         help="The filenames to decompile. "
                         "All .rpyc files in any directories passed or their subdirectories will also be decompiled.")
 
@@ -293,6 +298,14 @@ def main():
         with open(args.translation_file, 'rb') as in_file:
             args.translations = in_file.read()
 
+    listed = []
+    if args.file_list:
+        with open(args.file_list, 'rb') as handle:
+            raw = handle.read()
+        if raw.startswith(b'\xef\xbb\xbf'):
+            raw = raw[3:]
+        listed = [line.strip() for line in raw.decode('utf-8').splitlines() if line.strip()]
+
     # Expand wildcards
     def glob_or_complain(s):
         # fried - need to translate any brackets which may be used in path
@@ -301,9 +314,8 @@ def main():
             print("File not found: " + s)
         return retval
 
-    filesAndDirs = map(glob_or_complain, args.file)
-    # Concatenate lists
-    filesAndDirs = list(itertools.chain(*filesAndDirs))
+    filesAndDirs = list(itertools.chain(*map(glob_or_complain, args.file))) if args.file else []
+    filesAndDirs.extend(listed)
 
     # Recursively add .rpyc files from any directories passed
     files = []

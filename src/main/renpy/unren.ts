@@ -1,8 +1,10 @@
+import { writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import type { RenpyLastRun, RenpyStatus, UnRenAction } from '@shared/types'
-import { pathExists, stripNamespace } from '../win-path'
+import { mapLimit, yieldToEventLoop } from '../disk-usage'
+import { pathExistsAsync, stripNamespace } from '../win-path'
 import { sendToRenderer } from '../windows'
-import { gameDirFromRoot, listRpycNeedingDecompile, scanScripts } from './scan'
+import { gameDirFromRoot, scanScripts, scanScriptsWithPending } from './scan'
 import {
   detectGamePython,
   isUnRenCancelled,
@@ -11,10 +13,29 @@ import {
   throwIfUnRenCancelled,
   type GamePython
 } from './runtime'
-import { getTrackedCounts, recordNewGameFiles, retractTrackedFiles, snapshotGameRels } from './unren-files'
+import {
+  addTrackedFiles,
+  getTrackedCounts,
+  recordNewGameFiles,
+  retractTrackedFiles,
+  shouldTrackRel,
+  snapshotGameRels,
+  toPosixRel
+} from './unren-files'
+import {
+  countDecompileStarts,
+  decompileTimeoutMs,
+  decompileWorkerCount,
+  extractParallelism,
+  extractTimeoutMs,
+  partitionByWeight,
+  rpyPathFromRpyc,
+  type WeightedPath
+} from './unren-work'
 import { getUnrenVendor, removeUnrpycStage, stageUnrpycTree } from './vendor'
 
 const MAX_LOG = 80_000
+const YIELD_EVERY = 64
 
 type UnRenJob = {
   fileId: string
@@ -112,37 +133,92 @@ async function extractArchive(
   vendor: ReturnType<typeof getUnrenVendor>,
   archivePath: string,
   gameDir: string,
+  threads: number,
+  timeoutMs: number,
   signal?: AbortSignal
 ): Promise<void> {
   const archive = stripNamespace(archivePath)
   const outDir = stripNamespace(gameDir)
-  const primary = await runGamePython(runtime, [vendor.rpatool, '-x', archive, '-o', outDir], outDir, [], 180_000, signal)
+  const extraEnv = { F95_UNREN_WORKERS: String(threads) }
+  const primary = await runGamePython(
+    runtime,
+    [vendor.rpatool, '-x', archive, '-o', outDir],
+    outDir,
+    [],
+    timeoutMs,
+    signal,
+    extraEnv
+  )
   if (primary.code === 0) return
   throwIfUnRenCancelled(signal)
-  const fallback = await runGamePython(runtime, [vendor.fallback, archive], outDir, [], 180_000, signal)
+  const fallback = await runGamePython(runtime, [vendor.fallback, archive], outDir, [], timeoutMs, signal, extraEnv)
   if (fallback.code === 0) return
   throw new Error(outputText(fallback) || outputText(primary) || `exit ${primary.code}`)
 }
 
-async function decompileFile(
+async function filesMissingRpy(files: WeightedPath[]): Promise<WeightedPath[]> {
+  const missing: WeightedPath[] = []
+  let ops = 0
+  for (const file of files) {
+    ops += 1
+    if (ops >= YIELD_EVERY) {
+      ops = 0
+      await yieldToEventLoop()
+    }
+    if (!(await pathExistsAsync(rpyPathFromRpyc(file.path)))) missing.push(file)
+  }
+  return missing
+}
+
+async function trackDecompiled(
+  gameRoot: string,
+  gameDir: string,
+  snapshot: Set<string>,
+  files: WeightedPath[]
+): Promise<number> {
+  const added: string[] = []
+  let ops = 0
+  for (const file of files) {
+    ops += 1
+    if (ops >= YIELD_EVERY) {
+      ops = 0
+      await yieldToEventLoop()
+    }
+    const rel = toPosixRel(gameDir, rpyPathFromRpyc(file.path))
+    if (!rel || !shouldTrackRel(rel) || snapshot.has(rel)) continue
+    snapshot.add(rel)
+    added.push(rel)
+  }
+  if (added.length) await addTrackedFiles(gameRoot, 'decompile', added)
+  return added.length
+}
+
+async function decompileBatch(
   runtime: GamePython,
   script: string,
   scriptDir: string,
-  rpycPath: string,
-  signal?: AbortSignal
+  files: WeightedPath[],
+  listPath: string,
+  tryHarder: boolean,
+  signal: AbortSignal,
+  onOutput: (chunk: string) => void
 ): Promise<void> {
-  const source = stripNamespace(rpycPath)
-  const rpy = source.replace(/\.rpyc$/i, '.rpy')
-  const attempts = [['--init-offset', source], ['--init-offset', '--try-harder', source]]
-  const errors: string[] = []
-  for (const args of attempts) {
-    throwIfUnRenCancelled(signal)
-    const result = await runGamePythonScript(runtime, script, args, [scriptDir], scriptDir, 90_000, signal)
-    if (pathExists(rpy)) return
-    const text = outputText(result)
-    if (text) errors.push(text)
-  }
-  throw new Error(errors.join('\n') || `Could not decompile ${basename(source)}`)
+  if (!files.length) return
+  await writeFile(listPath, `${files.map((file) => stripNamespace(file.path)).join('\n')}\n`, 'utf8')
+  const args = tryHarder
+    ? ['--init-offset', '--try-harder', '--file-list', stripNamespace(listPath)]
+    : ['--init-offset', '--file-list', stripNamespace(listPath)]
+  await runGamePythonScript(
+    runtime,
+    script,
+    args,
+    [scriptDir],
+    scriptDir,
+    decompileTimeoutMs(files.length),
+    signal,
+    undefined,
+    onOutput
+  )
 }
 
 async function runExtract(
@@ -185,24 +261,40 @@ async function runExtract(
 
   const runtime = await detectGamePython(gameRoot, signal)
   const vendor = getUnrenVendor(runtime)
+  const parallel = extractParallelism(archives.length)
   log += `Using Python ${runtime.major} (${runtime.python})\n`
+  log += `Unpacking with ${parallel.archives} archive worker(s), ${parallel.threads} thread(s) each.\n`
   emit(fileId, 'extract', `Using Python ${runtime.major}`, { log, done: 0, total: archives.length, percent: 0 })
 
   let done = 0
   let failed = 0
+  let doneBytes = 0
+  const totalBytes = archives.reduce((sum, archive) => sum + Math.max(0, archive.size), 0)
   let cancelled = false
+  const percentOf = (): number => {
+    if (totalBytes > 0) return Math.round((doneBytes / totalBytes) * 100)
+    return Math.round(((done + failed) / archives.length) * 100)
+  }
   try {
-    for (const archive of archives) {
+    await mapLimit(archives, parallel.archives, async (archive) => {
       throwIfUnRenCancelled(signal)
       const label = basename(archive.path)
       emit(fileId, 'extract', `Extracting ${done + failed + 1}/${archives.length}: ${label}`, {
         log: `${log}Extracting ${label}…\n`,
         done: done + failed,
         total: archives.length,
-        percent: Math.round(((done + failed) / archives.length) * 100)
+        percent: percentOf()
       })
       try {
-        await extractArchive(runtime, vendor, archive.path, gameDir, signal)
+        await extractArchive(
+          runtime,
+          vendor,
+          archive.path,
+          gameDir,
+          parallel.threads,
+          extractTimeoutMs(archive.size),
+          signal
+        )
         done += 1
         log += `Unpacked ${label}\n`
       } catch (error) {
@@ -210,14 +302,14 @@ async function runExtract(
         failed += 1
         log += `Failed ${label}: ${error instanceof Error ? error.message : String(error)}\n`
       }
-      await recordNewGameFiles(gameRoot, 'extract', snapshot)
+      doneBytes += Math.max(0, archive.size)
       emit(fileId, 'extract', `Extracting ${done + failed}/${archives.length}`, {
         log,
         done: done + failed,
         total: archives.length,
-        percent: Math.round(((done + failed) / archives.length) * 100)
+        percent: percentOf()
       })
-    }
+    })
   } catch (error) {
     if (!isUnRenCancelled(error)) throw error
     cancelled = true
@@ -226,7 +318,10 @@ async function runExtract(
 
   await recordNewGameFiles(gameRoot, 'extract', snapshot)
   const written = snapshot.size - snapshotStart
-  const after = await scanScripts(gameRoot)
+  let scriptCount = 0
+  for (const rel of snapshot) {
+    if (/\.rpyc?$/i.test(rel)) scriptCount += 1
+  }
   if (cancelled) {
     const summary = cancelledSummary('extract', done, archives.length, written)
     return finish(fileId, {
@@ -248,12 +343,12 @@ async function runExtract(
   const summary =
     failed && !done
       ? `Failed to extract ${failed} archive(s).`
-      : `Extracted ${done} archive(s)${failed ? `, ${failed} failed` : ''}. ${after.rpyCount + after.rpycCount} script files on disk.`
+      : `Extracted ${done} archive(s)${failed ? `, ${failed} failed` : ''}. ${scriptCount} script files on disk.`
   return finish(fileId, {
     action: 'extract',
     startedAt,
     finishedAt: Date.now(),
-    ok: failed === 0 && (done > 0 || after.unpacked),
+    ok: failed === 0 && (done > 0 || before.unpacked),
     summary,
     log,
     error: failed ? `Failed to extract ${failed} archive(s).` : null,
@@ -270,10 +365,12 @@ async function runDecompile(
   startedAt: number,
   signal: AbortSignal
 ): Promise<RenpyLastRun> {
-  const pending = await listRpycNeedingDecompile(gameRoot)
-  const scripts = await scanScripts(gameRoot)
+  const scanned = await scanScriptsWithPending(gameRoot)
+  const scripts = scanned.status
+  const pending = scanned.pendingRpyc
   let log = `Python ${scripts.pythonPath || 'missing'}\nGame ${gameRoot}\n`
-  const snapshot = await snapshotGameRels(gameDirFromRoot(gameRoot))
+  const gameDir = gameDirFromRoot(gameRoot)
+  const snapshot = await snapshotGameRels(gameDir)
   const snapshotStart = snapshot.size
 
   if (!pending.length) {
@@ -304,53 +401,85 @@ async function runDecompile(
 
   const runtime = await detectGamePython(gameRoot, signal)
   const vendor = getUnrenVendor(runtime)
+  const workers = decompileWorkerCount(pending.length)
   log += `Using Python ${runtime.major} (${runtime.python})\n`
   emit(fileId, 'decompile', `Using Python ${runtime.major}`, { log, done: 0, total: pending.length, percent: 0 })
 
   const stage = stageUnrpycTree(gameRoot, vendor.unrpycDir)
-  log += `unrpyc ${stage}\n`
+  const script = join(stage, 'unrpyc.py')
+  log += `unrpyc ${stage}\nDecompiling with ${workers} Python worker(s).\n`
+  emit(fileId, 'decompile', `Decompiling 0/${pending.length}…`, { log, done: 0, total: pending.length, percent: 0 })
 
-  let done = 0
-  let failed = 0
+  let processed = 0
+  let lastEmit = 0
+  let lastLabel = ''
   let cancelled = false
-  try {
-    for (const rpyc of pending) {
+
+  const emitProgress = (force = false): void => {
+    const now = Date.now()
+    if (!force && now - lastEmit < 80) return
+    lastEmit = now
+    const seen = Math.min(processed, pending.length)
+    emit(fileId, 'decompile', `Decompiling ${seen}/${pending.length}${lastLabel ? `: ${lastLabel}` : ''}`, {
+      log,
+      done: seen,
+      total: pending.length,
+      percent: Math.round((seen / pending.length) * 100)
+    })
+  }
+
+  const onOutput = (chunk: string): void => {
+    const started = countDecompileStarts(chunk)
+    if (!started.count) return
+    processed += started.count
+    if (started.lastLabel) lastLabel = started.lastLabel
+    emitProgress()
+  }
+
+  const runPass = async (files: WeightedPath[], tryHarder: boolean, prefix: string): Promise<void> => {
+    if (!files.length) return
+    const chunks = partitionByWeight(files, workers, (file) => file.size)
+    await mapLimit(chunks, chunks.length, async (chunk, index) => {
       throwIfUnRenCancelled(signal)
-      const label = basename(rpyc)
-      emit(fileId, 'decompile', `Decompiling ${done + failed + 1}/${pending.length}: ${label}`, {
-        log: `${log}Decompiling ${label}…\n`,
-        done: done + failed,
-        total: pending.length,
-        percent: Math.round(((done + failed) / pending.length) * 100)
-      })
-      try {
-        await decompileFile(runtime, join(stage, 'unrpyc.py'), stage, rpyc, signal)
-        done += 1
-        log += `Decompiled ${label}\n`
-      } catch (error) {
-        if (isUnRenCancelled(error)) throw error
-        failed += 1
-        log += `Failed ${label}: ${error instanceof Error ? error.message : String(error)}\n`
-      }
-      if ((done + failed) % 20 === 0) await recordNewGameFiles(gameRoot, 'decompile', snapshot)
-      emit(fileId, 'decompile', `Decompiling ${done + failed}/${pending.length}`, {
-        log,
-        done: done + failed,
-        total: pending.length,
-        percent: Math.round(((done + failed) / pending.length) * 100)
-      })
+      await decompileBatch(
+        runtime,
+        script,
+        stage,
+        chunk,
+        join(stage, `${prefix}-${index}.txt`),
+        tryHarder,
+        signal,
+        onOutput
+      )
+    })
+  }
+
+  try {
+    await runPass(pending, false, 'batch')
+    const leftover = await filesMissingRpy(pending)
+    if (leftover.length) {
+      log += `${leftover.length} script(s) need a slower retry.\n`
+      emitProgress(true)
+      await runPass(leftover, true, 'hard')
     }
   } catch (error) {
     if (!isUnRenCancelled(error)) throw error
     cancelled = true
     log += 'Stopped.\n'
   } finally {
-    removeUnrpycStage(gameRoot)
+    await removeUnrpycStage(gameRoot)
   }
 
-  await recordNewGameFiles(gameRoot, 'decompile', snapshot)
+  const missing = await filesMissingRpy(pending)
+  const missingPaths = new Set(missing.map((file) => file.path))
+  const succeeded = pending.filter((file) => !missingPaths.has(file.path))
+  const done = succeeded.length
+  const failed = cancelled ? 0 : missing.length
+  if (!cancelled && missing.length) {
+    log += `${missing.map((file) => `Failed ${basename(file.path)}`).join('\n')}\n`
+  }
+  await trackDecompiled(gameRoot, gameDir, snapshot, succeeded)
   const written = snapshot.size - snapshotStart
-  const after = await scanScripts(gameRoot)
   if (cancelled) {
     const summary = cancelledSummary('decompile', done, pending.length, written)
     return finish(fileId, {
@@ -372,7 +501,7 @@ async function runDecompile(
   const summary =
     failed && !done
       ? `Failed to decompile ${failed} script(s).`
-      : `Decompiled ${done} script(s)${failed ? `, ${failed} failed` : ''}. ${after.rpyCount} .rpy files on disk.`
+      : `Decompiled ${done} script(s)${failed ? `, ${failed} failed` : ''}. ${scripts.rpyCount + done} .rpy files on disk.`
   return finish(fileId, {
     action: 'decompile',
     startedAt,

@@ -89,6 +89,14 @@ function pythonScore(pythonPath: string): number {
   return score
 }
 
+const MAX_CAPTURE = 80_000
+
+function appendCapped(current: string, text: string): string {
+  if (current.length >= MAX_CAPTURE) return current
+  const next = current + text
+  return next.length <= MAX_CAPTURE ? next : next.slice(0, MAX_CAPTURE)
+}
+
 function killPythonChild(child: ChildProcess): void {
   if (child.pid) void killProcessTree(child.pid)
   else child.kill()
@@ -100,7 +108,8 @@ function runPythonText(
   cwd: string,
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  onOutput?: (chunk: string) => void
 ): Promise<{
   code: number | null
   stdout: string
@@ -131,10 +140,14 @@ function runPythonText(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     child.stdout?.on('data', (chunk) => {
-      stdout += chunk.toString()
+      const text = chunk.toString()
+      stdout = appendCapped(stdout, text)
+      onOutput?.(text)
     })
     child.stderr?.on('data', (chunk) => {
-      stderr += chunk.toString()
+      const text = chunk.toString()
+      stderr = appendCapped(stderr, text)
+      onOutput?.(text)
     })
     const timer = setTimeout(() => {
       killPythonChild(child)
@@ -178,7 +191,12 @@ export async function detectGamePython(gameRoot: string, signal?: AbortSignal): 
   return { python, pythonDir, pythonLibDir, major }
 }
 
-export function pythonEnv(pythonDir: string, pythonLibDir: string, extraPath: string[] = []): NodeJS.ProcessEnv {
+export function pythonEnv(
+  pythonDir: string,
+  pythonLibDir: string,
+  extraPath: string[] = [],
+  extraEnv?: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
   const pathParts = [...extraPath, pythonDir, pythonLibDir].map(stripNamespace).filter(Boolean)
   const pathValue = [stripNamespace(pythonDir), process.env.PATH || process.env.Path || ''].filter(Boolean).join(delimiter)
   const env: NodeJS.ProcessEnv = { ...process.env }
@@ -191,6 +209,7 @@ export function pythonEnv(pythonDir: string, pythonLibDir: string, extraPath: st
   env.PYTHONDONTWRITEBYTECODE = '1'
   env.PATH = pathValue
   env.Path = pathValue
+  if (extraEnv) Object.assign(env, extraEnv)
   return env
 }
 
@@ -204,11 +223,13 @@ export async function runGamePython(
   cwd: string,
   extraPath: string[] = [],
   timeoutMs = 120_000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  extraEnv?: NodeJS.ProcessEnv,
+  onOutput?: (chunk: string) => void
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   throwIfUnRenCancelled(signal)
-  const env = pythonEnv(runtime.pythonDir, runtime.pythonLibDir, extraPath)
-  return runPythonText(runtime.python, ['-O', ...args], stripNamespace(cwd), env, timeoutMs, signal)
+  const env = pythonEnv(runtime.pythonDir, runtime.pythonLibDir, extraPath, extraEnv)
+  return runPythonText(runtime.python, ['-O', ...args], stripNamespace(cwd), env, timeoutMs, signal, onOutput)
 }
 
 /** Run a .py file with sys.path forced, so Ren'Py's bundled Python cannot miss local packages. */
@@ -219,7 +240,9 @@ export async function runGamePythonScript(
   extraPath: string[],
   cwd: string,
   timeoutMs = 120_000,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  extraEnv?: NodeJS.ProcessEnv,
+  onOutput?: (chunk: string) => void
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const scriptPath = stripNamespace(script)
   const pathDirs = [...extraPath, runtime.pythonDir, runtime.pythonLibDir].map(stripNamespace).filter(Boolean)
@@ -244,5 +267,5 @@ export async function runGamePythonScript(
     '    sys.stderr.write("sys.path=%r\\n" % (sys.path,))',
     '    raise'
   ].join('\n')
-  return runGamePython(runtime, ['-c', bootstrap], cwd, pathDirs, timeoutMs, signal)
+  return runGamePython(runtime, ['-c', bootstrap], cwd, pathDirs, timeoutMs, signal, extraEnv, onOutput)
 }

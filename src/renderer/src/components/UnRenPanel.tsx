@@ -147,6 +147,10 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                     <strong>{scripts.rpaCount}</strong>
                     <span>Archives{scripts.rpaBytes ? ` · ${formatBytes(scripts.rpaBytes)}` : ''}</span>
                   </div>
+                  <div className="renpy-stat">
+                    <strong>{tracked?.extract || 0}</strong>
+                    <span>Extracted files</span>
+                  </div>
                 </div>
                 <div className="renpy-actions">
                   {running && status?.action === 'extract' ? (
@@ -182,7 +186,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                           disabled={busy || running}
                           onClick={() => void retractAction('extract')}
                         >
-                          Remove extracted files ({tracked.extract})
+                          Remove extracted files
                         </button>
                       ) : null}
                     </>
@@ -234,7 +238,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                           disabled={busy || running}
                           onClick={() => void retractAction('decompile')}
                         >
-                          Remove decompiled scripts ({tracked.decompile})
+                          Remove decompiled scripts
                         </button>
                       ) : null}
                     </>

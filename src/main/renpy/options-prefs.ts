@@ -39,7 +39,7 @@ export async function applyDesiredOptionsToGameDir(
   desired: OptionValues,
   savePath?: string | null
 ): Promise<boolean> {
-  const current = readRenpyOptions(gameDir, savePath)
+  const current = await readRenpyOptions(gameDir, savePath)
   if (optionsMatch(current, desired)) return false
   await setRenpyOptions(gameDir, desired, savePath)
   return true

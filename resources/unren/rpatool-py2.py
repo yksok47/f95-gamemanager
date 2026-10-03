@@ -8,6 +8,7 @@ import codecs
 import pickle
 import errno
 import random
+import threading
 
 if sys.version_info[0] >= 3:
     def _unicode(text):
@@ -293,6 +294,116 @@ class RenPyArchive:
         # Reload the file in our inner database.
         self.load(filename)
 
+
+def _extract_worker_count():
+    raw = os.environ.get('F95_UNREN_WORKERS')
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return max(1, min(n, 16))
+        except Exception:
+            pass
+    return 4
+
+
+def _ensure_outdir(path):
+    dirname = os.path.dirname(path)
+    if not dirname:
+        return
+    try:
+        os.makedirs(dirname)
+    except OSError:
+        if not os.path.isdir(dirname):
+            raise
+
+
+def _index_offset(archive, filename):
+    try:
+        return archive.indexes[filename][0][0]
+    except Exception:
+        return 0
+
+
+def _read_indexed(archive, filename):
+    if filename in archive.files:
+        return archive.files[filename]
+    entry = archive.indexes[filename][0]
+    if len(entry) == 3:
+        offset, length, prefix = entry
+    else:
+        offset, length = entry
+        prefix = ''
+    prefix_data = _unmangle(prefix)
+    with open(archive.file, 'rb') as src:
+        src.seek(offset)
+        return prefix_data + src.read(length - len(prefix))
+
+
+def extract_files_parallel(archive, files, output):
+    jobs = []
+    for filename in files:
+        filename = _unicode(filename)
+        if filename.find('=') != -1:
+            outfile, filename = filename.split('=', 2)
+        else:
+            outfile = filename
+        jobs.append((filename, outfile))
+    jobs.sort(key=lambda job: _index_offset(archive, job[0]))
+
+    if not os.path.exists(output):
+        try:
+            os.makedirs(output)
+        except OSError:
+            if not os.path.isdir(output):
+                raise
+
+    errors = []
+    errors_lock = threading.Lock()
+
+    def extract_one(filename, outfile):
+        try:
+            contents = _read_indexed(archive, filename)
+            dest = os.path.join(output, outfile)
+            _ensure_outdir(dest)
+            with open(dest, 'wb') as out:
+                out.write(contents)
+        except Exception as e:
+            with errors_lock:
+                errors.append((filename, e))
+
+    workers = min(_extract_worker_count(), len(jobs))
+    if workers <= 1:
+        for filename, outfile in jobs:
+            extract_one(filename, outfile)
+    else:
+        # Contiguous offset ranges keep each thread reading sequentially.
+        chunks = []
+        base = len(jobs) // workers
+        extra = len(jobs) % workers
+        start = 0
+        for i in range(workers):
+            take = base + (1 if i < extra else 0)
+            if take:
+                chunks.append(jobs[start:start + take])
+                start += take
+
+        def run_chunk(chunk):
+            for filename, outfile in chunk:
+                extract_one(filename, outfile)
+
+        threads = []
+        for chunk in chunks:
+            thread = threading.Thread(target=run_chunk, args=(chunk,))
+            thread.start()
+            threads.append(thread)
+        for thread in threads:
+            thread.join()
+
+    for filename, e in errors:
+        print('Could not extract file {0} from archive: {1}'.format(filename, e), file=sys.stderr)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -416,29 +527,7 @@ if __name__ == "__main__":
             files = arguments.files
         else:
             files = archive.list()
-
-        # Create output directory if not present.
-        if not os.path.exists(output):
-            os.makedirs(output)
-
-        # Iterate over files to extract.
-        for filename in files:
-            if filename.find('=') != -1:
-                (outfile, filename) = filename.split('=', 2)
-            else:
-                outfile = filename
-
-            try:
-                contents = archive.read(filename)
-
-                # Create output directory for file if not present.
-                if not os.path.exists(os.path.dirname(os.path.join(output, outfile))):
-                    os.makedirs(os.path.dirname(os.path.join(output, outfile)))
-
-                with open(os.path.join(output, outfile), 'wb') as file:
-                    file.write(contents)
-            except Exception as e:
-                print('Could not extract file {0} from archive: {1}'.format(filename, e), file=sys.stderr)
+        extract_files_parallel(archive, files, output)
     elif arguments.list:
         # Print the sorted file list.
         list = archive.list()

@@ -97,6 +97,7 @@ function normalizeRels(value: unknown): string[] {
 export async function readTrackedFiles(gameRoot: string): Promise<UnRenTrackedFiles> {
   try {
     const raw = await readFile(toFsPath(trackedFilesPath(gameRoot)), 'utf8')
+    if (raw.length > 32_000) await yieldToEventLoop()
     return parseTrackedFiles(JSON.parse(raw) as unknown)
   } catch {
     return emptyTracked()
@@ -113,7 +114,9 @@ export async function writeTrackedFiles(gameRoot: string, files: UnRenTrackedFil
     await rm(toFsPath(trackedFilesPath(gameRoot)), { force: true })
     return
   }
-  await writeFile(toFsPath(trackedFilesPath(gameRoot)), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
+  const payload = `${JSON.stringify(next)}\n`
+  if (payload.length > 32_000) await yieldToEventLoop()
+  await writeFile(toFsPath(trackedFilesPath(gameRoot)), payload, 'utf8')
 }
 
 export async function addTrackedFiles(

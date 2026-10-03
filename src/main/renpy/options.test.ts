@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'bun:test'
@@ -31,7 +31,7 @@ describe('save naming option', () => {
     expect(source).toContain('_f95gm_save_naming = True')
     expect(source).toContain('_f95gm_FileSave_named')
     expect(source).toContain("_f95gm_fill_save_name")
-    expect(readRenpyOptions(gameDir)['save-naming']).toBe(true)
+    expect((await readRenpyOptions(gameDir))['save-naming']).toBe(true)
   })
 
   test('keeps the flag off without wrapping FileSave', async () => {
@@ -43,6 +43,14 @@ describe('save naming option', () => {
     const source = readFileSync(join(gameDir, MANAGED_OPTIONS_FILE), 'utf8')
     expect(source).toContain('_f95gm_save_naming = False')
     expect(source).not.toContain('_f95gm_FileSave_named')
-    expect(readRenpyOptions(gameDir)['save-naming']).toBe(false)
+    expect((await readRenpyOptions(gameDir))['save-naming']).toBe(false)
+  })
+
+  test('does not read unrelated decompiled scripts', async () => {
+    const gameDir = tempDir()
+    mkdirSync(gameDir, { recursive: true })
+    writeFileSync(join(gameDir, 'options.rpy'), 'init python:\n    config.console = True\n')
+    writeFileSync(join(gameDir, 'zz_story.rpy'), 'init python:\n    config.console = False\n')
+    expect((await readRenpyOptions(gameDir)).console).toBe(true)
   })
 })

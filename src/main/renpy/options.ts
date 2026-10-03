@@ -1,12 +1,26 @@
 import { readFileSync, statSync } from 'fs'
-import { mkdir, unlink, writeFile } from 'fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { inflateSync } from 'zlib'
 import type { RenpyToolId } from '@shared/types'
-import { childPath, listDirents, pathExists, toFsPath } from '../win-path'
+import { yieldToEventLoop } from '../disk-usage'
+import { childPath, listDirents, listDirentsAsync, pathExists, pathExistsAsync, toFsPath } from '../win-path'
 import { isLegacyUnrenToolScript, MANAGED_OPTIONS_FILE, removeLegacyUnrenTools } from './tools'
 
-const SKIP_DIRS = new Set(['lib', 'renpy', 'cache', '__pycache__', 'tmp', 'temp', 'decompiler', '.f95-unren', '.f95-unren-old'])
+const SKIP_DIRS = new Set([
+  'lib',
+  'renpy',
+  'cache',
+  '__pycache__',
+  'tmp',
+  'temp',
+  'decompiler',
+  '.f95-unren',
+  '.f95-unren-old',
+  '.uninstall',
+  'tl'
+])
+const YIELD_EVERY = 64
 
 export const EMPTY_OPTIONS: Record<RenpyToolId, boolean> = {
   console: false,
@@ -36,33 +50,47 @@ function managedPath(gameDir: string): string {
   return join(gameDir, MANAGED_OPTIONS_FILE)
 }
 
-function readText(filePath: string): string {
+function isOptionsScriptName(name: string): boolean {
+  const lower = name.toLowerCase()
+  if (!lower.endsWith('.rpy')) return false
+  if (isLegacyUnrenToolScript(name)) return false
+  if (lower === MANAGED_OPTIONS_FILE) return true
+  if (lower === 'options.rpy' || lower === 'gui.rpy' || lower === 'screens.rpy') return true
+  return /option|keymap|pref/.test(lower)
+}
+
+async function readText(filePath: string): Promise<string> {
   try {
-    return readFileSync(toFsPath(filePath), 'utf8')
+    return await readFile(toFsPath(filePath), 'utf8')
   } catch {
     return ''
   }
 }
 
-function listRpyFiles(gameDir: string): string[] {
+async function listOptionScripts(gameDir: string): Promise<string[]> {
   const files: string[] = []
+  let ops = 0
 
-  function walk(dir: string, depth: number): void {
+  async function walk(dir: string, depth: number): Promise<void> {
     if (depth > 8) return
-    for (const entry of listDirents(dir)) {
+    for (const entry of await listDirentsAsync(dir)) {
       const full = childPath(dir, entry.name)
+      ops += 1
+      if (ops >= YIELD_EVERY) {
+        ops = 0
+        await yieldToEventLoop()
+      }
       if (entry.isDirectory()) {
         if (SKIP_DIRS.has(entry.name.toLowerCase())) continue
-        walk(full, depth + 1)
+        await walk(full, depth + 1)
         continue
       }
-      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.rpy')) continue
-      if (isLegacyUnrenToolScript(entry.name)) continue
+      if (!entry.isFile() || !isOptionsScriptName(entry.name)) continue
       files.push(full)
     }
   }
 
-  if (pathExists(gameDir)) walk(gameDir, 0)
+  if (await pathExistsAsync(gameDir)) await walk(gameDir, 0)
   return files.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
@@ -527,33 +555,39 @@ function readSavedPreferences(
   return best
 }
 
-function readOverrides(gameDir: string): {
+async function readOverrides(gameDir: string): Promise<{
   game: Partial<OptionValues>
   managed: Partial<OptionValues>
   managedMtime: number
-} {
+}> {
   const managedFile = managedPath(gameDir)
   let managedSource = ''
-  const gameParts: string[] = []
-  for (const file of listRpyFiles(gameDir)) {
-    const source = readText(file)
+  const game: Partial<OptionValues> = {}
+  let ops = 0
+  for (const file of await listOptionScripts(gameDir)) {
+    ops += 1
+    if (ops >= YIELD_EVERY) {
+      ops = 0
+      await yieldToEventLoop()
+    }
+    const source = await readText(file)
     if (!source) continue
     if (file.replace(/\\/g, '/').toLowerCase().endsWith(`/${MANAGED_OPTIONS_FILE}`)) {
       managedSource = source
       continue
     }
-    gameParts.push(source)
+    Object.assign(game, parseSource(source))
   }
-  if (!managedSource && pathExists(managedFile)) managedSource = readText(managedFile)
+  if (!managedSource && (await pathExistsAsync(managedFile))) managedSource = await readText(managedFile)
   return {
-    game: parseSource(gameParts.join('\n')),
+    game,
     managed: parseManaged(managedSource),
     managedMtime: managedSource ? fileMtime(managedFile) : 0
   }
 }
 
-export function readRenpyOptions(gameDir: string, savePath?: string | null): OptionValues {
-  const { game, managed, managedMtime } = readOverrides(gameDir)
+export async function readRenpyOptions(gameDir: string, savePath?: string | null): Promise<OptionValues> {
+  const { game, managed, managedMtime } = await readOverrides(gameDir)
   const persistent = readSavedPreferences(gameDir, savePath)
   const layers = [
     { mtime: 0, values: game },
@@ -571,7 +605,7 @@ export async function setRenpyOptions(
 ): Promise<OptionValues> {
   await mkdir(gameDir, { recursive: true })
   await removeLegacyUnrenTools(gameDir)
-  const { managed } = readOverrides(gameDir)
+  const { managed } = await readOverrides(gameDir)
   const next: Partial<OptionValues> = { ...managed }
   for (const [key, value] of Object.entries(updates) as Array<[RenpyToolId, boolean | undefined]>) {
     if (value == null) continue
@@ -584,7 +618,7 @@ export async function setRenpyOptions(
   } else {
     await writeFile(toFsPath(file), source, 'utf8')
   }
-  return { ...readRenpyOptions(gameDir, savePath), ...next }
+  return { ...(await readRenpyOptions(gameDir, savePath)), ...next }
 }
 
 export async function setRenpyOption(gameDir: string, id: RenpyToolId, enabled: boolean): Promise<OptionValues> {
