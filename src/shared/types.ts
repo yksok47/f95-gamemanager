@@ -1202,6 +1202,13 @@ export type ThreadPostReaction = {
   title: string
 }
 
+export type ThreadAttachment = {
+  id: number
+  filename: string
+  url: string
+  isImage: boolean
+}
+
 export type ThreadPost = {
   postId: number
   author: string
@@ -1218,6 +1225,7 @@ export type ThreadPost = {
   canDelete: boolean
   reactions: ThreadPostReaction[]
   reactionCount: number
+  attachments: ThreadAttachment[]
 }
 
 export type ThreadPostsPage = {
@@ -1246,13 +1254,6 @@ export type ThreadPostSearchPage = {
   /** XenForo search record id, used to paginate without re-running the query. */
   searchId: number | null
   results: ThreadPostSearchHit[]
-}
-
-export type ThreadAttachment = {
-  id: number
-  filename: string
-  url: string
-  isImage: boolean
 }
 
 export type ThreadAttachmentUpload = {

@@ -7,6 +7,7 @@ import { newAttachmentHash } from '../lib/bbcode'
 import BbCodeComposer, { type BbCodeComposerHandle } from './BbCodeComposer'
 import { confirm } from './ConfirmDialog'
 import { notifyCaught, notifyError } from './ErrorNotifications'
+import ProgressiveCdnImg from './ProgressiveCdnImg'
 import { DelayedMount, InlineLoading, Spinner } from './Spinner'
 import { PagerIcon } from './ToolbarIcons'
 import ToolbarSearch from './ToolbarSearch'
@@ -884,15 +885,41 @@ function ThreadPostCard({
             </button>
           </div>
         </div>
-      ) : post.html ? (
-        <div
-          ref={proseRef}
-          className="review-prose thread-prose"
-          onClick={onProseClick}
-          dangerouslySetInnerHTML={{ __html: post.html }}
-        />
       ) : (
-        <p className="muted">This post has no content.</p>
+        <>
+          {post.html ? (
+            <div
+              ref={proseRef}
+              className="review-prose thread-prose"
+              onClick={onProseClick}
+              dangerouslySetInnerHTML={{ __html: post.html }}
+            />
+          ) : post.attachments?.length ? null : (
+            <p className="muted">This post has no content.</p>
+          )}
+          {post.attachments?.length ? (
+            <ul className="thread-post-attachments" onClick={onProseClick}>
+              {post.attachments.map((item) => (
+                <li
+                  key={`${item.id}-${item.url}`}
+                  className={
+                    item.isImage ? 'thread-post-attachment is-image' : 'thread-post-attachment is-file'
+                  }
+                >
+                  {item.isImage ? (
+                    <a href={item.url} title={item.filename}>
+                      <ProgressiveCdnImg src={item.url} alt={item.filename} />
+                    </a>
+                  ) : (
+                    <a href={item.url} className="thread-post-attachment-file" title={item.filename}>
+                      {item.filename}
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
       )}
       {edit ? null : (
       <footer className="thread-post-foot">

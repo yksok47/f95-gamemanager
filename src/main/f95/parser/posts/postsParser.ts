@@ -1,6 +1,6 @@
 import { load, type Cheerio, type CheerioAPI } from 'cheerio'
 import type { AnyNode } from 'domhandler'
-import type { ThreadPost, ThreadPostReaction, ThreadPostsPage } from '@shared/types'
+import type { ThreadAttachment, ThreadPost, ThreadPostReaction, ThreadPostsPage } from '@shared/types'
 import { parseCountText, saneLikeCount } from '../../../../shared/counts'
 import { extractPostId, extractThreadId } from '../../parse'
 import { sanitizeHtml } from '../reviews/reviewsParser'
@@ -109,7 +109,8 @@ function postFromNode(node: Cheerio<AnyNode>, threadId: number, $: CheerioAPI): 
     canEdit: hasPostAction($, node, postId, 'edit'),
     canDelete: hasPostAction($, node, postId, 'delete'),
     reactions: reactionsFromNode($, node),
-    reactionCount: reactionCountFromNode(node)
+    reactionCount: reactionCountFromNode(node),
+    attachments: attachmentsFromNode($, node)
   }
 }
 
@@ -205,6 +206,41 @@ function permalinkFromNode(node: Cheerio<AnyNode>, postId: number): string {
     node.find(`a[href*="/post-${postId}"]`).first().attr('href') ||
     `/posts/${postId}/`
   return absolutize(href) || `https://f95zone.to/posts/${postId}/`
+}
+
+function attachmentsFromNode($: CheerioAPI, node: Cheerio<AnyNode>): ThreadAttachment[] {
+  const out: ThreadAttachment[] = []
+  node.find('.message-attachments li.attachment, ul.attachmentList > li.attachment').each((_, el) => {
+    const item = $(el)
+    if (item.closest('blockquote, .bbCodeBlock--quote').length) return
+    const nameLink = item.find('.attachment-name a[href]').first()
+    const iconLink = item.find('.attachment-icon a[href], a.js-lbImage[href]').first()
+    const href = nameLink.attr('href') || iconLink.attr('href') || ''
+    const url = absolutize(href)
+    if (!url) return
+    const filename = normalize(
+      nameLink.attr('title') ||
+        nameLink.text() ||
+        item.find('img').first().attr('alt') ||
+        item.find('img').first().attr('title') ||
+        ''
+    )
+    const id =
+      Number(item.attr('data-attachment-id') || 0) ||
+      Number(url.match(/\/attachments\/(\d+)(?:\/|$)/i)?.[1] || 0) ||
+      Number(url.match(/\/(\d+)_[^/?#]+(?:\?|$)/)?.[1] || 0)
+    const isImage =
+      item.find('.attachment-icon--img, img').length > 0 ||
+      /\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(filename) ||
+      /\.(png|jpe?g|gif|webp|avif|bmp)(\?|$)/i.test(url)
+    out.push({
+      id: id || out.length + 1,
+      filename: filename || `attachment-${id || out.length + 1}`,
+      url,
+      isImage
+    })
+  })
+  return unique(out, (item) => (item.id ? `id:${item.id}` : item.url))
 }
 
 function postBodyHtml(node: Cheerio<AnyNode>): string {

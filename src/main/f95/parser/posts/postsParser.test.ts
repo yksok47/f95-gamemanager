@@ -73,6 +73,7 @@ describe('posts unit', () => {
     expect(posts[0]?.canEdit).toBe(false)
     expect(posts[0]?.canDelete).toBe(false)
     expect(posts[0]?.liked).toBe(false)
+    expect(posts[0]?.attachments).toEqual([])
   })
 
   it('detects edit and delete actions on own posts', () => {
@@ -165,6 +166,55 @@ describe('posts unit', () => {
     expect(posts[0]?.html).toContain('bbCodeBlock-expandContent')
     expect(posts[0]?.html).not.toMatch(/click to expand/i)
     expect(posts[0]?.html).not.toContain('bbCodeBlock-expandLink')
+  })
+
+  it('keeps image and file attachments that sit outside the post body', () => {
+    const posts = parsePosts(`
+<article class="message message--post js-post" data-content="post-11" id="js-post-11">
+  <div class="message-userDetails"><a class="username">Ada</a></div>
+  <header class="message-attribution"><time datetime="2019-02-02T10:24:00+0000">Feb 2</time></header>
+  <article class="message-body"><div class="bbWrapper">See difference here:</div></article>
+  <section class="message-attachments">
+    <h4 class="block-textHeader">Attachments</h4>
+    <ul class="attachmentList">
+      <li class="attachment hasEngine">
+        <div class="attachment-icon attachment-icon--img">
+          <a href="https://attachments.f95zone.to/2019/02/250867_MP.png" class="js-lbImage">
+            <img src="https://attachments.f95zone.to/2019/02/thumb/250867_MP.png" alt="MP.png" />
+          </a>
+        </div>
+        <div class="attachment-name">
+          <a href="https://attachments.f95zone.to/2019/02/250867_MP.png" title="MP.png">MP.png</a>
+        </div>
+      </li>
+      <li class="attachment hasEngine">
+        <div class="attachment-icon" data-extension="torrent">
+          <a href="https://attachments.f95zone.to/2023/04/2539531_notes.torrent"></a>
+        </div>
+        <div class="attachment-name">
+          <a href="https://attachments.f95zone.to/2023/04/2539531_notes.torrent" title="notes.torrent">notes.torrent</a>
+        </div>
+      </li>
+    </ul>
+  </section>
+</article>`)
+    expect(posts).toHaveLength(1)
+    expect(posts[0]?.html).toContain('See difference here')
+    expect(posts[0]?.html).not.toContain('Attachments')
+    expect(posts[0]?.attachments).toEqual([
+      {
+        id: 250867,
+        filename: 'MP.png',
+        url: 'https://attachments.f95zone.to/2019/02/250867_MP.png',
+        isImage: true
+      },
+      {
+        id: 2539531,
+        filename: 'notes.torrent',
+        url: 'https://attachments.f95zone.to/2023/04/2539531_notes.torrent',
+        isImage: false
+      }
+    ])
   })
 })
 
