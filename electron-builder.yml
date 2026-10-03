@@ -42,6 +42,7 @@ asarUnpack:
   - '**/7za'
   - '**/node_modules/node-unrar-js/**'
   - '**/node_modules/node-datachannel/**'
+afterPack: scripts/afterPack.mjs
 win:
   icon: build/icon.ico
   executableName: F95GameManager
