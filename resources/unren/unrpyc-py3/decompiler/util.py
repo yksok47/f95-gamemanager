@@ -179,33 +179,110 @@ def reconstruct_paraminfo(paraminfo):
         return ""
 
     rv = ["("]
-
     sep = First("", ", ")
-    positional = [i for i in paraminfo.parameters if i[0] in paraminfo.positional]
-    nameonly = [i for i in paraminfo.parameters if i not in positional]
-    for parameter in positional:
-        rv.append(sep())
-        rv.append(parameter[0])
-        if parameter[1] is not None:
-            rv.append("=%s" % parameter[1])
-    if paraminfo.extrapos:
-        rv.append(sep())
-        rv.append("*%s" % paraminfo.extrapos)
-    if nameonly:
-        if not paraminfo.extrapos:
+
+    if hasattr(paraminfo, "positional_only"):
+        already_accounted = set(name for name, default in paraminfo.positional_only)
+        already_accounted.update(name for name, default in paraminfo.keyword_only)
+        other = [(name, default) for name, default in paraminfo.parameters if name not in already_accounted]
+
+        for name, default in paraminfo.positional_only:
+            rv.append(sep())
+            rv.append(name)
+            if default is not None:
+                rv.append("=")
+                rv.append(default)
+
+        if paraminfo.positional_only:
+            rv.append(sep())
+            rv.append("/")
+
+        for name, default in other:
+            rv.append(sep())
+            rv.append(name)
+            if default is not None:
+                rv.append("=")
+                rv.append(default)
+
+        if paraminfo.extrapos:
             rv.append(sep())
             rv.append("*")
-        for parameter in nameonly:
+            rv.append(paraminfo.extrapos)
+        elif paraminfo.keyword_only:
+            rv.append(sep())
+            rv.append("*")
+
+        for name, default in paraminfo.keyword_only:
+            rv.append(sep())
+            rv.append(name)
+            if default is not None:
+                rv.append("=")
+                rv.append(default)
+
+        if paraminfo.extrakw:
+            rv.append(sep())
+            rv.append("**")
+            rv.append(paraminfo.extrakw)
+
+    elif hasattr(paraminfo, "extrapos"):
+        positional = [i for i in paraminfo.parameters if i[0] in paraminfo.positional]
+        nameonly = [i for i in paraminfo.parameters if i not in positional]
+        for parameter in positional:
             rv.append(sep())
             rv.append(parameter[0])
             if parameter[1] is not None:
                 rv.append("=%s" % parameter[1])
-    if paraminfo.extrakw:
-        rv.append(sep())
-        rv.append("**%s" % paraminfo.extrakw)
+        if paraminfo.extrapos:
+            rv.append(sep())
+            rv.append("*%s" % paraminfo.extrapos)
+        if nameonly:
+            if not paraminfo.extrapos:
+                rv.append(sep())
+                rv.append("*")
+            for parameter in nameonly:
+                rv.append(sep())
+                rv.append(parameter[0])
+                if parameter[1] is not None:
+                    rv.append("=%s" % parameter[1])
+        if paraminfo.extrakw:
+            rv.append(sep())
+            rv.append("**%s" % paraminfo.extrakw)
+
+    else:
+        # Ren'Py 7.7/8.2+ Signature objects.
+        state = 1
+        for parameter in paraminfo.parameters.values():
+            rv.append(sep())
+            if parameter.kind == 0:
+                state = 0
+                rv.append(parameter.name)
+                if parameter.default is not None:
+                    rv.append("=%s" % parameter.default)
+            else:
+                if state == 0:
+                    state = 1
+                    rv.append("/")
+                    rv.append(sep())
+                if parameter.kind == 1:
+                    rv.append(parameter.name)
+                    if parameter.default is not None:
+                        rv.append("=%s" % parameter.default)
+                elif parameter.kind == 2:
+                    state = 2
+                    rv.append("*%s" % parameter.name)
+                elif parameter.kind == 3:
+                    if state == 1:
+                        state = 2
+                        rv.append("*")
+                        rv.append(sep())
+                    rv.append(parameter.name)
+                    if parameter.default is not None:
+                        rv.append("=%s" % parameter.default)
+                elif parameter.kind == 4:
+                    state = 3
+                    rv.append("**%s" % parameter.name)
 
     rv.append(")")
-
     return "".join(rv)
 
 def reconstruct_arginfo(arginfo):
@@ -214,20 +291,33 @@ def reconstruct_arginfo(arginfo):
 
     rv = ["("]
     sep = First("", ", ")
-    for (name, val) in arginfo.arguments:
-        rv.append(sep())
-        if name is not None:
-            rv.append("%s=" % name)
-        rv.append(val)
-    # renpy 7.5/8 compat; check for existenz of attrs extrapos, extrakw
-    if hasattr(arginfo, 'extrapos') and arginfo.extrapos:
-        rv.append(sep())
-        rv.append("*%s" % arginfo.extrapos)
-    if hasattr(arginfo, 'extrakw') and arginfo.extrakw:
-        rv.append(sep())
-        rv.append("**%s" % arginfo.extrakw)
-    rv.append(")")
 
+    if hasattr(arginfo, "starred_indexes") or not hasattr(arginfo, "extrapos"):
+        starred = getattr(arginfo, "starred_indexes", ()) or ()
+        doublestarred = getattr(arginfo, "doublestarred_indexes", ()) or ()
+        for i, (name, val) in enumerate(arginfo.arguments):
+            rv.append(sep())
+            if name is not None:
+                rv.append("%s=" % name)
+            elif i in starred:
+                rv.append("*")
+            elif i in doublestarred:
+                rv.append("**")
+            rv.append(val)
+    else:
+        for (name, val) in arginfo.arguments:
+            rv.append(sep())
+            if name is not None:
+                rv.append("%s=" % name)
+            rv.append(val)
+        if getattr(arginfo, "extrapos", None):
+            rv.append(sep())
+            rv.append("*%s" % arginfo.extrapos)
+        if getattr(arginfo, "extrakw", None):
+            rv.append(sep())
+            rv.append("**%s" % arginfo.extrakw)
+
+    rv.append(")")
     return "".join(rv)
 
 def string_escape(s): # TODO see if this needs to work like encode_say_string elsewhere

@@ -48,10 +48,62 @@ function layoutUnrpyc(destDir) {
   }
 }
 
+// Python 3.12 (Ren'Py 8.3+) dropped the meta_path find_module() fallback.
+function patchFakePackageLoader(destDir) {
+  const file = join(destDir, 'decompiler', 'magic.py')
+  if (!existsSync(file)) return
+  let source = readFileSync(file, 'utf8')
+  if (source.includes('def find_spec')) return
+  if (!source.includes('from importlib.machinery import ModuleSpec')) {
+    source = source.replace(
+      'import pickle\n',
+      "import pickle\ntry:\n    from importlib.machinery import ModuleSpec\nexcept Exception:\n    ModuleSpec = None\n"
+    )
+  }
+  const oldLoader = `    def find_module(self, fullname, path=None):
+        if fullname == self.root or fullname.startswith(self.root + "."):
+            return self
+        else:
+            return None
+
+    def load_module(self, fullname):
+        return FakePackage(fullname)
+`
+  const newLoader = `    def find_module(self, fullname, path=None):
+        if fullname == self.root or fullname.startswith(self.root + "."):
+            return self
+        else:
+            return None
+
+    def find_spec(self, fullname, path, target=None):
+        if ModuleSpec is None:
+            return None
+        if fullname == self.root or fullname.startswith(self.root + "."):
+            return ModuleSpec(fullname, self)
+        else:
+            return None
+
+    def create_module(self, spec):
+        return FakePackage(spec.name)
+
+    def exec_module(self, module):
+        pass
+
+    def load_module(self, fullname):
+        return FakePackage(fullname)
+`
+  if (!source.includes(oldLoader)) return
+  writeFileSync(file, source.replace(oldLoader, newLoader))
+}
+
 const unrpycDirs = ['unrpyc-old', 'unrpyc-py2', 'unrpyc-py3']
 
 if (process.argv.includes('--layout-only')) {
-  for (const name of unrpycDirs) layoutUnrpyc(join(outRoot, name))
+  for (const name of unrpycDirs) {
+    const dest = join(outRoot, name)
+    layoutUnrpyc(dest)
+    patchFakePackageLoader(dest)
+  }
   console.log('Laid out unrpyc packages in', outRoot)
   process.exit(0)
 }
@@ -73,7 +125,10 @@ writeFileSync(join(cabs, 'unrpyc-py3.cab'), joinVars(vars, 'decompcab', 40, 53))
 expandCab(join(cabs, 'unrpyc-old.cab'), join(outRoot, 'unrpyc-old'))
 expandCab(join(cabs, 'unrpyc-py2.cab'), join(outRoot, 'unrpyc-py2'))
 expandCab(join(cabs, 'unrpyc-py3.cab'), join(outRoot, 'unrpyc-py3'))
-for (const name of unrpycDirs) layoutUnrpyc(join(outRoot, name))
+for (const name of unrpycDirs) {
+  layoutUnrpyc(join(outRoot, name))
+  patchFakePackageLoader(join(outRoot, name))
+}
 
 console.log('Wrote UnRen tools to', outRoot)
 if (!existsSync(join(outRoot, 'unrpyc-py3', 'unrpyc.py'))) {

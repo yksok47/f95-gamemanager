@@ -1218,6 +1218,12 @@ input[type='search']::-webkit-search-results-decoration {
   font-weight: 650;
 }
 
+.btn-with-spinner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .primary-btn:hover:not(:disabled) {
   background: var(--accent-hover);
 }
@@ -6312,10 +6318,32 @@ body.is-save-dragging * {
   display: block;
 }
 
+.renpy-work-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.renpy-work-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.renpy-work-row + .renpy-work-row {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.renpy-work-row .renpy-actions {
+  justify-content: flex-end;
+}
+
 .renpy-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 240px));
   gap: 10px;
+  justify-content: start;
 }
 
 .renpy-stat {
@@ -6400,6 +6428,14 @@ body.is-save-dragging * {
 }
 
 @media (max-width: 720px) {
+  .renpy-work-row {
+    grid-template-columns: 1fr;
+  }
+
+  .renpy-work-row .renpy-actions {
+    justify-content: flex-start;
+  }
+
   .renpy-stats {
     grid-template-columns: 1fr;
   }

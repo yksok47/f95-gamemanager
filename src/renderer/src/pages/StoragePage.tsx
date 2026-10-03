@@ -1306,7 +1306,11 @@ function StorageItemList({
                 disabled={Boolean(busyId)}
                 onClick={() => onAction(item)}
               >
-                {item.pendingImport ? 'Skip' : actionLabel}
+                {item.pendingImport
+                  ? 'Skip'
+                  : busyId === item.id && actionLabel === 'Uninstall'
+                    ? 'Uninstalling…'
+                    : actionLabel}
               </button>
             </div>
           </li>

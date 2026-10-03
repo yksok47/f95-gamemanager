@@ -161,10 +161,13 @@ def extract_slot_zlibscan(f, slot):
     start_positions = []
 
     for i in range(len(data) - 1):
-        if data[i] != "\x78":
+        # Python 3 iterates bytes as ints; Python 2 as 1-char strings.
+        byte = data[i] if isinstance(data[i], int) else ord(data[i])
+        nxt = data[i + 1] if isinstance(data[i + 1], int) else ord(data[i + 1])
+        if byte != 0x78:
             continue
 
-        if (ord(data[i]) * 256 + ord(data[i + 1])) % 31 != 0:
+        if (byte * 256 + nxt) % 31 != 0:
             continue
 
         start_positions.append(i)
@@ -190,18 +193,28 @@ def decrypt_zlib(data, count):
     except zlib.error:
         return None
 
+def _count_keys_are_bytes(count):
+    keys = list(count.keys())
+    return bool(keys) and isinstance(keys[0], int)
+
 @decryptor
 def decrypt_hex(data, count):
-    if not all(i in "abcdefABCDEF0123456789" for i in count.keys()):
+    alphabet = b"abcdefABCDEF0123456789" if _count_keys_are_bytes(count) else "abcdefABCDEF0123456789"
+    if not all(i in alphabet for i in count.keys()):
         return None
     try:
-        return data.decode("hex")
+        return data.decode("hex") if not isinstance(data, bytes) else bytes.fromhex(data.decode("ascii"))
     except Exception:
         return None
 
 @decryptor
 def decrypt_base64(data, count):
-    if not all(i in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=\n" for i in count.keys()):
+    alphabet = (
+        b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=\n"
+        if _count_keys_are_bytes(count)
+        else "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=\n"
+    )
+    if not all(i in alphabet for i in count.keys()):
         return None
     try:
         return base64.b64decode(data)
@@ -210,10 +223,17 @@ def decrypt_base64(data, count):
 
 @decryptor
 def decrypt_string_escape(data, count):
-    if not all(ord(i) >= 0x20 and ord(i) < 0x80 for i in count.keys()):
-        return None
+    if _count_keys_are_bytes(count):
+        if not all(i >= 0x20 and i < 0x80 for i in count.keys()):
+            return None
+    else:
+        if not all(ord(i) >= 0x20 and ord(i) < 0x80 for i in count.keys()):
+            return None
     try:
-        newdata = data.decode("string-escape")
+        if isinstance(data, bytes):
+            newdata = data.decode("unicode-escape").encode("latin1")
+        else:
+            newdata = data.decode("string-escape")
     except Exception:
         return None
     if newdata == data:
@@ -271,7 +291,7 @@ def assert_is_normal_rpyc(f):
         except zlib.error:
             return ValueError("Slot 1 did not contain a zlib blob")
 
-        if not uncompressed.endswith("."):
+        if not uncompressed.endswith(b"." if isinstance(uncompressed, bytes) else "."):
             return ValueError("Slot 1 did not contain a simple pickle")
 
         return uncompressed
@@ -333,7 +353,10 @@ def try_decrypt_section(raw_data):
         count = Counter(raw_data)
 
         for decryptor in DECRYPTORS:
-            newdata = decryptor(raw_data, count)
+            try:
+                newdata = decryptor(raw_data, count)
+            except Exception:
+                continue
             if newdata is None:
                 continue
             else:

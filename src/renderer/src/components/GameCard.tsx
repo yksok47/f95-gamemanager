@@ -134,11 +134,13 @@ function GameCard({
   const shownHated = hatedTagsOnGame(game.tags, hatedTags);
   const download = useGameDownloadProgress(game.threadId);
   const coverProgress =
-    library?.installPercent != null
-      ? { percent: library.installPercent, action: "Installing" as const }
-      : download
-        ? { percent: download.percent, action: "Downloading" as const }
-        : null;
+    library?.uninstalling
+      ? { percent: null, action: "Uninstalling" as const }
+      : library?.installPercent != null
+        ? { percent: library.installPercent, action: "Installing" as const }
+        : download
+          ? { percent: download.percent, action: "Downloading" as const }
+          : null;
   const engine = cardEngine(game, library, prefixCatalog);
   const likes = saneLikeCount(game.likes);
   const views = saneViewCount(game.views);
@@ -769,7 +771,7 @@ function CoverDownloadProgress({
   action = "Downloading",
 }: {
   percent: number | null;
-  action?: "Downloading" | "Installing";
+  action?: "Downloading" | "Installing" | "Uninstalling";
 }): JSX.Element {
   const label = percent == null ? action : `${action} ${percent}%`;
   const ringStyle =

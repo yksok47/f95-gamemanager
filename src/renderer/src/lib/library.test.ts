@@ -14,6 +14,7 @@ import {
   summarizeInstalledOverlayKind,
   summarizeLibrary,
   withSavePresence,
+  libraryFileBusy,
   type LibraryGame
 } from './library'
 
@@ -134,6 +135,24 @@ describe('summarizeLibrary', () => {
     expect(status?.installPercent).toBe(42)
   })
 
+  test('exposes uninstalling state for tiles', () => {
+    const status = summarizeLibrary([
+      libraryFile({ id: 'a', threadId: 1, isInstalled: true, uninstalling: true })
+    ]).get(1)
+    expect(status?.isInstalled).toBe(true)
+    expect(status?.uninstalling).toBe(true)
+    expect(status?.installPercent).toBeNull()
+    expect(hasLibraryCopy(status)).toBe(true)
+  })
+
+  test('keeps an install-only game visible after the folder is already gone', () => {
+    const status = summarizeLibrary([
+      libraryFile({ id: 'a', threadId: 1, isInstalled: false, uninstalling: true })
+    ]).get(1)
+    expect(status?.uninstalling).toBe(true)
+    expect(hasLibraryCopy(status)).toBe(true)
+  })
+
   test('clears install percent after the extract finishes', () => {
     const status = summarizeLibrary([
       libraryFile({
@@ -150,6 +169,7 @@ describe('summarizeLibrary', () => {
     expect(status?.isInstalled).toBe(true)
     expect(status?.installedVersion).toBe('1.2')
     expect(status?.installPercent).toBeNull()
+    expect(status?.uninstalling).toBe(false)
   })
 
   test('play/status use the highest installed version when several copies exist', () => {
@@ -236,6 +256,14 @@ describe('summarizeLibrary', () => {
       libraryFile({ id: 'a', threadId: 1, hasArchive: true })
     ]).get(1)
     expect(status?.hasSaves).toBe(false)
+  })
+})
+
+describe('libraryFileBusy', () => {
+  test('treats install and uninstall as busy', () => {
+    expect(libraryFileBusy({ installPercent: null })).toBe(false)
+    expect(libraryFileBusy({ installPercent: 10 })).toBe(true)
+    expect(libraryFileBusy({ installPercent: null, uninstalling: true })).toBe(true)
   })
 })
 

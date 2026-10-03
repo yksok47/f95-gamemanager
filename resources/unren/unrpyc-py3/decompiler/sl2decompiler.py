@@ -150,6 +150,16 @@ class SL2Decompiler(DecompilerBase):
         self.indent()
         self.write("pass")
 
+    @dispatch(sl2.slast.SLContinue)
+    def print_continue(self, ast):
+        self.indent()
+        self.write("continue")
+
+    @dispatch(sl2.slast.SLBreak)
+    def print_break(self, ast):
+        self.indent()
+        self.write("break")
+
     @dispatch(sl2.slast.SLUse)
     def print_use(self, ast):
         # A use statement requires reconstructing the arguments it wants to pass
@@ -207,7 +217,7 @@ class SL2Decompiler(DecompilerBase):
         (name, children) = nameAndChildren
         self.indent()
         self.write(name)
-        if ast.positional:
+        if getattr(ast, 'positional', None):
             self.write(" " + " ".join(ast.positional))
         if hasattr(ast, 'variable'):
             variable = ast.variable

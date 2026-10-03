@@ -494,6 +494,9 @@ const api = {
     ): Promise<RenpyInfo> => ipcRenderer.invoke('renpy:info', fileId, prepare, title, threadId, scope),
     run: (fileId: string, action: UnRenAction): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:run', fileId, action),
+    cancel: (fileId: string): Promise<boolean> => ipcRenderer.invoke('renpy:cancel', fileId),
+    retract: (fileId: string, action: UnRenAction): Promise<RenpyInfo> =>
+      ipcRenderer.invoke('renpy:retract', fileId, action),
     setTool: (fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> =>
       ipcRenderer.invoke('renpy:setTool', fileId, tool, enabled),
     setAllOptions: (fileId: string, enabled: boolean): Promise<RenpyInfo> =>

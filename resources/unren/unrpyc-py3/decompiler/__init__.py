@@ -812,7 +812,12 @@ class Decompiler(DecompilerBase):
                 self.print_lex(ast.block)
 
     def print_lex(self, lex):
-        for file, linenumber, content, block in lex:
+        for entry in lex:
+            # Ren'Py 8.3+ GroupedLine is (filename, number, indent, text, block)
+            if len(entry) >= 5:
+                file, linenumber, _indent, content, block = entry[:5]
+            else:
+                file, linenumber, content, block = entry
             self.advance_to_line(linenumber)
             self.indent()
             self.write(content)

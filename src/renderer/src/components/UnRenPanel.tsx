@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { GameLibraryFile, RenpyLastRun, UnRenAction } from '@shared/types'
+import { confirm } from './ConfirmDialog'
 import { formatBytes, useRenpySession } from '../lib/renpy'
 
 type UnRenPanelProps = {
@@ -8,6 +9,7 @@ type UnRenPanelProps = {
 
 function lastRunLine(run: RenpyLastRun): string {
   const extra = [
+    run.cancelled ? 'stopped' : '',
     run.total ? `${run.done}/${run.total}` : '',
     run.failed ? `${run.failed} failed` : '',
     run.skipped ? `${run.skipped} skipped` : '',
@@ -31,7 +33,9 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
   const [logOpen, setLogOpen] = useState(false)
   const log = status?.log || info?.lastRun?.log || ''
   const scripts = info?.scripts
-  const failed = Boolean(error || (info?.lastRun && !info.lastRun.ok))
+  const tracked = info?.trackedFiles
+  const failed = Boolean(error || (info?.lastRun && !info.lastRun.ok && !info.lastRun.cancelled))
+  const cancelling = Boolean(status?.cancelling)
 
   useEffect(() => {
     const node = logRef.current
@@ -49,6 +53,29 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
   function runAction(action: UnRenAction): void {
     if (!activeId) return
     void withInfo(() => window.api.renpy.run(activeId, action))
+  }
+
+  function stopAction(): void {
+    if (!activeId) return
+    void window.api.renpy.cancel(activeId)
+  }
+
+  async function retractAction(action: UnRenAction): Promise<void> {
+    if (!activeId) return
+    const extractCount = tracked?.extract || 0
+    const decompileCount = tracked?.decompile || 0
+    const count = action === 'extract' ? extractCount : decompileCount
+    const ok = await confirm({
+      title: action === 'extract' ? 'Remove extracted files' : 'Remove decompiled scripts',
+      message:
+        action === 'extract'
+          ? `Delete the ${count} file(s) created by extracting .rpa archives? Original archives are kept. Decompiled .rpy files are not removed unless you remove those separately.`
+          : `Delete the ${count} .rpy file(s) created by decompiling? Compiled .rpyc files are kept.`,
+      confirmLabel: 'Remove',
+      danger: true
+    })
+    if (!ok) return
+    await withInfo(() => window.api.renpy.retract(activeId, action))
   }
 
   if (!installed.length) {
@@ -113,18 +140,106 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
         </div>
         {scripts ? (
           <>
-            <div className="renpy-stats">
-              <div className="renpy-stat">
-                <strong>{scripts.rpaCount}</strong>
-                <span>Archives{scripts.rpaBytes ? ` · ${formatBytes(scripts.rpaBytes)}` : ''}</span>
+            <div className="renpy-work-rows">
+              <div className="renpy-work-row">
+                <div className="renpy-stats">
+                  <div className="renpy-stat">
+                    <strong>{scripts.rpaCount}</strong>
+                    <span>Archives{scripts.rpaBytes ? ` · ${formatBytes(scripts.rpaBytes)}` : ''}</span>
+                  </div>
+                </div>
+                <div className="renpy-actions">
+                  {running && status?.action === 'extract' ? (
+                    <button
+                      className="stop-btn"
+                      type="button"
+                      disabled={!activeId || cancelling}
+                      onClick={() => stopAction()}
+                    >
+                      {cancelling ? 'Stopping…' : 'Stop'}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        className="primary-btn"
+                        type="button"
+                        disabled={busy || running || !scripts.needsUnpack}
+                        title={
+                          scripts.needsUnpack
+                            ? undefined
+                            : scripts.alreadyUnpacked
+                              ? 'Already uncompressed'
+                              : 'No archives to extract'
+                        }
+                        onClick={() => runAction('extract')}
+                      >
+                        Extract RPA
+                      </button>
+                      {tracked?.extract ? (
+                        <button
+                          className="ghost-btn"
+                          type="button"
+                          disabled={busy || running}
+                          onClick={() => void retractAction('extract')}
+                        >
+                          Remove extracted files ({tracked.extract})
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="renpy-stat">
-                <strong>{scripts.rpyCount}</strong>
-                <span>Decompiled scripts</span>
-              </div>
-              <div className="renpy-stat">
-                <strong>{scripts.rpycWithoutRpy}</strong>
-                <span>Still compiled</span>
+              <div className="renpy-work-row">
+                <div className="renpy-stats">
+                  <div className="renpy-stat">
+                    <strong>{scripts.rpyCount}</strong>
+                    <span>Decompiled scripts</span>
+                  </div>
+                  <div className="renpy-stat">
+                    <strong>{scripts.rpycWithoutRpy}</strong>
+                    <span>Still compiled</span>
+                  </div>
+                </div>
+                <div className="renpy-actions">
+                  {running && status?.action === 'decompile' ? (
+                    <button
+                      className="stop-btn"
+                      type="button"
+                      disabled={!activeId || cancelling}
+                      onClick={() => stopAction()}
+                    >
+                      {cancelling ? 'Stopping…' : 'Stop'}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        className="primary-btn"
+                        type="button"
+                        disabled={busy || running || !scripts.needsDecompile}
+                        title={
+                          scripts.needsDecompile
+                            ? undefined
+                            : scripts.alreadyDecompiled
+                              ? 'Already decompiled'
+                              : 'No compiled scripts to decompile'
+                        }
+                        onClick={() => runAction('decompile')}
+                      >
+                        Decompile rpyc
+                      </button>
+                      {tracked?.decompile ? (
+                        <button
+                          className="ghost-btn"
+                          type="button"
+                          disabled={busy || running}
+                          onClick={() => void retractAction('decompile')}
+                        >
+                          Remove decompiled scripts ({tracked.decompile})
+                        </button>
+                      ) : null}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
             <details className="renpy-fold">
@@ -152,20 +267,6 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
         ) : busy ? (
           <p className="muted">Scanning the install…</p>
         ) : null}
-      </section>
-
-      <section className="renpy-section">
-        <div className="renpy-section-head">
-          <h2>Unpack / decompile</h2>
-          <div className="renpy-actions">
-            <button className="primary-btn" type="button" disabled={busy || running} onClick={() => runAction('extract')}>
-              Extract RPA
-            </button>
-            <button className="primary-btn" type="button" disabled={busy || running} onClick={() => runAction('decompile')}>
-              Decompile rpyc
-            </button>
-          </div>
-        </div>
         {running ? (
           <div className="renpy-progress">
             <p className="muted">{status?.message || 'Working…'}</p>

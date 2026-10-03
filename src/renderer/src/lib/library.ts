@@ -32,6 +32,7 @@ export type GameLibraryStatus = {
   installedVersion: string | null
   engine: string | null
   installPercent: number | null
+  uninstalling: boolean
   hasSaves: boolean
 }
 
@@ -112,12 +113,14 @@ export function summarizeLibrary(
       installedVersion: latest ? libraryFileVersion(latest) || latest.version || null : null,
       engine: items.find((file) => file.engine)?.engine || null,
       installPercent: items.find((file) => file.installPercent != null)?.installPercent ?? null,
+      uninstalling: items.some((file) => file.uninstalling),
       hasSaves: false
     }
     if (
       status.hasArchive ||
       status.isInstalled ||
       status.installPercent != null ||
+      status.uninstalling ||
       items.some((file) => file.hasArchive || file.isInstalled)
     ) {
       result.set(threadId, status)
@@ -200,6 +203,7 @@ const EMPTY_SAVE_STATUS: GameLibraryStatus = {
   installedVersion: null,
   engine: null,
   installPercent: null,
+  uninstalling: false,
   hasSaves: true
 }
 
@@ -229,9 +233,21 @@ export function withSavePresence(
   return next
 }
 
+export function libraryFileBusy(
+  file: Pick<GameLibraryFile, 'installPercent' | 'uninstalling'>
+): boolean {
+  return file.installPercent != null || Boolean(file.uninstalling)
+}
+
 /** True when the game has an archive, install, or in-progress extract — not saves-only. */
 export function hasLibraryCopy(status?: GameLibraryStatus | null): boolean {
-  return Boolean(status && (status.hasArchive || status.isInstalled || status.installPercent != null))
+  return Boolean(
+    status &&
+      (status.hasArchive ||
+        status.isInstalled ||
+        status.installPercent != null ||
+        status.uninstalling)
+  )
 }
 
 type SnapshotStore<T> = {

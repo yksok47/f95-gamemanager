@@ -90,6 +90,7 @@ import { formatCount, formatRating, ratingClass } from '../lib/format'
 import {
   gamesWithPatchInstalled,
   installedOverlayKind,
+  libraryFileBusy,
   listUncensorPatchTargets,
   overlayListLabel,
   overlayRemoveNoun,
@@ -1326,6 +1327,10 @@ function GameDetailsPage({
     () => files.find((file) => file.installPercent != null) ?? null,
     [files]
   )
+  const uninstallingFile = useMemo(
+    () => files.find((file) => file.uninstalling) ?? null,
+    [files]
+  )
 
   const hasLocalCopy = useMemo(
     () => files.some((file) => file.hasArchive || file.isInstalled),
@@ -2125,7 +2130,7 @@ function GameDetailsPage({
                     Stop
                   </button>
                 ) : null}
-                {latestInstalled && !sessionFor(latestInstalled.id) ? (
+                {latestInstalled && !sessionFor(latestInstalled.id) && !libraryFileBusy(latestInstalled) ? (
                   <button className="primary-btn" type="button" onClick={() => void playLatest()}>
                     Play{latestInstalledVersion ? ` ${latestInstalledVersion}` : ''}
                   </button>
@@ -2135,7 +2140,11 @@ function GameDetailsPage({
                     Update{version ? ` to ${version}` : ''}
                   </button>
                 ) : null}
-                {installingFile ? (
+                {uninstallingFile ? (
+                  <button className="primary-btn btn-with-spinner" type="button" disabled>
+                    <Spinner size="sm" /> Uninstalling…
+                  </button>
+                ) : installingFile ? (
                   <button className="primary-btn" type="button" disabled>
                     Installing… {installingFile.installPercent}%
                   </button>
@@ -2504,6 +2513,14 @@ function GameDetailsPage({
                               >
                                 <span style={{ width: `${file.installPercent}%` }} />
                               </div>
+                            ) : file.uninstalling ? (
+                              <div
+                                className="download-progress download-progress-unknown"
+                                role="progressbar"
+                                aria-label="Uninstalling"
+                              >
+                                <span />
+                              </div>
                             ) : null}
                           </div>
                           <div className="library-file-actions">
@@ -2516,7 +2533,7 @@ function GameDetailsPage({
                                 >
                                   Stop
                                 </button>
-                              ) : file.installPercent == null ? (
+                              ) : !libraryFileBusy(file) ? (
                                 <button
                                   className="primary-btn"
                                   type="button"
@@ -2530,7 +2547,7 @@ function GameDetailsPage({
                               <button
                                 className="primary-btn"
                                 type="button"
-                                disabled={file.installPercent != null}
+                                disabled={libraryFileBusy(file)}
                                 onClick={() => void installFile(file.id)}
                               >
                                 {file.installPercent != null
@@ -2543,7 +2560,7 @@ function GameDetailsPage({
                             {canInstallOverlay ? (
                               <UncensorInstallButton
                                 targets={overlayTargets}
-                                disabled={file.installPercent != null}
+                                disabled={libraryFileBusy(file)}
                                 installingLabel={
                                   file.installPercent != null
                                     ? `Installing… ${file.installPercent}%`
@@ -2558,15 +2575,15 @@ function GameDetailsPage({
                               <UncensorRemoveButton
                                 patches={file.installedPatches}
                                 noun={overlayRemoveNoun(appliedOverlayKind)}
-                                disabled={file.installPercent != null}
+                                disabled={libraryFileBusy(file)}
                                 onRemove={(patch) => void uninstallUncensorPatch(file.id, patch)}
                               />
                             ) : null}
                             {file.isInstalled ? (
                               <SplitButton
-                                label="Uninstall"
+                                label={file.uninstalling ? 'Uninstalling…' : 'Uninstall'}
                                 variant="ghost"
-                                disabled={file.installPercent != null}
+                                disabled={libraryFileBusy(file)}
                                 onClick={() => void uninstallFile(file.id)}
                                 items={[
                                   {
@@ -2580,14 +2597,14 @@ function GameDetailsPage({
                               <button
                                 className="ghost-btn"
                                 type="button"
-                                disabled={file.installPercent != null}
+                                disabled={libraryFileBusy(file)}
                                 onClick={() => void removeVersion(file.id)}
                               >
-                                Remove
+                                {file.uninstalling ? 'Removing…' : 'Remove'}
                               </button>
                             )}
                             <MoreMenu
-                              disabled={file.installPercent != null}
+                              disabled={libraryFileBusy(file)}
                               items={moreMenuItems(file)}
                             />
                           </div>

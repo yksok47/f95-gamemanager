@@ -360,6 +360,8 @@ export type GameLibraryFile = {
   hasArchive: boolean
   isInstalled: boolean
   installPercent: number | null
+  /** True while the extracted folder is being deleted. */
+  uninstalling?: boolean
   installError?: string
   creator?: string
   coverUrl?: string | null
@@ -650,11 +652,17 @@ export type RenpyScriptStatus = {
   needsDecompile: boolean
 }
 
+export type RenpyTrackedFiles = {
+  extract: number
+  decompile: number
+}
+
 export type RenpyLastRun = {
   action: UnRenAction | 'locate'
   startedAt: number
   finishedAt: number | null
   ok: boolean
+  cancelled?: boolean
   summary: string
   log: string
   error: string | null
@@ -687,12 +695,14 @@ export type RenpyInfo = {
   saves: RenpySaveFile[]
   scripts: RenpyScriptStatus | null
   lastRun: RenpyLastRun | null
+  trackedFiles: RenpyTrackedFiles
   message?: string
 }
 
 export type RenpyStatus = {
   fileId: string
   running: boolean
+  cancelling?: boolean
   action: UnRenAction | 'locate' | null
   message: string
   log: string

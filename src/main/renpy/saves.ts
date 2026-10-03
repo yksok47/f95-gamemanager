@@ -58,7 +58,8 @@ import {
 import { folderKey } from '../cloud-saves/manifest'
 import { matchRenpySaveFolder } from './save-folder-match'
 import { discoverRenpySaveFolders } from './save-folder-scan'
-import { getLastUnRenRun, replayUnRenStatus, runUnRen } from './unren'
+import { getLastUnRenRun, replayUnRenStatus, requestUnRenCancel, retractUnRen, runUnRen } from './unren'
+import { getTrackedCounts } from './unren-files'
 
 function scheduleCloudSyncForFolder(savePath: string): void {
   void getIdentifiedSaveFolder(savePath)
@@ -514,12 +515,14 @@ async function ensureOptions(fileId: string, gameRoot: string): Promise<boolean>
   if ((await findNamedFiles(gameDir, 'options.rpy')).length) return true
   const scripts = await scanScripts(gameRoot)
   if (scripts.packed && !scripts.optionsRpyc) {
-    await runUnRen(gameRoot, 'extract', fileId)
+    const extractRun = await runUnRen(gameRoot, 'extract', fileId)
+    if (extractRun.cancelled) return false
   }
   if ((await findNamedFiles(gameDir, 'options.rpy')).length) return true
   const afterExtract = await scanScripts(gameRoot)
   if (afterExtract.optionsRpyc || afterExtract.compiled) {
-    await runUnRen(gameRoot, 'decompile', fileId)
+    const decompileRun = await runUnRen(gameRoot, 'decompile', fileId)
+    if (decompileRun.cancelled) return false
   }
   return (await findNamedFiles(gameDir, 'options.rpy')).length > 0
 }
@@ -619,6 +622,7 @@ export async function getRenpyInfo(
     saves,
     scripts,
     lastRun: file ? getLastUnRenRun(file.id) : null,
+    trackedFiles: gameRoot ? await getTrackedCounts(gameRoot) : { extract: 0, decompile: 0 },
     message: saveMessage(saveDirectory, savePath, scripts, gameRoot)
   }
 }
@@ -627,6 +631,17 @@ export async function runRenpyAction(fileId: string, action: UnRenAction): Promi
   const file = await getGameFile(fileId)
   const gameRoot = requireRenpyRoot(file.installPath)
   await runUnRen(gameRoot, action, fileId)
+  return getRenpyInfo(fileId, false)
+}
+
+export function cancelRenpyAction(fileId: string): boolean {
+  return requestUnRenCancel(fileId)
+}
+
+export async function retractRenpyAction(fileId: string, action: UnRenAction): Promise<RenpyInfo> {
+  const file = await getGameFile(fileId)
+  const gameRoot = requireRenpyRoot(file.installPath)
+  await retractUnRen(gameRoot, action, fileId)
   return getRenpyInfo(fileId, false)
 }
 

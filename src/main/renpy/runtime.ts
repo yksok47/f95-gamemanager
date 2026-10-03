@@ -1,7 +1,23 @@
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { delimiter, dirname } from 'path'
+import { killProcessTree } from '../processes'
 import { makePathExecutable } from '../unix-exec'
 import { childPath, listDirents, pathExists, resolveLongPath, stripNamespace } from '../win-path'
+
+export class UnRenCancelledError extends Error {
+  constructor(message = 'Stopped.') {
+    super(message)
+    this.name = 'UnRenCancelledError'
+  }
+}
+
+export function isUnRenCancelled(error: unknown): boolean {
+  return error instanceof UnRenCancelledError || (error instanceof Error && error.name === 'UnRenCancelledError')
+}
+
+export function throwIfUnRenCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new UnRenCancelledError()
+}
 
 export type GamePython = {
   python: string
@@ -73,12 +89,28 @@ function pythonScore(pythonPath: string): number {
   return score
 }
 
-function runPythonText(python: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<{
+function killPythonChild(child: ChildProcess): void {
+  if (child.pid) void killProcessTree(child.pid)
+  else child.kill()
+}
+
+function runPythonText(
+  python: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<{
   code: number | null
   stdout: string
   stderr: string
 }> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new UnRenCancelledError())
+      return
+    }
     const child = spawn(python, args, {
       cwd,
       windowsHide: true,
@@ -88,6 +120,16 @@ function runPythonText(python: string, args: string[], cwd: string, env: NodeJS.
     })
     let stdout = ''
     let stderr = ''
+    let settled = false
+    const settle = (fn: () => void): void => {
+      if (settled) return
+      settled = true
+      fn()
+    }
+    const onAbort = (): void => {
+      killPythonChild(child)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
     child.stdout?.on('data', (chunk) => {
       stdout += chunk.toString()
     })
@@ -95,21 +137,30 @@ function runPythonText(python: string, args: string[], cwd: string, env: NodeJS.
       stderr += chunk.toString()
     })
     const timer = setTimeout(() => {
-      child.kill()
-      reject(new Error(`Python timed out after ${Math.round(timeoutMs / 1000)}s.`))
+      killPythonChild(child)
+      settle(() => reject(new Error(`Python timed out after ${Math.round(timeoutMs / 1000)}s.`)))
     }, timeoutMs)
-    child.on('error', (error) => {
+    function cleanup(): void {
       clearTimeout(timer)
-      reject(error)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    child.on('error', (error) => {
+      cleanup()
+      settle(() => reject(signal?.aborted ? new UnRenCancelledError() : error))
     })
     child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({ code, stdout, stderr })
+      cleanup()
+      if (signal?.aborted) {
+        settle(() => reject(new UnRenCancelledError()))
+        return
+      }
+      settle(() => resolve({ code, stdout, stderr }))
     })
   })
 }
 
-export async function detectGamePython(gameRoot: string): Promise<GamePython> {
+export async function detectGamePython(gameRoot: string, signal?: AbortSignal): Promise<GamePython> {
+  throwIfUnRenCancelled(signal)
   const python = findGamePython(gameRoot)
   if (!python) {
     throw new Error("Could not find this game's Python interpreter under lib/. Ren'Py ships it with the game.")
@@ -119,7 +170,7 @@ export async function detectGamePython(gameRoot: string): Promise<GamePython> {
   const pythonLibDir = findEncodingsDir(pythonDir) || findEncodingsDir(childPath(gameRoot, 'lib')) || pythonDir
   const root = stripNamespace(resolveLongPath(gameRoot))
   const env = pythonEnv(pythonDir, pythonLibDir)
-  const probe = await runPythonText(python, ['-c', 'import sys; print(sys.version_info[0])'], root, env, 15000)
+  const probe = await runPythonText(python, ['-c', 'import sys; print(sys.version_info[0])'], root, env, 15000, signal)
   const major = Number((probe.stdout || probe.stderr).trim().slice(0, 1))
   if (major !== 2 && major !== 3) {
     throw new Error(`Could not read this game's Python version.\n${probe.stderr || probe.stdout || 'No output.'}`)
@@ -152,10 +203,12 @@ export async function runGamePython(
   args: string[],
   cwd: string,
   extraPath: string[] = [],
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  signal?: AbortSignal
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  throwIfUnRenCancelled(signal)
   const env = pythonEnv(runtime.pythonDir, runtime.pythonLibDir, extraPath)
-  return runPythonText(runtime.python, ['-O', ...args], stripNamespace(cwd), env, timeoutMs)
+  return runPythonText(runtime.python, ['-O', ...args], stripNamespace(cwd), env, timeoutMs, signal)
 }
 
 /** Run a .py file with sys.path forced, so Ren'Py's bundled Python cannot miss local packages. */
@@ -165,7 +218,8 @@ export async function runGamePythonScript(
   scriptArgs: string[],
   extraPath: string[],
   cwd: string,
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  signal?: AbortSignal
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   const scriptPath = stripNamespace(script)
   const pathDirs = [...extraPath, runtime.pythonDir, runtime.pythonLibDir].map(stripNamespace).filter(Boolean)
@@ -190,5 +244,5 @@ export async function runGamePythonScript(
     '    sys.stderr.write("sys.path=%r\\n" % (sys.path,))',
     '    raise'
   ].join('\n')
-  return runGamePython(runtime, ['-c', bootstrap], cwd, pathDirs, timeoutMs)
+  return runGamePython(runtime, ['-c', bootstrap], cwd, pathDirs, timeoutMs, signal)
 }

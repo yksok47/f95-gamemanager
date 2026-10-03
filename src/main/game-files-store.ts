@@ -53,6 +53,7 @@ import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount
 import { uniqueScreenUrls } from './f95/catalog'
 import { lookupGame } from './f95/lookup'
 import { listSubscriptions, recordSubscriptionPlay } from './subscriptions-store'
+import { removeTree } from './remove-tree'
 import { pathExists, resolveLongPath, toFsPath } from './win-path'
 import { sendToRenderer } from './windows'
 import { signMessageBytes } from './p2p/identity'
@@ -69,10 +70,10 @@ const OVERLAY_PROBE = 2
 
 type StoredGameFile = Omit<
   GameLibraryFile,
-  'hasArchive' | 'isInstalled' | 'installPercent' | 'playing'
+  'hasArchive' | 'isInstalled' | 'installPercent' | 'uninstalling' | 'playing'
 > & { installError?: string; overlayProbe?: number }
 
-const installing = new Map<string, { percent: number; error?: string }>()
+const installing = new Map<string, { kind?: 'install' | 'uninstall'; percent: number; error?: string }>()
 let loaded: StoredGameFile[] | null = null
 const hydratedThreads = new Set<number>()
 
@@ -381,8 +382,11 @@ function present(file: StoredGameFile): GameLibraryFile {
     playtimeMs: file.playtimeMs ?? 0,
     playing: Boolean(getPlaySession(file.id)),
     hasArchive: Boolean(file.archivePath && pathExists(file.archivePath)),
-    isInstalled: Boolean(installPath && pathExists(installPath)),
-    installPercent: job ? job.percent : null,
+    isInstalled: Boolean(
+      installPath && (pathExists(installPath) || job?.kind === 'uninstall')
+    ),
+    installPercent: job && job.kind !== 'uninstall' ? job.percent : null,
+    uninstalling: job?.kind === 'uninstall',
     installError: job?.error ?? file.installError,
     creator: file.creator || '',
     coverUrl: file.coverUrl ?? null,
@@ -807,7 +811,7 @@ export async function installGameFile(id: string, engineHint?: string): Promise<
   try {
     if (pathExists(dest)) {
       assertManagedPath(dest)
-      await rm(toFsPath(dest), { recursive: true, force: true })
+      await removeTree(dest)
     }
     await extractArchive(file.archivePath, dest, (percent) => {
       installing.set(id, { percent })
@@ -1282,7 +1286,7 @@ function assertManagedPath(target: string): void {
 async function removePath(target: string | null | undefined): Promise<void> {
   if (!target || !pathExists(target)) return
   assertManagedPath(target)
-  await rm(toFsPath(target), { recursive: true, force: true })
+  await removeTree(target)
 }
 
 async function removeEmptyParents(start: string | null | undefined, stopAt: string): Promise<void> {
@@ -1366,23 +1370,36 @@ export async function updateGameFileTags(
   return present(file)
 }
 
+function assertFileIdle(id: string): void {
+  const job = installing.get(id)
+  if (!job) return
+  if (job.kind === 'uninstall') throw new Error('That version is already being uninstalled.')
+  throw new Error('That version is still being installed.')
+}
+
 export async function uninstallGameFile(id: string): Promise<GameLibraryFile> {
-  if (installing.has(id)) throw new Error('That version is still being installed.')
-  await stopPlaySession(id)
+  assertFileIdle(id)
   const { files, file } = await getFile(id)
-  const installPath = file.installPath
-  if (installPath) await killProcessesUnder(installPath)
-  await syncRpgMakerForFile(file, 'backup')
-  await removePath(installPath)
-  await removeEmptyParents(installPath, getLibraryDirSync())
-  file.installPath = null
-  file.installedAt = null
-  file.executablePath = null
-  file.installError = undefined
-  file.installedPatches = undefined
-  if (fileStillPresent(file)) await writeStore(files)
-  else await writeStore(files.filter((item) => item.id !== id))
+  installing.set(id, { kind: 'uninstall', percent: 0 })
   broadcast()
+  try {
+    await stopPlaySession(id)
+    const installPath = file.installPath
+    if (installPath) await killProcessesUnder(installPath)
+    await syncRpgMakerForFile(file, 'backup')
+    await removePath(installPath)
+    await removeEmptyParents(installPath, getLibraryDirSync())
+    file.installPath = null
+    file.installedAt = null
+    file.executablePath = null
+    file.installError = undefined
+    file.installedPatches = undefined
+    if (fileStillPresent(file)) await writeStore(files)
+    else await writeStore(files.filter((item) => item.id !== id))
+  } finally {
+    installing.delete(id)
+    broadcast()
+  }
   return present(file)
 }
 
@@ -1408,27 +1425,33 @@ export async function removeGameArchive(id: string): Promise<GameLibraryFile> {
 }
 
 export async function removeGameVersion(id: string): Promise<GameLibraryFile[]> {
-  if (installing.has(id)) throw new Error('That version is still being installed.')
-  await stopPlaySession(id)
+  assertFileIdle(id)
   const { files, file } = await getFile(id)
-  const removedHash = file.hash
-  const installPath = file.installPath
-  if (installPath) await killProcessesUnder(installPath)
-  await syncRpgMakerForFile(file, 'backup')
-  await removePath(installPath)
-  await removeEmptyParents(installPath, getLibraryDirSync())
-  await removePath(file.archivePath)
-  if (removedHash) {
-    try {
-      await teardownP2pForContentHash(removedHash)
-      await removeTorrentMapEntry(removedHash)
-    } catch (error) {
-      console.warn('[library] p2p teardown after version remove failed', error)
-    }
-  }
-  const next = files.filter((item) => item.id !== id)
-  await writeStore(next)
+  installing.set(id, { kind: 'uninstall', percent: 0 })
   broadcast()
+  try {
+    await stopPlaySession(id)
+    const removedHash = file.hash
+    const installPath = file.installPath
+    if (installPath) await killProcessesUnder(installPath)
+    await syncRpgMakerForFile(file, 'backup')
+    await removePath(installPath)
+    await removeEmptyParents(installPath, getLibraryDirSync())
+    await removePath(file.archivePath)
+    if (removedHash) {
+      try {
+        await teardownP2pForContentHash(removedHash)
+        await removeTorrentMapEntry(removedHash)
+      } catch (error) {
+        console.warn('[library] p2p teardown after version remove failed', error)
+      }
+    }
+    const next = files.filter((item) => item.id !== id)
+    await writeStore(next)
+  } finally {
+    installing.delete(id)
+    broadcast()
+  }
   return listGameFiles(file.threadId)
 }
 

@@ -55,15 +55,38 @@ from decompiler import magic, astdump, translate
 
 class PyExpr(magic.FakeStrict, str):
     __module__ = "renpy.ast"
-    def __new__(cls, s, filename, linenumber, py=None):
+    def __new__(cls, s, filename, linenumber, py=None, hashcode=None, column=None):
         self = str.__new__(cls, s)
         self.filename = filename
         self.linenumber = linenumber
         self.py = py
+        self.hashcode = hashcode
+        self.column = column
         return self
 
     def __getnewargs__(self):
+        if getattr(self, "py", None) is not None:
+            return str(self), self.filename, self.linenumber, self.py
         return str(self), self.filename, self.linenumber
+
+class PyExprSupport(magic.FakeStrict, str):
+    # Ren'Py 8.3+ stores expressions on renpy.astsupport.PyExpr with extra fields.
+    __module__ = "renpy.astsupport"
+    def __new__(cls, s, filename, linenumber, py=None, hashcode=None, column=None):
+        self = str.__new__(cls, s)
+        self.filename = filename
+        self.linenumber = linenumber
+        self.py = py
+        self.hashcode = hashcode
+        self.column = column
+        return self
+
+    def __getnewargs__(self):
+        if getattr(self, "py", None) is not None:
+            return str(self), self.filename, self.linenumber, self.py
+        return str(self), self.filename, self.linenumber
+
+PyExprSupport.__name__ = "PyExpr"
 
 class PyCode(magic.FakeStrict):
     __module__ = "renpy.ast"
@@ -71,9 +94,23 @@ class PyCode(magic.FakeStrict):
         if len(state) == 4:
             (_, self.source, self.location, self.mode) = state
             self.py = None
-        else:
+            self.hashcode = None
+            self.col_offset = None
+        elif len(state) == 5:
             (_, self.source, self.location, self.mode, self.py) = state
+            self.hashcode = None
+            self.col_offset = None
+        elif len(state) == 6:
+            (_, self.source, self.location, self.mode, self.py, self.hashcode) = state
+            self.col_offset = None
+        else:
+            (_, self.source, self.location, self.mode, self.py, self.hashcode, self.col_offset) = state
         self.bytecode = None
+
+class GroupedLine(magic.FakeStrict, tuple):
+    __module__ = "renpy.lexer"
+    def __new__(cls, filename, number, indent, text, block):
+        return tuple.__new__(cls, (filename, number, indent, text, block))
 
 # renpy 7.5/8 compat; change renpy.python to renpy.revertable 3times
 class RevertableList(magic.FakeStrict, list):
@@ -105,16 +142,203 @@ class Sentinel(magic.FakeStrict, object):
         return obj
 
 
+# Ren'Py 8.4 no longer pickles default AST fields. Prototypes supply those defaults.
+class Say(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    who = None
+    with_ = None
+    interact = True
+    attributes = None
+    arguments = None
+    temporary_attributes = None
+    identifier = None
+    explicit_identifier = None
+
+class Init(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    priority = 0
+
+class Label(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+    parameters = None
+    hide = False
+
+    @property
+    def name(self):
+        if "name" in self.__dict__:
+            return self.__dict__["name"]
+        return getattr(self, "_name", None)
+
+class Python(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    store = "store"
+    hide = False
+
+class EarlyPython(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    store = "store"
+    hide = False
+
+class Image(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    code = None
+    atl = None
+
+class Transform(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    parameters = None
+    store = "store"
+
+class Show(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    atl = None
+    warp = True
+
+class ShowLayer(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    atl = None
+    warp = True
+    layer = "master"
+
+class Camera(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    atl = None
+    warp = True
+    layer = "master"
+
+class Scene(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    imspec = None
+    atl = None
+    warp = True
+    layer = "master"
+
+class Hide(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    warp = True
+
+class With(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    paired = None
+
+class Call(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    arguments = None
+    expression = False
+    global_label = ""
+
+class Return(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    expression = None
+
+class Menu(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+    set = None
+    with_ = None
+    has_caption = False
+    arguments = None
+    item_arguments = None
+    rollback = "force"
+
+class Jump(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    expression = False
+    global_label = ""
+
+class UserStatement(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    block = []
+    translatable = False
+    code_block = None
+    translation_relevant = False
+    rollback = "normal"
+    subparses = []
+    init_priority = 0
+    atl = None
+
+class Define(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    store = "store"
+    operator = "="
+    index = None
+
+class Default(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    store = "store"
+
+class Style(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    parent = None
+    clear = False
+    take = None
+    variant = None
+
+class Translate(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    rollback = "never"
+    translation_relevant = True
+    alternate = None
+    language = None
+    after = None
+
+class TranslateSay(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translatable = True
+    translation_relevant = True
+    alternate = None
+    language = None
+    who = None
+    with_ = None
+    interact = True
+    attributes = None
+    arguments = None
+    temporary_attributes = None
+    identifier = None
+    explicit_identifier = None
+
+class EndTranslate(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    rollback = "never"
+
+class TranslateString(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+    language = None
+
+class TranslatePython(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+
+class TranslateBlock(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+    language = None
+
+class TranslateEarlyBlock(magic.FakeStrict):
+    __module__ = "renpy.ast"
+    translation_relevant = True
+    language = None
+
+AST_PROTOTYPES = (
+    Say, Init, Label, Python, EarlyPython, Image, Transform, Show, ShowLayer,
+    Camera, Scene, Hide, With, Call, Return, Menu, Jump, UserStatement,
+    Define, Default, Style, Translate, TranslateSay, EndTranslate,
+    TranslateString, TranslatePython, TranslateBlock, TranslateEarlyBlock
+)
+
+
 # renpy 7.5/8 compat
 # - renpy removed frozenset
 # - Let's create two instances of class_factory instead of redefining them on every error # due to revertable objects. renpy @7.5(also v8) is normaly used and @7.4 is fallback
 cls_factory_75 = magic.FakeClassFactory(
-    (set, PyExpr, PyCode, RevertableList, RevertableDict, RevertableSet, Sentinel), magic.FakeStrict)
+    (set, PyExpr, PyExprSupport, PyCode, GroupedLine, RevertableList, RevertableDict, RevertableSet, Sentinel) + AST_PROTOTYPES, magic.FakeStrict)
 
 RevertableList.__module__, RevertableDict.__module__, RevertableSet.__module__ = (
     "renpy.python", ) * 3
 cls_factory_74 = magic.FakeClassFactory(
-    (set, PyExpr, PyCode, RevertableList, RevertableDict, RevertableSet, Sentinel), magic.FakeStrict)
+    (set, PyExpr, PyExprSupport, PyCode, GroupedLine, RevertableList, RevertableDict, RevertableSet, Sentinel) + AST_PROTOTYPES, magic.FakeStrict)
 
 printlock = Lock()
 

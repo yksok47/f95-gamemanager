@@ -11,6 +11,12 @@ import types
 import pickle
 import struct
 
+try:
+    # Python 3.4+. Required on 3.12+ where meta_path finders must implement find_spec.
+    from importlib.machinery import ModuleSpec
+except Exception:
+    ModuleSpec = None
+
 if PY3:
     from io import BytesIO as StringIO
 else:
@@ -395,6 +401,24 @@ class FakePackageLoader(object):
             return self
         else:
             return None
+
+    # Python 3.12 removed the meta_path fallback to find_module().
+    def find_spec(self, fullname, path, target=None):
+        if ModuleSpec is None:
+            return None
+        if fullname == self.root or fullname.startswith(self.root + "."):
+            return ModuleSpec(fullname, self)
+        else:
+            return None
+
+    def create_module(self, spec):
+        existing = sys.modules.get(spec.name)
+        if isinstance(existing, FakePackage):
+            return existing
+        return FakePackage(spec.name)
+
+    def exec_module(self, module):
+        pass
 
     def load_module(self, fullname):
         return FakePackage(fullname)
