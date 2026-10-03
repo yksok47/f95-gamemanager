@@ -104,6 +104,7 @@ import {
   renumberRenpyPage,
   cancelRenpyAction,
   retractRenpyAction,
+  discardRenpyAction,
   runRenpyAction,
   setAllRenpyToolsForFile,
   setRenpyOptionsGlobalForFile,
@@ -1421,7 +1422,7 @@ export function registerIpc(): void {
         Boolean(prepare),
         String(title || ''),
         Number(threadId) || 0,
-        scope === 'saves' ? 'saves' : 'full'
+        scope === 'saves' || scope === 'scripts' || scope === 'options' ? scope : 'full'
       )
     } catch (error) {
       throw toIpcError(error)
@@ -1447,6 +1448,14 @@ export function registerIpc(): void {
   ipcMain.handle('renpy:retract', async (_event, id: string, action: UnRenAction) => {
     try {
       return await retractRenpyAction(String(id), action)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('renpy:discard', async (_event, id: string, action: UnRenAction) => {
+    try {
+      return await discardRenpyAction(String(id), action)
     } catch (error) {
       throw toIpcError(error)
     }

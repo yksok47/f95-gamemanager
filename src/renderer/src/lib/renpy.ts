@@ -98,6 +98,10 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     }
   }
 
+  function reload(): Promise<void> {
+    return withInfo(() => window.api.renpy.info(activeId, prepare, lookupTitle, threadId, scope))
+  }
+
   return {
     installed,
     selected,
@@ -111,6 +115,7 @@ export function useRenpySession(files: GameLibraryFile[], options: UseRenpySessi
     setError,
     busy,
     running,
-    withInfo
+    withInfo,
+    reload
   }
 }

@@ -1,6 +1,6 @@
 import { writeFile } from 'fs/promises'
 import { basename, join } from 'path'
-import type { RenpyLastRun, RenpyStatus, UnRenAction } from '@shared/types'
+import type { RenpyLastRun, RenpyStatus, UnRenAction, UnRenStatusAction } from '@shared/types'
 import { mapLimit, yieldToEventLoop } from '../disk-usage'
 import { pathExistsAsync, stripNamespace } from '../win-path'
 import { sendToRenderer } from '../windows'
@@ -15,6 +15,7 @@ import {
 } from './runtime'
 import {
   addTrackedFiles,
+  discardSourceFiles,
   getTrackedCounts,
   recordNewGameFiles,
   retractTrackedFiles,
@@ -75,7 +76,7 @@ function broadcast(fileId: string, next: RenpyStatus): void {
 
 function emit(
   fileId: string,
-  action: UnRenAction | 'locate',
+  action: UnRenStatusAction,
   message: string,
   extra: Partial<RenpyStatus> = {}
 ): void {
@@ -635,6 +636,66 @@ export async function retractUnRen(gameRoot: string, action: UnRenAction, fileId
     const message = error instanceof Error ? error.message : `Could not remove ${noun}.`
     return finish(fileId, {
       action,
+      startedAt,
+      finishedAt: Date.now(),
+      ok: false,
+      summary: message,
+      log: message,
+      error: message,
+      done: 0,
+      total: 0,
+      skipped: 0,
+      failed: 1
+    })
+  }
+}
+
+export async function discardUnRen(gameRoot: string, action: UnRenAction, fileId: string): Promise<RenpyLastRun> {
+  const root = stripNamespace(gameRoot)
+  if (jobsByRoot.has(root)) {
+    throw new Error('Wait for the current unpack to finish, or stop it first.')
+  }
+  const startedAt = Date.now()
+  const kind = action === 'decompile' ? 'decompile' : 'extract'
+  const statusAction: UnRenStatusAction = kind === 'extract' ? 'delete-archives' : 'delete-compiled'
+  const noun = kind === 'extract' ? 'archives' : 'compiled scripts'
+  emit(fileId, statusAction, `Deleting ${noun}…`, {
+    log: '',
+    error: null,
+    cancelling: false,
+    done: 0,
+    total: 0,
+    percent: 0
+  })
+  try {
+    const result = await discardSourceFiles(root, kind)
+    const leftover = await getTrackedCounts(root)
+    const summary = result.removed
+      ? `Deleted ${result.removed} ${noun}.`
+      : `No ${noun} were left to delete.`
+    const extra =
+      kind === 'extract' && leftover.extract
+        ? ` Extracted files can no longer be removed.`
+        : kind === 'decompile' && leftover.decompile
+          ? ` Decompiled scripts can no longer be removed.`
+          : ''
+    return finish(fileId, {
+      action: statusAction,
+      startedAt,
+      finishedAt: Date.now(),
+      ok: true,
+      summary: summary + extra,
+      log: summary + extra,
+      error: null,
+      done: result.removed,
+      total: result.removed,
+      skipped: 0,
+      failed: 0
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : `Could not delete ${noun}.`
+    return finish(fileId, {
+      action: statusAction,
       startedAt,
       finishedAt: Date.now(),
       ok: false,

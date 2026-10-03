@@ -58,8 +58,8 @@ import {
 import { folderKey } from '../cloud-saves/manifest'
 import { matchRenpySaveFolder } from './save-folder-match'
 import { discoverRenpySaveFolders } from './save-folder-scan'
-import { getLastUnRenRun, replayUnRenStatus, requestUnRenCancel, retractUnRen, runUnRen } from './unren'
-import { getTrackedCounts } from './unren-files'
+import { getLastUnRenRun, replayUnRenStatus, requestUnRenCancel, retractUnRen, runUnRen, discardUnRen } from './unren'
+import { emptyTrackedCounts, getTrackedCounts } from './unren-files'
 
 function scheduleCloudSyncForFolder(savePath: string): void {
   void getIdentifiedSaveFolder(savePath)
@@ -576,6 +576,24 @@ function reloadRenpySaves(fileId: string, title = '', threadId = 0): Promise<Ren
   return getRenpyInfo(fileId, false, title, threadId, 'saves')
 }
 
+function emptyRenpyInfo(): Omit<RenpyInfo, 'fileId'> {
+  return {
+    gameRoot: null,
+    saveDirectory: null,
+    savePath: null,
+    savePathExists: false,
+    saveFolderBytes: 0,
+    saveLocations: [],
+    optionsFound: false,
+    optionsGlobal: false,
+    tools: { ...EMPTY_OPTIONS },
+    saves: [],
+    scripts: null,
+    lastRun: null,
+    trackedFiles: emptyTrackedCounts()
+  }
+}
+
 export async function getRenpyInfo(
   fileId: string,
   prepare = false,
@@ -583,30 +601,52 @@ export async function getRenpyInfo(
   threadId = 0,
   scope: RenpyInfoScope = 'full'
 ): Promise<RenpyInfo> {
-  const savesOnly = scope === 'saves'
+  const kind = scope === 'saves' || scope === 'scripts' || scope === 'options' ? scope : 'full'
+  const savesOnly = kind === 'saves'
+  const scriptsOnly = kind === 'scripts'
   const lookup = await loadSaveLookup(fileId, title, threadId, !savesOnly || prepare)
   const { file } = lookup
-  const { saveDirectory, options } = await resolveSaveDirectory(lookup, prepare)
   let { gameRoot } = lookup
+
+  if (scriptsOnly) {
+    if (file) replayUnRenStatus(file.id)
+    const gameDir = gameRoot ? gameDirFromRoot(gameRoot) : null
+    if (gameDir) await removeLegacyUnrenTools(gameDir)
+    return {
+      ...emptyRenpyInfo(),
+      fileId: lookup.fileId,
+      gameRoot,
+      scripts: gameRoot ? await scanScripts(gameRoot) : null,
+      lastRun: file ? getLastUnRenRun(file.id) : null,
+      trackedFiles: gameRoot ? await getTrackedCounts(gameRoot) : emptyTrackedCounts()
+    }
+  }
+
+  const { saveDirectory, options } = await resolveSaveDirectory(lookup, prepare)
   if (savesOnly && saveDirectory === null && !gameRoot && file?.installPath && pathExists(file.installPath)) {
     gameRoot = findRenpyGameRoot(file.installPath)
     lookup.gameRoot = gameRoot
   }
   const savePath = saveDirectory !== undefined ? resolveSavePath(gameRoot, saveDirectory) : null
-  const saves = savePath ? await listSaves(savePath) : []
-  const scripts = !savesOnly && gameRoot ? await scanScripts(gameRoot) : null
+  const loadSaves = kind === 'saves' || kind === 'full'
+  const loadScripts = kind === 'full'
+  const loadOptions = kind === 'options' || kind === 'full'
+  const saves = loadSaves && savePath ? await listSaves(savePath) : []
+  const scripts = loadScripts && gameRoot ? await scanScripts(gameRoot) : null
   if (file) replayUnRenStatus(file.id)
   const gameDir = gameRoot ? gameDirFromRoot(gameRoot) : null
-  if (!savesOnly && gameDir) await removeLegacyUnrenTools(gameDir)
+  if (loadOptions && gameDir) await removeLegacyUnrenTools(gameDir)
   const optionsThreadId = file?.threadId || lookup.threadId || 0
-  const tools = savesOnly
-    ? { ...EMPTY_OPTIONS }
-    : optionsThreadId
+  const tools = loadOptions
+    ? optionsThreadId
       ? await ensureDesiredOnGameDir(optionsThreadId, gameDir, savePath)
       : gameDir
         ? await readRenpyOptions(gameDir, savePath)
         : { ...EMPTY_OPTIONS }
-  const saveLocations = renpySaveLocationOptions(await identifiedFoldersForLookup(lookup), savePath)
+    : { ...EMPTY_OPTIONS }
+  const saveLocations = loadSaves
+    ? renpySaveLocationOptions(await identifiedFoldersForLookup(lookup), savePath)
+    : []
 
   return {
     fileId: lookup.fileId,
@@ -614,15 +654,15 @@ export async function getRenpyInfo(
     saveDirectory: saveDirectory ?? null,
     savePath,
     savePathExists: Boolean(savePath && pathExists(savePath)),
-    saveFolderBytes: savePath && pathExists(savePath) ? await folderBytes(savePath) : 0,
+    saveFolderBytes: loadSaves && savePath && pathExists(savePath) ? await folderBytes(savePath) : 0,
     saveLocations,
     optionsFound: Boolean(options),
-    optionsGlobal: savesOnly ? false : await isRenpyOptionsGlobalEnabled(),
+    optionsGlobal: loadOptions ? await isRenpyOptionsGlobalEnabled() : false,
     tools,
     saves,
     scripts,
     lastRun: file ? getLastUnRenRun(file.id) : null,
-    trackedFiles: gameRoot ? await getTrackedCounts(gameRoot) : { extract: 0, decompile: 0 },
+    trackedFiles: gameRoot ? await getTrackedCounts(gameRoot) : emptyTrackedCounts(),
     message: saveMessage(saveDirectory, savePath, scripts, gameRoot)
   }
 }
@@ -631,7 +671,7 @@ export async function runRenpyAction(fileId: string, action: UnRenAction): Promi
   const file = await getGameFile(fileId)
   const gameRoot = requireRenpyRoot(file.installPath)
   await runUnRen(gameRoot, action, fileId)
-  return getRenpyInfo(fileId, false)
+  return getRenpyInfo(fileId, false, '', 0, 'scripts')
 }
 
 export function cancelRenpyAction(fileId: string): boolean {
@@ -642,7 +682,14 @@ export async function retractRenpyAction(fileId: string, action: UnRenAction): P
   const file = await getGameFile(fileId)
   const gameRoot = requireRenpyRoot(file.installPath)
   await retractUnRen(gameRoot, action, fileId)
-  return getRenpyInfo(fileId, false)
+  return getRenpyInfo(fileId, false, '', 0, 'scripts')
+}
+
+export async function discardRenpyAction(fileId: string, action: UnRenAction): Promise<RenpyInfo> {
+  const file = await getGameFile(fileId)
+  const gameRoot = requireRenpyRoot(file.installPath)
+  await discardUnRen(gameRoot, action, fileId)
+  return getRenpyInfo(fileId, false, '', 0, 'scripts')
 }
 
 export async function setRenpyToolForFile(fileId: string, tool: RenpyToolId, enabled: boolean): Promise<RenpyInfo> {
@@ -651,9 +698,9 @@ export async function setRenpyToolForFile(fileId: string, tool: RenpyToolId, ena
   }
   const file = await getGameFile(fileId)
   requireRenpyRoot(file.installPath)
-  const info = await getRenpyInfo(fileId, false)
+  const info = await getRenpyInfo(fileId, false, '', 0, 'options')
   await setStoredRenpyOption(file.threadId, info.tools, tool, enabled)
-  return getRenpyInfo(fileId, false)
+  return getRenpyInfo(fileId, false, '', 0, 'options')
 }
 
 export async function setAllRenpyToolsForFile(fileId: string, enabled: boolean): Promise<RenpyInfo> {
@@ -663,13 +710,13 @@ export async function setAllRenpyToolsForFile(fileId: string, enabled: boolean):
   const file = await getGameFile(fileId)
   requireRenpyRoot(file.installPath)
   await setStoredAllRenpyOptions(file.threadId, enabled)
-  return getRenpyInfo(fileId, false)
+  return getRenpyInfo(fileId, false, '', 0, 'options')
 }
 
 export async function setRenpyOptionsGlobalForFile(fileId: string, enabled: boolean): Promise<RenpyInfo> {
-  const info = await getRenpyInfo(fileId, false)
+  const info = await getRenpyInfo(fileId, false, '', 0, 'options')
   await setRenpyOptionsGlobalMode(enabled, info.tools)
-  return getRenpyInfo(fileId, false)
+  return getRenpyInfo(fileId, false, '', 0, 'options')
 }
 
 function assertInsideSaveFolder(savePath: string, target: string): void {

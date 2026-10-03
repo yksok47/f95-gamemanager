@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 import sys
 import re
+import textwrap
 from StringIO import StringIO
 from contextlib import contextmanager
 
@@ -235,6 +236,27 @@ def string_escape(s): # TODO see if this needs to work like encode_say_string el
     s = s.replace('\n', '\\n')
     s = s.replace('\t', '\\t')
     return s
+
+def python_source_is_block(code):
+    """True if PyCode.source is a `python:` block rather than a `$` one-liner.
+
+    Pre Ren'Py 8.4, blocks were stored un-indented with a leading newline.
+    Ren'Py 8.4+ stores blocks already indented, without a leading newline.
+    `$` statements have neither, so `init $` is not valid Ren'Py.
+    """
+    return bool(code) and (code[0] == '\n' or code[0] == ' ' or code[0] == '\t')
+
+def normalize_python_block_source(code):
+    """Strip storage indent/newline so a python: body can be re-indented.
+
+    Writing 8.4+ source as-is keeps the original file indent. Nested `python:`
+    then has its body in the same column, which Ren'Py treats as an empty block.
+    """
+    if not code:
+        return code
+    if code[0] == '\n':
+        code = code[1:]
+    return textwrap.dedent(code)
 
 # keywords used by ren'py's parser
 KEYWORDS = set(['$', 'as', 'at', 'behind', 'call', 'expression', 'hide',

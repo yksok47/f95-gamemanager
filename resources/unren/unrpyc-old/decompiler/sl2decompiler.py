@@ -23,13 +23,68 @@ import sys
 from operator import itemgetter
 
 from util import DecompilerBase, First, reconstruct_paraminfo, \
-                 reconstruct_arginfo, split_logical_lines, Dispatcher
+                 reconstruct_arginfo, split_logical_lines, Dispatcher, python_source_is_block, \
+                 normalize_python_block_source
 
 from renpy import ui, sl2
 from renpy.ast import PyExpr
 from renpy.text import text
 from renpy.sl2 import sldisplayables as sld
 from renpy.display import layout, behavior, im, motion, dragdrop
+
+def is_sl_pyexpr(value):
+    # Unpickled targets are fake PyExpr/PyExprSupport; this module may import
+    # the game's real PyExpr. isinstance against that type drops `expression`.
+    return type(value).__name__ == 'PyExpr'
+
+# Screen statement names that are not displayables. Unknown widgets often use
+# style "default"; emitting that as the widget name produces
+# `default action ...` which Ren'Py parses as a default statement.
+_SL_RESERVED_NAMES = frozenset([
+    'default', 'define', 'python', 'if', 'elif', 'else', 'for', 'while',
+    'use', 'has', 'pass', 'continue', 'break', 'screen', 'style', 'init',
+    'jump', 'call', 'return', 'menu',
+])
+
+# SL names that do not match style or CamelCase-to-snake conversion.
+# nearrect uses style "default"; naive fallback would emit invalid near_rect.
+_SL_CLASS_FALLBACK = {
+    'NearRect': ('nearrect', 1),
+    'DismissBehavior': ('dismiss', 0),
+    'AreaPicker': ('areapicker', 1),
+}
+
+def _sl_name_from_class(name):
+    if not name:
+        return ''
+    name = name.lstrip('_')
+    out = []
+    for i, ch in enumerate(name):
+        if ch.isupper() and i and (name[i - 1].islower() or (
+                i + 1 < len(name) and name[i + 1].islower())):
+            out.append('_')
+        out.append(ch.lower())
+    return ''.join(out)
+
+def sl_fallback_displayable_name(ast):
+    cls_name = getattr(ast.displayable, '__name__', '') or ''
+    mapped = _SL_CLASS_FALLBACK.get(cls_name)
+    if mapped:
+        return mapped
+
+    style = ast.style
+    if isinstance(style, str) and style and style not in _SL_RESERVED_NAMES:
+        return (style, 'many')
+
+    keywords = getattr(ast, 'keyword', None) or []
+    if any(k == 'action' for k, _ in keywords):
+        return ('button', 1)
+
+    candidate = _sl_name_from_class(cls_name)
+    if candidate and candidate not in _SL_RESERVED_NAMES:
+        return (candidate, 'many')
+
+    return ('fixed', 'many')
 
 # Main API
 
@@ -134,14 +189,13 @@ class SL2Decompiler(DecompilerBase):
     def print_python(self, ast):
         self.indent()
 
-        # Extract the source code from the slast.SLPython object. If it starts with a
-        # newline, print it as a python block, else, print it as a $ statement
+        # Extract the source code from the slast.SLPython object.
+        # Re-indent relative to this `python:` so nested 8.4+ blocks are not empty.
         code = ast.code.source
-        if code.startswith("\n"):
-            code = code[1:]
+        if python_source_is_block(code):
             self.write("python:")
             with self.increase_indent():
-                self.write_lines(split_logical_lines(code))
+                self.write_lines(split_logical_lines(normalize_python_block_source(code)))
         else:
             self.write("$ %s" % code)
 
@@ -157,7 +211,7 @@ class SL2Decompiler(DecompilerBase):
         self.indent()
         self.write("use ")
         args = reconstruct_arginfo(ast.args)
-        if isinstance(ast.target, PyExpr):
+        if is_sl_pyexpr(ast.target):
             self.write("expression %s" % ast.target)
             if args:
                 self.write(" pass ")
@@ -196,13 +250,13 @@ class SL2Decompiler(DecompilerBase):
             # workaround: assume the name of the displayable matches the given style
             # this is rather often the case. However, as it may be wrong we have to
             # print a debug message
-            nameAndChildren = (ast.style, 'many')
+            nameAndChildren = sl_fallback_displayable_name(ast)
             self.print_debug(
  """Warning: Encountered a user-defined displayable of type '{}'.
     Unfortunately, the name of user-defined displayables is not recorded in the compiled file.
-    For now the style name '{}' will be substituted.
+    For now the name '{}' will be substituted.
     To check if this is correct, find the corresponding renpy.register_sl_displayable call.""".format(
-                    ast.displayable, ast.style
+                    ast.displayable, nameAndChildren[0]
                 )
             )
         (name, children) = nameAndChildren
@@ -273,6 +327,13 @@ class SL2Decompiler(DecompilerBase):
         (layout.MultiBox, "vbox"):         ("vbox", 'many'),
         (layout.MultiBox, "hbox"):         ("hbox", 'many')
     }
+
+    if hasattr(layout, 'NearRect'):
+        displayable_names[(layout.NearRect, "default")] = ("nearrect", 1)
+    if hasattr(behavior, 'DismissBehavior'):
+        displayable_names[(behavior.DismissBehavior, "default")] = ("dismiss", 0)
+    if hasattr(behavior, 'AreaPicker'):
+        displayable_names[(behavior.AreaPicker, "default")] = ("areapicker", 1)
 
     def print_keywords_and_children(self, keywords, children, lineno, needs_colon=False, has_block=False, tag=None, variable=None, atl_transform=None):
         # This function prints the keyword arguments and child nodes

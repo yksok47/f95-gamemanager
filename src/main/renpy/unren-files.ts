@@ -3,7 +3,7 @@ import { isAbsolute, join, relative } from 'path'
 import { yieldToEventLoop } from '../disk-usage'
 import { pathIsInside } from '../processes'
 import { childPath, listDirentsAsync, pathExistsAsync, stripNamespace, toFsPath } from '../win-path'
-import { gameDirFromRoot } from './scan'
+import { gameDirFromRoot, scanScriptsWithPending } from './scan'
 
 export const UNREN_FILES_NAME = '.f95-unren-files.json'
 
@@ -13,11 +13,15 @@ export type UnRenTrackedFiles = {
   version: 1
   extract: string[]
   decompile: string[]
+  extractLocked: boolean
+  decompileLocked: boolean
 }
 
 export type UnRenTrackedCounts = {
   extract: number
   decompile: number
+  extractLocked: boolean
+  decompileLocked: boolean
 }
 
 const SKIP_DIRS = new Set([
@@ -36,7 +40,15 @@ const SKIP_FILE_RE = /\.rp[au]$/i
 const YIELD_EVERY = 64
 
 function emptyTracked(): UnRenTrackedFiles {
-  return { version: 1, extract: [], decompile: [] }
+  return { version: 1, extract: [], decompile: [], extractLocked: false, decompileLocked: false }
+}
+
+export function emptyTrackedCounts(): UnRenTrackedCounts {
+  return { extract: 0, decompile: 0, extractLocked: false, decompileLocked: false }
+}
+
+function lockKey(kind: UnRenTrackedKind): 'extractLocked' | 'decompileLocked' {
+  return kind === 'extract' ? 'extractLocked' : 'decompileLocked'
 }
 
 export function trackedFilesPath(gameRoot: string): string {
@@ -59,9 +71,11 @@ export function shouldTrackRel(rel: string): boolean {
 export function parseTrackedFiles(raw: unknown): UnRenTrackedFiles {
   const next = emptyTracked()
   if (!raw || typeof raw !== 'object') return next
-  const record = raw as { extract?: unknown; decompile?: unknown }
+  const record = raw as { extract?: unknown; decompile?: unknown; extractLocked?: unknown; decompileLocked?: unknown }
   next.extract = normalizeRels(record.extract)
   next.decompile = normalizeRels(record.decompile)
+  next.extractLocked = Boolean(record.extractLocked)
+  next.decompileLocked = Boolean(record.decompileLocked)
   return next
 }
 
@@ -83,7 +97,31 @@ export function diffNewRels(before: Set<string>, after: Set<string>): string[] {
 }
 
 export function trackedCounts(files: UnRenTrackedFiles): UnRenTrackedCounts {
-  return { extract: files.extract.length, decompile: files.decompile.length }
+  return {
+    extract: files.extract.length,
+    decompile: files.decompile.length,
+    extractLocked: files.extractLocked,
+    decompileLocked: files.decompileLocked
+  }
+}
+
+export function retractBlockedReason(
+  files: UnRenTrackedFiles,
+  kind: UnRenTrackedKind,
+  sources: { archiveCount: number; compiledWithRpy: number }
+): string | null {
+  if (kind === 'extract') {
+    if (!files.extract.length) return null
+    if (files.extractLocked || sources.archiveCount <= 0) {
+      return 'Cannot remove extracted files after the archives have been deleted.'
+    }
+    return null
+  }
+  if (!files.decompile.length) return null
+  if (files.decompileLocked || sources.compiledWithRpy <= 0) {
+    return 'Cannot remove decompiled scripts after the compiled scripts have been deleted.'
+  }
+  return null
 }
 
 function normalizeRels(value: unknown): string[] {
@@ -108,9 +146,11 @@ export async function writeTrackedFiles(gameRoot: string, files: UnRenTrackedFil
   const next: UnRenTrackedFiles = {
     version: 1,
     extract: mergeTracked([], files.extract),
-    decompile: mergeTracked([], files.decompile)
+    decompile: mergeTracked([], files.decompile),
+    extractLocked: Boolean(files.extractLocked),
+    decompileLocked: Boolean(files.decompileLocked)
   }
-  if (!next.extract.length && !next.decompile.length) {
+  if (!next.extract.length && !next.decompile.length && !next.extractLocked && !next.decompileLocked) {
     await rm(toFsPath(trackedFilesPath(gameRoot)), { force: true })
     return
   }
@@ -126,6 +166,18 @@ export async function addTrackedFiles(
 ): Promise<UnRenTrackedFiles> {
   const current = await readTrackedFiles(gameRoot)
   current[kind] = mergeTracked(current[kind], added)
+  current[lockKey(kind)] = false
+  await writeTrackedFiles(gameRoot, current)
+  return current
+}
+
+export async function setTrackedLock(
+  gameRoot: string,
+  kind: UnRenTrackedKind,
+  locked: boolean
+): Promise<UnRenTrackedFiles> {
+  const current = await readTrackedFiles(gameRoot)
+  current[lockKey(kind)] = locked
   await writeTrackedFiles(gameRoot, current)
   return current
 }
@@ -203,6 +255,61 @@ async function pruneEmptyDirs(gameDir: string, rels: string[]): Promise<void> {
   }
 }
 
+async function deleteListedFiles(gameDir: string, paths: string[]): Promise<number> {
+  let removed = 0
+  let ops = 0
+  for (const filePath of paths) {
+    ops += 1
+    if (ops >= YIELD_EVERY) {
+      ops = 0
+      await yieldToEventLoop()
+    }
+    const full = stripNamespace(filePath)
+    if (!pathIsInside(gameDir, full)) continue
+    if (!(await pathExistsAsync(full))) continue
+    try {
+      await rm(toFsPath(full), { force: true })
+      removed += 1
+    } catch {
+      // leave it
+    }
+  }
+  return removed
+}
+
+export async function discardSourceFiles(
+  gameRoot: string,
+  kind: UnRenTrackedKind
+): Promise<{ removed: number; remaining: UnRenTrackedFiles }> {
+  const root = stripNamespace(gameRoot)
+  const gameDir = gameDirFromRoot(root)
+  const scanned = await scanScriptsWithPending(root)
+  const current = await readTrackedFiles(root)
+  if (kind === 'extract') {
+    if (!scanned.status.alreadyUnpacked && !current.extract.length) {
+      throw new Error('Extract the archives before deleting them.')
+    }
+    if (!scanned.status.rpaFiles.length && !current.extractLocked) {
+      throw new Error('No archives to delete.')
+    }
+    const removed = await deleteListedFiles(
+      gameDir,
+      scanned.status.rpaFiles.map((file) => file.path)
+    )
+    const remaining = await setTrackedLock(root, 'extract', true)
+    return { removed, remaining }
+  }
+  if (!scanned.compiledWithRpy.length && !current.decompile.length && !scanned.status.alreadyDecompiled) {
+    throw new Error('Decompile the compiled scripts before deleting them.')
+  }
+  if (!scanned.compiledWithRpy.length && !current.decompileLocked) {
+    throw new Error('No compiled scripts to delete.')
+  }
+  const removed = await deleteListedFiles(gameDir, scanned.compiledWithRpy)
+  const remaining = await setTrackedLock(root, 'decompile', true)
+  return { removed, remaining }
+}
+
 export async function retractTrackedFiles(
   gameRoot: string,
   kind: UnRenTrackedKind
@@ -210,6 +317,12 @@ export async function retractTrackedFiles(
   const root = stripNamespace(gameRoot)
   const gameDir = gameDirFromRoot(root)
   const current = await readTrackedFiles(root)
+  const scanned = await scanScriptsWithPending(root)
+  const blocked = retractBlockedReason(current, kind, {
+    archiveCount: scanned.status.rpaCount,
+    compiledWithRpy: scanned.compiledWithRpy.length
+  })
+  if (blocked) throw new Error(blocked)
   const rels = current[kind]
   const leftover: string[] = []
   const removedRels: string[] = []

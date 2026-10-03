@@ -540,6 +540,8 @@ export type PlaySessionStatus = {
 
 export type UnRenAction = 'extract' | 'decompile'
 
+export type UnRenStatusAction = UnRenAction | 'locate' | 'delete-archives' | 'delete-compiled'
+
 export type RenpyToolId =
   | 'console'
   | 'quick'
@@ -655,10 +657,12 @@ export type RenpyScriptStatus = {
 export type RenpyTrackedFiles = {
   extract: number
   decompile: number
+  extractLocked: boolean
+  decompileLocked: boolean
 }
 
 export type RenpyLastRun = {
-  action: UnRenAction | 'locate'
+  action: UnRenStatusAction
   startedAt: number
   finishedAt: number | null
   ok: boolean
@@ -677,7 +681,7 @@ export type RenpySaveLocation = {
   folderName: string
 }
 
-export type RenpyInfoScope = 'saves' | 'full'
+export type RenpyInfoScope = 'saves' | 'scripts' | 'options' | 'full'
 
 export type RenpyInfo = {
   fileId: string
@@ -703,7 +707,7 @@ export type RenpyStatus = {
   fileId: string
   running: boolean
   cancelling?: boolean
-  action: UnRenAction | 'locate' | null
+  action: UnRenStatusAction | null
   message: string
   log: string
   error: string | null

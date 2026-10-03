@@ -20,7 +20,8 @@
 
 from __future__ import unicode_literals
 from util import DecompilerBase, First, WordConcatenator, reconstruct_paraminfo, \
-                 reconstruct_arginfo, string_escape, split_logical_lines, Dispatcher
+                 reconstruct_arginfo, string_escape, split_logical_lines, Dispatcher, \
+                 python_source_is_block, normalize_python_block_source
 from util import say_get_code
 
 from operator import itemgetter
@@ -558,6 +559,13 @@ class Decompiler(DecompilerBase):
         if not self.in_init:
             self.missing_init = True
 
+    def can_inline_init_child(self, node):
+        # `init $ ...` is not valid Ren'Py; `$` one-liners need an init block.
+        if isinstance(node, (renpy.ast.Python, renpy.ast.EarlyPython)):
+            code = getattr(getattr(node, 'code', None), 'source', None)
+            return python_source_is_block(code)
+        return True
+
     def set_best_init_offset(self, nodes):
         votes = {}
         for ast in nodes:
@@ -634,7 +642,8 @@ class Decompiler(DecompilerBase):
                 if ast.priority != self.init_offset:
                     self.write(" %d" % (ast.priority - self.init_offset))
 
-                if len(ast.block) == 1 and not self.should_come_before(ast, ast.block[0]):
+                if (len(ast.block) == 1 and not self.should_come_before(ast, ast.block[0])
+                        and self.can_inline_init_child(ast.block[0])):
                     self.write(" ")
                     self.skip_indent_until_write = True
                     self.print_nodes(ast.block)
@@ -733,24 +742,27 @@ class Decompiler(DecompilerBase):
         self.indent()
 
         code = ast.code.source
-        if code[0] == '\n':
-            code = code[1:]
-            self.write("python")
-            if early:
-                self.write(" early")
-            if ast.hide:
-                self.write(" hide")
-            if hasattr(ast, "store") and ast.store != "store":
-                self.write(" in ")
-                # Strip prepended "store."
-                self.write(ast.store[6:])
-            self.write(":")
-
-            with self.increase_indent():
-                self.write_lines(split_logical_lines(code))
-
-        else:
+        # pre ren'py 8.4, python blocks were stored un-indented with a leading \n
+        # after this, python blocks are stored with indentation, without a leading \n.
+        # Re-indent relative to this `python:` so nested blocks are not empty.
+        if not python_source_is_block(code):
             self.write("$ %s" % code)
+            return
+
+        code = normalize_python_block_source(code)
+        self.write("python")
+        if early:
+            self.write(" early")
+        if ast.hide:
+            self.write(" hide")
+        if hasattr(ast, "store") and ast.store != "store":
+            self.write(" in ")
+            # Strip prepended "store."
+            self.write(ast.store[6:])
+        self.write(":")
+
+        with self.increase_indent():
+            self.write_lines(split_logical_lines(code))
 
     @dispatch(renpy.ast.EarlyPython)
     def print_earlypython(self, ast):

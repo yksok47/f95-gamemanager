@@ -27,8 +27,8 @@ function Flag({ on, warn, children }: { on: boolean; warn?: boolean; children: s
 }
 
 export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
-  const { installed, activeId, setFileId, info, status, error, setError, busy, running, withInfo } =
-    useRenpySession(files, { installedOnly: true })
+  const { installed, activeId, setFileId, info, status, error, setError, busy, running, withInfo, reload } =
+    useRenpySession(files, { installedOnly: true, scope: 'scripts' })
   const logRef = useRef<HTMLPreElement>(null)
   const [logOpen, setLogOpen] = useState(false)
   const log = status?.log || info?.lastRun?.log || ''
@@ -60,13 +60,23 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
     void window.api.renpy.cancel(activeId)
   }
 
+  const extractLocked = Boolean(
+    tracked?.extractLocked || (scripts && (tracked?.extract || 0) > 0 && scripts.rpaCount === 0)
+  )
+  const compiledWithRpy = scripts ? Math.max(0, scripts.rpycCount - scripts.rpycWithoutRpy) : 0
+  const decompileLocked = Boolean(
+    tracked?.decompileLocked || (scripts && (tracked?.decompile || 0) > 0 && compiledWithRpy === 0)
+  )
+  const canDeleteArchives = Boolean(scripts && scripts.rpaCount > 0 && (tracked?.extract || scripts.alreadyUnpacked))
+  const canDeleteCompiled = compiledWithRpy > 0
+
   async function retractAction(action: UnRenAction): Promise<void> {
     if (!activeId) return
     const extractCount = tracked?.extract || 0
     const decompileCount = tracked?.decompile || 0
     const count = action === 'extract' ? extractCount : decompileCount
     const ok = await confirm({
-      title: action === 'extract' ? 'Remove extracted files' : 'Remove decompiled scripts',
+      title: action === 'extract' ? 'Remove extracted' : 'Remove decompiled',
       message:
         action === 'extract'
           ? `Delete the ${count} file(s) created by extracting .rpa archives? Original archives are kept. Decompiled .rpy files are not removed unless you remove those separately.`
@@ -76,6 +86,22 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
     })
     if (!ok) return
     await withInfo(() => window.api.renpy.retract(activeId, action))
+  }
+
+  async function discardAction(action: UnRenAction): Promise<void> {
+    if (!activeId) return
+    const archiveCount = scripts?.rpaCount || 0
+    const ok = await confirm({
+      title: action === 'extract' ? 'Delete RPA' : 'Delete RPYC',
+      message:
+        action === 'extract'
+          ? `Delete the ${archiveCount} .rpa archive(s)? This cannot be undone, and you will no longer be able to remove the extracted files.`
+          : `Delete the ${compiledWithRpy} compiled .rpyc file(s) that already have decompiled .rpy copies? This cannot be undone, and you will no longer be able to remove the decompiled scripts.`,
+      confirmLabel: 'Delete',
+      danger: true
+    })
+    if (!ok) return
+    await withInfo(() => window.api.renpy.discard(activeId, action))
   }
 
   if (!installed.length) {
@@ -132,7 +158,7 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
               className="ghost-btn"
               type="button"
               disabled={busy || running}
-              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false))}
+              onClick={() => void reload()}
             >
               Refresh
             </button>
@@ -181,12 +207,28 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                       </button>
                       {tracked?.extract ? (
                         <button
-                          className="ghost-btn"
+                          className="warn-btn"
                           type="button"
-                          disabled={busy || running}
+                          disabled={busy || running || extractLocked}
+                          title={
+                            extractLocked
+                              ? 'Archives were deleted, so extracted files cannot be removed'
+                              : 'Remove extracted files. Original RPA archives are kept.'
+                          }
                           onClick={() => void retractAction('extract')}
                         >
-                          Remove extracted files
+                          Remove extracted
+                        </button>
+                      ) : null}
+                      {canDeleteArchives ? (
+                        <button
+                          className="danger-btn"
+                          type="button"
+                          disabled={busy || running}
+                          title="Permanently delete original RPA archives"
+                          onClick={() => void discardAction('extract')}
+                        >
+                          Delete RPA
                         </button>
                       ) : null}
                     </>
@@ -229,16 +271,32 @@ export default function UnRenPanel({ files }: UnRenPanelProps): JSX.Element {
                         }
                         onClick={() => runAction('decompile')}
                       >
-                        Decompile rpyc
+                        Decompile RPYC
                       </button>
                       {tracked?.decompile ? (
                         <button
-                          className="ghost-btn"
+                          className="warn-btn"
                           type="button"
-                          disabled={busy || running}
+                          disabled={busy || running || decompileLocked}
+                          title={
+                            decompileLocked
+                              ? 'Compiled scripts were deleted, so decompiled scripts cannot be removed'
+                              : 'Remove decompiled scripts. Compiled RPYC files are kept.'
+                          }
                           onClick={() => void retractAction('decompile')}
                         >
-                          Remove decompiled scripts
+                          Remove decompiled
+                        </button>
+                      ) : null}
+                      {canDeleteCompiled ? (
+                        <button
+                          className="danger-btn"
+                          type="button"
+                          disabled={busy || running}
+                          title="Permanently delete compiled RPYC files that already have .rpy copies"
+                          onClick={() => void discardAction('decompile')}
+                        >
+                          Delete RPYC
                         </button>
                       ) : null}
                     </>

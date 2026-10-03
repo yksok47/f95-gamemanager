@@ -1264,6 +1264,35 @@ input[type='search']::-webkit-search-results-decoration {
   border-color: var(--accent);
 }
 
+.warn-btn,
+.danger-btn {
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 650;
+}
+
+.warn-btn {
+  background: color-mix(in srgb, #e08a3c 14%, transparent);
+  color: #f3c89a;
+  border: 1px solid color-mix(in srgb, #e08a3c 65%, var(--border));
+}
+
+.warn-btn:hover:not(:disabled) {
+  border-color: #e08a3c;
+  background: color-mix(in srgb, #e08a3c 24%, transparent);
+}
+
+.danger-btn {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 65%, var(--border));
+}
+
+.danger-btn:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
 .ghost-btn.nav-btn-active,
 .top-bar .ghost-btn.nav-btn-active,
 .ghost-btn[aria-pressed="true"] {
@@ -1286,7 +1315,9 @@ input[type='search']::-webkit-search-results-decoration {
 .primary-btn:disabled,
 .ghost-btn:disabled,
 .stop-btn:disabled,
-.update-btn:disabled {
+.update-btn:disabled,
+.warn-btn:disabled,
+.danger-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }

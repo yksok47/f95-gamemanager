@@ -19,8 +19,9 @@ const OPTIONS: Array<{ id: RenpyToolId; label: string; hint: string }> = [
 ]
 
 export default function OptionsPanel({ files }: OptionsPanelProps): JSX.Element {
-  const { installed, activeId, setFileId, info, busy, running, withInfo } = useRenpySession(files, {
-    installedOnly: true
+  const { installed, activeId, setFileId, info, busy, running, withInfo, reload } = useRenpySession(files, {
+    installedOnly: true,
+    scope: 'options'
   })
   const useGlobal = Boolean(info?.optionsGlobal)
   const optionsLocked = useGlobal
@@ -71,7 +72,7 @@ export default function OptionsPanel({ files }: OptionsPanelProps): JSX.Element 
               className="ghost-btn"
               type="button"
               disabled={busy || running}
-              onClick={() => void withInfo(() => window.api.renpy.info(activeId, false))}
+              onClick={() => void reload()}
             >
               Refresh
             </button>
