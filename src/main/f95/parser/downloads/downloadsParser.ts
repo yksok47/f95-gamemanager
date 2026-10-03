@@ -178,6 +178,11 @@ function isDownloadsMarker(raw: string): boolean {
   return /^(downloads?|download links?|download here|download now|mirrors?|links?)$/i.test(text)
 }
 
+/** One archive that covers every OS — not an "Other" extras bucket. */
+function isAllPlatformsLabel(raw: string): boolean {
+  return /^all(?:\s+(?:platforms?|os|systems?|builds?|versions?))?$/i.test(labelText(raw))
+}
+
 function opensDownloadArea(raw: string): boolean {
   const text = labelText(raw)
   if (isDownloadsMarker(text) || /^download links?\b/i.test(text)) return true
@@ -438,13 +443,14 @@ function systemsFromLinkLabel(raw: string): DownloadSystem[] {
   if (/^ios$/i.test(text)) return ['ios']
   if (/^joiplay$/i.test(text)) return ['joiplay']
   if (/^android$/i.test(text)) return ['android']
+  if (/^online\d*$/i.test(text) || /^html5$/i.test(text)) return ['web']
   return []
 }
 
 function isHosterLabel(raw: string): boolean {
   const text = labelText(raw)
   if (!text || text.length > 28) return false
-  return /^(mega|mediafire|pixeldrain|datanodes|gofile|workupload|mixdrop|buzzheavier|bzzhr|vikingfile|uploadhaven|anonfiles|1fichier|rapidgator|nitroflare|send\.cm|dropbox|google\s*drive|drive|akirabox|bowfile|nopy|pixel|files|mirror\s*\d+)$/i.test(
+  return /^(mega|mediafire|pixeldrain|datanodes|gofile|workupload|mixdrop|buzzheavier|bzzhr|vikingfile|uploadhaven|uploadnow|anonfiles|1fichier|rapidgator|nitroflare|send\.cm|dropbox|google\s*drive|drive|akirabox|bowfile|nopy|pixel|files|mirror\s*\d+)$/i.test(
     text
   )
 }
@@ -708,6 +714,20 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
       return true
     }
 
+    if (isAllPlatformsLabel(text)) {
+      started = true
+      blocked = false
+      systems = []
+      variants = []
+      version = null
+      entryTitle = null
+      part = null
+      contentType = 'game'
+      allowRelated = false
+      flushEntry()
+      return true
+    }
+
     const full = detail ? `${text} ${detail}` : text
     const tokens = tokenizeLabel(full)
     const foundSystems = systemsFromTokens(tokens)
@@ -828,6 +848,7 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
                 : uniqueJoin(sectionTokens, ' ')
       const nestOther =
         kind === 'other' &&
+        activeTop.kind !== 'split' &&
         (Boolean(activeTop.title) || activeTop.entries.some((entry) => entry.contentType === 'game'))
       if (nested && (kind === 'extras' || kind === 'patches' || kind === 'other')) {
         active = findOrCreateChild(activeTop, title, kind)

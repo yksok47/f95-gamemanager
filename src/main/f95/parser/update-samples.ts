@@ -23,5 +23,8 @@ function runVitest(filter?: string): void {
 
 runVitest('src/main/f95/parser/firstPost')
 propagateSamples()
+runVitest('src/main/f95/parser/changelogSection')
+runVitest('src/main/f95/parser/downloadsSection')
+propagateSamples()
 runVitest()
 process.exit(0)

@@ -75,6 +75,13 @@ function sleep(ms: number): void {
   Bun.sleepSync(ms)
 }
 
+function downloadedPageLooksLoggedOut(dest: string): boolean {
+  if (!existsSync(dest)) return false
+  const html = readFileSync(dest, 'utf8')
+  if (/data-logged-in="true"/.test(html)) return false
+  return /data-logged-in="false"/.test(html) || /You must be registered to see the links/.test(html)
+}
+
 function download(
   url: string,
   dest: string,
@@ -161,7 +168,12 @@ for (const [index, { id, url }] of pending.entries()) {
   const dest = sampleFile(parser, id, 'input.html')
   process.stdout.write(`${id}/${links.length} ${url} ... `)
   const result = download(url, dest, userAgent)
-  if (result.ok) {
+  if (result.ok && downloadedPageLooksLoggedOut(dest)) {
+    failed += 1
+    console.log(
+      `FAILED logged-out page (refresh ${COOKIES_FILE} so download links are visible)`
+    )
+  } else if (result.ok) {
     console.log(`${result.status} -> ${dest}`)
   } else {
     failed += 1

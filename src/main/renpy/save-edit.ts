@@ -4,7 +4,9 @@ import { deflateRawSync } from 'zlib'
 import type { RenpySaveEditKind, RenpySaveEditPatch, RenpySaveEditVar, RenpySaveEditorData } from '@shared/types'
 import { openZipReader } from '../zip-read'
 import { pathExists, toFsPath } from '../win-path'
-import { genops } from './pickle-ops'
+import { genops, type PickleOp } from './pickle-ops'
+import { parseStoreLeaves } from './pickle-load'
+import { updateSaveSignatures } from './save-token'
 
 const LOG_LIMITS = { maxCompressed: 32 * 1024 * 1024, maxUncompressed: 32 * 1024 * 1024 }
 const COPY_LIMITS = { maxCompressed: 64 * 1024 * 1024, maxUncompressed: 64 * 1024 * 1024 }
@@ -52,7 +54,28 @@ function displayValue(value: unknown): boolean | number | string | null {
   return String(value)
 }
 
-function makeRow(name: string, opcode: string, arg: unknown, pos: number): RenpySaveEditVar {
+/** Protocol 4+ uses MEMOIZE; older dumps memoize with PUT / BINPUT / LONG_BINPUT. */
+const MEMO_PUT_OPS = new Set(['MEMOIZE', 'BINPUT', 'LONG_BINPUT', 'PUT'])
+
+function skipMemoPuts(ops: PickleOp[], start: number): number {
+  let j = start
+  while (j < ops.length && MEMO_PUT_OPS.has(ops[j].name)) j++
+  return j
+}
+
+function makeRow(
+  name: string,
+  opcode: string,
+  arg: unknown,
+  pos: number,
+  extra?: Partial<Pick<RenpySaveEditVar, 'group' | 'groupKind' | 'field' | 'itemIndex' | 'itemStart' | 'itemEnd' | 'insertPos'>>
+): RenpySaveEditVar {
+  const row = makeRowValue(name, opcode, arg, pos)
+  if (!extra) return row
+  return { ...row, ...extra }
+}
+
+function makeRowValue(name: string, opcode: string, arg: unknown, pos: number): RenpySaveEditVar {
   if (opcode === 'NEWTRUE' || opcode === 'NEWFALSE') {
     return {
       name,
@@ -95,6 +118,29 @@ function makeRow(name: string, opcode: string, arg: unknown, pos: number): Renpy
       max: MAX_STRING_EDIT
     }
   }
+  if (opcode === 'SHORT_BINSTRING' || opcode === 'BINSTRING' || opcode === 'UNICODE' || opcode === 'STRING') {
+    const text = typeof arg === 'string' ? arg : String(arg ?? '')
+    return {
+      name,
+      displayName: displayName(name),
+      type: 'String',
+      value: text,
+      pos,
+      editable: false,
+      kind: null
+    }
+  }
+  if (opcode === 'BINFLOAT' || opcode === 'FLOAT') {
+    return {
+      name,
+      displayName: displayName(name),
+      type: 'Number',
+      value: typeof arg === 'number' ? arg : Number(arg),
+      pos,
+      editable: false,
+      kind: null
+    }
+  }
   return {
     name,
     displayName: displayName(name),
@@ -106,7 +152,7 @@ function makeRow(name: string, opcode: string, arg: unknown, pos: number): Renpy
   }
 }
 
-export function parseStoreVariables(logBytes: Buffer): RenpySaveEditVar[] {
+function parseStoreVariablesLinear(logBytes: Buffer): RenpySaveEditVar[] {
   const ops = genops(logBytes)
   const rows: RenpySaveEditVar[] = []
   for (let i = 0; i < ops.length; i++) {
@@ -116,8 +162,7 @@ export function parseStoreVariables(logBytes: Buffer): RenpySaveEditVar[] {
       typeof op.arg === 'string' &&
       op.arg.startsWith('store.')
     ) {
-      let j = i + 1
-      while (j < ops.length && ops[j].name === 'MEMOIZE') j++
+      const j = skipMemoPuts(ops, i + 1)
       if (j < ops.length) {
         const value = ops[j]
         rows.push(makeRow(op.arg, value.name, value.arg, value.pos))
@@ -125,6 +170,24 @@ export function parseStoreVariables(logBytes: Buffer): RenpySaveEditVar[] {
     }
   }
   return rows
+}
+
+export function parseStoreVariables(logBytes: Buffer): RenpySaveEditVar[] {
+  const leaves = parseStoreLeaves(logBytes)
+  if (leaves?.length) {
+    return leaves.map((leaf) =>
+      makeRow(leaf.name, leaf.opcode, leaf.arg, leaf.pos, {
+        group: leaf.group,
+        groupKind: leaf.groupKind,
+        field: leaf.field,
+        itemIndex: leaf.itemIndex,
+        itemStart: leaf.itemStart,
+        itemEnd: leaf.itemEnd,
+        insertPos: leaf.insertPos
+      })
+    )
+  }
+  return parseStoreVariablesLinear(logBytes)
 }
 
 function unicodeSpan(buf: Buffer, pos: number, kind: StringKind): number {
@@ -171,19 +234,91 @@ function bumpFrames(buf: Buffer, splicePos: number, delta: number): void {
   }
 }
 
+const MEMO_PUT_NAMES = new Set(['MEMOIZE', 'BINPUT', 'LONG_BINPUT', 'PUT'])
+const MAX_LIST_SLICE = 256 * 1024
+
+function cloneListSlice(buf: Buffer, start: number, end: number): Buffer {
+  if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start || start < 0 || end > buf.length) {
+    throw new Error('That save changed on disk. Reload and try again.')
+  }
+  if (end - start > MAX_LIST_SLICE) throw new Error('That list item is too large to copy.')
+  const slice = buf.subarray(start, end)
+  try {
+    const ops = genops(Buffer.concat([slice, Buffer.from([0x2e])]))
+    const kept: Buffer[] = []
+    for (let i = 0; i < ops.length; i++) {
+      const op = ops[i]
+      if (op.name === 'STOP') break
+      if (MEMO_PUT_NAMES.has(op.name)) continue
+      const next = ops[i + 1]
+      const opEnd = next?.name === 'STOP' || !next ? slice.length : next.pos
+      kept.push(slice.subarray(op.pos, opEnd))
+    }
+    const out = Buffer.concat(kept)
+    if (!out.length) throw new Error('That list item could not be copied.')
+    return out
+  } catch (error) {
+    if (error instanceof Error && /too large|could not be copied|changed on disk/.test(error.message)) throw error
+    return Buffer.from(slice)
+  }
+}
+
+function isSetPatch(
+  patch: RenpySaveEditPatch
+): patch is Extract<RenpySaveEditPatch, { kind: RenpySaveEditKind; value: boolean | number | string }> {
+  return !patch.op || patch.op === 'set'
+}
+
+function splicePos(patch: RenpySaveEditPatch): number {
+  if (isSetPatch(patch)) return patch.pos
+  if (patch.op === 'listInsert') return patch.at
+  return patch.start
+}
+
 export function applySavePatches(logBytes: Buffer, patches: RenpySaveEditPatch[]): Buffer {
   const rows = parseStoreVariables(logBytes)
   const byPos = new Map(rows.map((row) => [row.pos, row]))
+  const listSpans = rows
+    .filter((row) => row.itemStart != null && row.itemEnd != null && row.itemEnd > row.itemStart)
+    .map((row) => ({ start: row.itemStart!, end: row.itemEnd!, insertPos: row.insertPos }))
+
   for (const patch of patches) {
-    const row = byPos.get(patch.pos)
-    if (!row || !row.editable || row.kind !== patch.kind) {
+    if (isSetPatch(patch)) {
+      const row = byPos.get(patch.pos)
+      if (!row || !row.editable || row.kind !== patch.kind) {
+        throw new Error('That save changed on disk. Reload and try again.')
+      }
+      continue
+    }
+    if (patch.end <= patch.start || patch.start < 0 || patch.end > logBytes.length) {
       throw new Error('That save changed on disk. Reload and try again.')
+    }
+    if (patch.op === 'listInsert') {
+      if (patch.at < 0 || patch.at > logBytes.length) {
+        throw new Error('That save changed on disk. Reload and try again.')
+      }
+      const known = listSpans.some((span) => span.start === patch.start && span.end === patch.end && span.insertPos === patch.at)
+      if (!known) throw new Error('That save changed on disk. Reload and try again.')
+    } else {
+      const known = listSpans.some((span) => span.start === patch.start && span.end === patch.end)
+      if (!known) throw new Error('That save changed on disk. Reload and try again.')
     }
   }
 
   let buf = Buffer.from(logBytes)
-  const ordered = [...patches].sort((a, b) => b.pos - a.pos)
+  const ordered = [...patches].sort((a, b) => splicePos(b) - splicePos(a) || (isSetPatch(a) ? -1 : 1) - (isSetPatch(b) ? -1 : 1))
   for (const patch of ordered) {
+    if (!isSetPatch(patch)) {
+      if (patch.op === 'listRemove') {
+        bumpFrames(buf, patch.start, -(patch.end - patch.start))
+        buf = Buffer.concat([buf.subarray(0, patch.start), buf.subarray(patch.end)])
+        continue
+      }
+      const cloned = cloneListSlice(buf, patch.start, patch.end)
+      bumpFrames(buf, patch.at, cloned.length)
+      buf = Buffer.concat([buf.subarray(0, patch.at), cloned, buf.subarray(patch.at)])
+      continue
+    }
     const row = byPos.get(patch.pos)!
     if (patch.kind === 'bool') {
       if (typeof patch.value !== 'boolean') throw new Error('Boolean values must be true or false.')
@@ -301,7 +436,21 @@ export function sanitizeSavePatches(patches: unknown): RenpySaveEditPatch[] {
   const out: RenpySaveEditPatch[] = []
   for (const item of patches) {
     if (!item || typeof item !== 'object') continue
-    const rec = item as { pos?: unknown; kind?: unknown; value?: unknown }
+    const rec = item as { op?: unknown; pos?: unknown; kind?: unknown; value?: unknown; start?: unknown; end?: unknown; at?: unknown }
+    if (rec.op === 'listRemove' || rec.op === 'listInsert') {
+      const start = Number(rec.start)
+      const end = Number(rec.end)
+      if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) continue
+      if (end - start > MAX_LIST_SLICE) continue
+      if (rec.op === 'listRemove') {
+        out.push({ op: 'listRemove', start, end })
+        continue
+      }
+      const at = Number(rec.at)
+      if (!Number.isInteger(at) || at < 0) continue
+      out.push({ op: 'listInsert', at, start, end })
+      continue
+    }
     const pos = Number(rec.pos)
     const kind = rec.kind
     if (!Number.isInteger(pos) || typeof kind !== 'string' || !EDIT_KINDS.has(kind as RenpySaveEditKind)) continue
@@ -320,7 +469,11 @@ export function sanitizeSavePatches(patches: unknown): RenpySaveEditPatch[] {
   return out
 }
 
-export async function applySaveEditor(filePath: string, patches: unknown): Promise<void> {
+export async function applySaveEditor(
+  filePath: string,
+  patches: unknown,
+  tokenSearchRoots: string[] = []
+): Promise<void> {
   if (!pathExists(filePath)) throw new Error('That save is missing.')
   const unique = sanitizeSavePatches(patches)
   if (!unique.length) return
@@ -335,6 +488,7 @@ export async function applySaveEditor(filePath: string, patches: unknown): Promi
   if (nextLog.equals(log)) return
 
   files.set(logName, nextLog)
+  await updateSaveSignatures(filePath, names, files, tokenSearchRoots)
   const zipBytes = writeZipBuffer(names.map((name) => ({ name, data: files.get(name)! })))
 
   const bakPath = `${filePath}.bak`

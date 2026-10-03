@@ -566,7 +566,7 @@ export type RenpySaveFile = {
   thumbnailUrl?: string
 }
 
-/** Pickle kinds from the Ren'Py save log (protocol 4/5). */
+/** Pickle kinds from the Ren'Py save log (protocol 2–5). */
 export type RenpySaveEditKind =
   | 'bool'
   | 'BININT1'
@@ -575,6 +575,8 @@ export type RenpySaveEditKind =
   | 'SHORT_BINUNICODE'
   | 'BINUNICODE'
   | 'BINUNICODE8'
+
+export type RenpySaveEditGroupKind = 'list' | 'object' | 'dict' | 'tuple'
 
 export type RenpySaveEditVar = {
   name: string
@@ -586,13 +588,34 @@ export type RenpySaveEditVar = {
   kind: RenpySaveEditKind | null
   min?: number
   max?: number
+  group?: string
+  groupKind?: RenpySaveEditGroupKind
+  field?: string
+  itemIndex?: number
+  itemStart?: number
+  itemEnd?: number
+  insertPos?: number
+  pending?: boolean
 }
 
-export type RenpySaveEditPatch = {
-  pos: number
-  kind: RenpySaveEditKind
-  value: boolean | number | string
-}
+export type RenpySaveEditPatch =
+  | {
+      op?: 'set'
+      pos: number
+      kind: RenpySaveEditKind
+      value: boolean | number | string
+    }
+  | {
+      op: 'listRemove'
+      start: number
+      end: number
+    }
+  | {
+      op: 'listInsert'
+      at: number
+      start: number
+      end: number
+    }
 
 export type RenpySaveEditorData = {
   path: string

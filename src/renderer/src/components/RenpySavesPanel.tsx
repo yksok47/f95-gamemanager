@@ -1290,6 +1290,7 @@ export default function RenpySavesPanel({
       {editing ? (
         <RenpySaveEditorDialog
           fileId={activeId}
+          threadId={lookupThreadId}
           title={lookupTitle}
           save={editing}
           onClose={() => setEditing(null)}

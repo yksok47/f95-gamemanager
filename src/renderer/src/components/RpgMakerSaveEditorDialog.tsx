@@ -9,6 +9,17 @@ import type {
 import { confirm } from './ConfirmDialog'
 import { notifyCaught } from './ErrorNotifications'
 import { InlineLoading } from './Spinner'
+import { SaveEditorTreeRows } from './SaveEditorTree'
+import {
+  buildSaveEditorTree,
+  countLeaves,
+  filterPinnedSaveEditorEntries,
+  filterSaveEditorTree,
+  pathPartsFromSegments,
+  sortSaveEditorTree,
+  splitPinnedSaveEditorTree
+} from '../lib/save-editor-groups'
+import { saveEditorPinGameKey, useSaveEditorPins } from '../lib/save-editor-pins'
 
 type RpgMakerSaveEditorDialogProps = {
   fileId: string
@@ -46,7 +57,11 @@ export default function RpgMakerSaveEditorDialog({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const original = data?.variables ?? []
+  const { pins, pinnedPaths, togglePin } = useSaveEditorPins(
+    saveEditorPinGameKey('rpgmaker', threadId, fileId)
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -58,6 +73,7 @@ export default function RpgMakerSaveEditorDialog({
         if (cancelled) return
         setData(next)
         setRows(next.variables)
+        setExpanded(new Set(pins))
       })
       .catch((err) => {
         if (cancelled) return
@@ -76,23 +92,45 @@ export default function RpgMakerSaveEditorDialog({
     return rows.some((row, index) => row.editable && row.value !== original[index]?.value)
   }, [original, rows])
 
-  const visible = useMemo(() => {
-    const needle = filter.trim().toLowerCase()
-    if (!needle) return rows.map((row, index) => ({ row, index }))
-    return rows
-      .map((row, index) => ({ row, index }))
-      .filter(({ row }) => {
-        return (
-          row.displayName.toLowerCase().includes(needle) ||
-          formatValue(row.value).toLowerCase() === needle
-        )
-      })
-  }, [filter, rows])
+  const originalByPath = useMemo(() => new Map(original.map((row) => [pathKey(row.path), row])), [original])
+
+  function isRowChanged(row: RpgMakerSaveEditVar): boolean {
+    if (!row.editable) return false
+    const before = originalByPath.get(pathKey(row.path))
+    if (!before) return false
+    return before.value !== row.value
+  }
+
+  const indexedRows = useMemo(() => rows.map((row, index) => ({ row, index })), [rows])
+  const needle = filter.trim().toLowerCase()
+  const tree = useMemo(
+    () =>
+      sortSaveEditorTree(
+        buildSaveEditorTree(indexedRows, { partsFor: (row) => pathPartsFromSegments(row.path) })
+      ),
+    [indexedRows]
+  )
+  const { pinned, rest } = useMemo(() => splitPinnedSaveEditorTree(tree, pins), [tree, pins])
+  const visiblePinned = useMemo(() => filterPinnedSaveEditorEntries(pinned, needle), [pinned, needle])
+  const visibleRest = useMemo(
+    () => (needle ? filterSaveEditorTree(rest, needle) : rest),
+    [rest, needle]
+  )
+  const pinnedNodes = useMemo(
+    () => visiblePinned.flatMap((entry) => (entry.node ? [entry.node] : [])),
+    [visiblePinned]
+  )
 
   const editableCount = rows.filter((row) => row.editable).length
+  const visibleCount = countLeaves(pinnedNodes) + countLeaves(visibleRest)
 
   function setRowValue(index: number, value: boolean | number | string): void {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, value } : row)))
+  }
+
+  function handleTogglePin(path: string): void {
+    if (!pinnedPaths.has(path)) setExpanded((current) => new Set(current).add(path))
+    togglePin(path)
   }
 
   function patches(): RpgMakerSaveEditPatch[] {
@@ -153,6 +191,77 @@ export default function RpgMakerSaveEditorDialog({
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  function renderEditor(row: RpgMakerSaveEditVar, index: number): JSX.Element {
+    const key = pathKey(row.path)
+    if (row.type === 'Boolean' && row.editable) {
+      return (
+        <label className="save-editor-bool">
+          <input
+            type="checkbox"
+            checked={row.value === true}
+            disabled={saving}
+            onChange={() => setRowValue(index, row.value !== true)}
+          />
+          {row.value === true ? 'true' : 'false'}
+        </label>
+      )
+    }
+    if (row.editable && (row.type === 'Integer' || row.type === 'Number')) {
+      return (
+        <input
+          className="save-editor-int"
+          type="number"
+          step={row.type === 'Integer' ? 1 : 'any'}
+          value={drafts[key] ?? (typeof row.value === 'number' ? String(row.value) : '')}
+          disabled={saving}
+          onChange={(event) => {
+            const text = event.target.value
+            setDrafts((current) => ({ ...current, [key]: text }))
+            if (text === '' || text === '-' || text === '.' || text === '-.') return
+            const next = Number(text)
+            if (!Number.isFinite(next)) return
+            if (row.type === 'Integer' && !Number.isInteger(next)) return
+            setRowValue(index, next)
+          }}
+          onBlur={() => {
+            setDrafts((current) => {
+              const next = { ...current }
+              delete next[key]
+              return next
+            })
+          }}
+        />
+      )
+    }
+    if (row.editable && row.type === 'String') {
+      return (
+        <input
+          className="save-editor-str"
+          type="text"
+          value={drafts[key] ?? (typeof row.value === 'string' ? row.value : '')}
+          disabled={saving}
+          onChange={(event) => {
+            const text = event.target.value
+            setDrafts((current) => ({ ...current, [key]: text }))
+            setRowValue(index, text)
+          }}
+        />
+      )
+    }
+    return <span className="muted">{formatValue(row.value)}</span>
+  }
+
+  const treeProps = {
+    expanded,
+    setExpanded,
+    needle,
+    pinnedPaths,
+    onTogglePin: handleTogglePin,
+    isRowChanged,
+    renderValue: renderEditor,
+    saving
+  }
+
   return createPortal(
     <div
       className="app-confirm-overlay save-editor-overlay"
@@ -195,9 +304,9 @@ export default function RpgMakerSaveEditorDialog({
         ) : (
           <>
             <p className="muted save-editor-count">
-              {visible.length === rows.length
+              {visibleCount === rows.length
                 ? `${rows.length} variable${rows.length === 1 ? '' : 's'}`
-                : `${visible.length} of ${rows.length} variables`}
+                : `${visibleCount} of ${rows.length} variables`}
               {editableCount ? ` · ${editableCount} editable (booleans, numbers, and short strings)` : ''}
             </p>
             {error ? <p className="save-editor-error">{error}</p> : null}
@@ -211,69 +320,25 @@ export default function RpgMakerSaveEditorDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {visible.map(({ row, index }) => {
-                    const key = pathKey(row.path)
-                    return (
-                      <tr key={key} className={row.editable ? 'is-editable' : 'is-readonly'}>
-                        <td title={row.displayName}>{row.displayName}</td>
-                        <td>{row.type}</td>
-                        <td>
-                          {row.type === 'Boolean' && row.editable ? (
-                            <label className="save-editor-bool">
-                              <input
-                                type="checkbox"
-                                checked={row.value === true}
-                                disabled={saving}
-                                onChange={() => setRowValue(index, row.value !== true)}
-                              />
-                              {row.value === true ? 'true' : 'false'}
-                            </label>
-                          ) : row.editable && (row.type === 'Integer' || row.type === 'Number') ? (
-                            <input
-                              className="save-editor-int"
-                              type="number"
-                              step={row.type === 'Integer' ? 1 : 'any'}
-                              value={drafts[key] ?? (typeof row.value === 'number' ? String(row.value) : '')}
-                              disabled={saving}
-                              onChange={(event) => {
-                                const text = event.target.value
-                                setDrafts((current) => ({ ...current, [key]: text }))
-                                if (text === '' || text === '-' || text === '.' || text === '-.') return
-                                const next = Number(text)
-                                if (!Number.isFinite(next)) return
-                                if (row.type === 'Integer' && !Number.isInteger(next)) return
-                                setRowValue(index, next)
-                              }}
-                              onBlur={() => {
-                                setDrafts((current) => {
-                                  const next = { ...current }
-                                  delete next[key]
-                                  return next
-                                })
-                              }}
-                            />
-                          ) : row.editable && row.type === 'String' ? (
-                            <input
-                              className="save-editor-str"
-                              type="text"
-                              value={drafts[key] ?? (typeof row.value === 'string' ? row.value : '')}
-                              disabled={saving}
-                              onChange={(event) => {
-                                const text = event.target.value
-                                setDrafts((current) => ({ ...current, [key]: text }))
-                                setRowValue(index, text)
-                              }}
-                            />
-                          ) : (
-                            <span className="muted">{formatValue(row.value)}</span>
-                          )}
-                        </td>
+                  {visiblePinned.length ? (
+                    <>
+                      <tr className="save-editor-section">
+                        <td colSpan={3}>Pinned</td>
                       </tr>
-                    )
-                  })}
+                      <SaveEditorTreeRows entries={visiblePinned} usePathLabels {...treeProps} />
+                    </>
+                  ) : null}
+                  {visibleRest.length && visiblePinned.length ? (
+                    <tr className="save-editor-section">
+                      <td colSpan={3}>All variables</td>
+                    </tr>
+                  ) : null}
+                  <SaveEditorTreeRows nodes={visibleRest} {...treeProps} />
                 </tbody>
               </table>
-              {!visible.length ? <p className="muted save-editor-empty">No variables match that filter.</p> : null}
+              {!visiblePinned.length && !visibleRest.length ? (
+                <p className="muted save-editor-empty">No variables match that filter.</p>
+              ) : null}
             </div>
           </>
         )}
