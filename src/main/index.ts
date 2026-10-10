@@ -114,12 +114,6 @@ app.whenReady().then(async () => {
   const settings = await getSettings();
   registerDownloadHandler();
   registerIpc();
-  void getAuthSession()
-    .then((session) => {
-      if (!session.loggedIn) return;
-      return startFollowSync();
-    })
-    .catch((error) => console.warn("Could not start followed-game catch-up", error));
   void startCloudUserDataSync().catch((error) =>
     console.warn("Could not start user-data sync", error)
   );
@@ -159,6 +153,12 @@ app.whenReady().then(async () => {
   );
   if (await resumeInterruptedAppUpdate()) return;
   await createWindow();
+  void getAuthSession()
+    .then((session) => {
+      if (!session.loggedIn) return;
+      return startFollowSync();
+    })
+    .catch((error) => console.warn("Could not start followed-game catch-up", error));
   void startAppUpdateService();
   void adoptRunningLibrarySessions().catch((error) =>
     console.warn("Could not adopt running game processes", error)

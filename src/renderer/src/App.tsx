@@ -14,6 +14,7 @@ import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
 import { ErrorNotificationHost, errorMessage, notifyError } from './components/ErrorNotifications'
 import DownloadsDock from './components/DownloadsDock'
+import FollowSyncDock from './components/FollowSyncDock'
 import { FooterDockSlot, FooterSlot } from './components/FooterPortal'
 import GameTaskbar, { type GameTaskbarItem } from './components/GameTaskbar'
 import CatalogPage from './pages/CatalogPage'
@@ -51,6 +52,7 @@ import {
 } from './lib/taskbar-pins'
 import { latestKnownVersion, shouldListOnUpdatesPage, mergeVersionPlayStats } from '@shared/updates'
 import { useAppUpdate } from './lib/app-update'
+import { useFollowSyncStatus } from './lib/follow-sync'
 import { useStorageScan } from './lib/storage-scan'
 import { focusPageSearchOnHotkey } from './lib/page-search'
 import { PageLoading } from './components/Spinner'
@@ -242,6 +244,7 @@ export default function App(): JSX.Element {
   const [p2pShared, setP2pShared] = useState<TorrentMapEntry[]>([])
   const appUpdate = useAppUpdate()
   const storageScan = useStorageScan()
+  const followSync = useFollowSyncStatus()
   const favoriteTags = settings.favoriteTags
   const hatedTags = settings.hatedTags ?? []
   const p2pEnabled = Boolean(settings.p2pEnabled)
@@ -731,6 +734,7 @@ export default function App(): JSX.Element {
         appUpdateAvailable={appUpdate.available}
         appUpdateVersion={appUpdate.latestVersion}
         storageScanning={storageScan.scanning}
+        updatesChecking={Boolean(followSync?.running)}
         onViewChange={(next) => {
           setView(next)
         }}
@@ -932,6 +936,8 @@ export default function App(): JSX.Element {
                 }}
                 onApplyCatalogGame={applyCatalogToDetails}
                 onToggleFollow={handleToggleFollow}
+                inRoster={rosterIds.has(game.threadId)}
+                onToggleRoster={handleToggleRoster}
                 onSetRarity={handleSetRarity}
                 onIgnoredChange={handleIgnoredChange}
                 onSessionExpired={handleSessionExpired}
@@ -954,6 +960,12 @@ export default function App(): JSX.Element {
           })}
         </div>
       ) : null}
+      <FollowSyncDock
+        sync={followSync}
+        onOpenUpdates={() => {
+          setView('updates')
+        }}
+      />
       {view === 'downloads' ? null : (
         <DownloadsDock
           items={downloads}

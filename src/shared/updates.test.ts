@@ -13,6 +13,7 @@ import {
   hasPendingGameUpdate,
   latestInstalledLibraryFile,
   latestKnownVersion,
+  pendingUpdateLibraryFile,
   preferNewerVersion,
   latestOverviewVersion,
   libraryFileVersion,
@@ -223,6 +224,46 @@ describe('latestInstalledLibraryFile', () => {
         ]
       })?.id
     ).toBe('new')
+  })
+})
+
+function archiveFile(
+  partial: Partial<GameLibraryFile> & Pick<GameLibraryFile, 'id' | 'version'>
+): GameLibraryFile {
+  return installedFile({
+    installPath: null,
+    installedAt: null,
+    isInstalled: false,
+    hasArchive: true,
+    archivePath: `C:\\dl\\${partial.id}.zip`,
+    ...partial
+  })
+}
+
+describe('pendingUpdateLibraryFile', () => {
+  test('picks the catalog-version archive over an older leftover zip', () => {
+    const installed = installedFile({ id: 'old', version: '1.0' })
+    const leftover = archiveFile({ id: 'mid', version: '1.1' })
+    const latest = archiveFile({ id: 'new', version: '1.2' })
+    expect(pendingUpdateLibraryFile([installed, leftover, latest], installed, '1.2')?.id).toBe(
+      'new'
+    )
+  })
+
+  test('ignores archives that are not newer than the install', () => {
+    const installed = installedFile({ id: 'cur', version: '1.2' })
+    const older = archiveFile({ id: 'old', version: '1.1' })
+    expect(pendingUpdateLibraryFile([installed, older], installed, '1.3')).toBeNull()
+  })
+
+  test('returns null when the only archive is already installed', () => {
+    const installed = installedFile({
+      id: 'cur',
+      version: '1.0',
+      hasArchive: true,
+      archivePath: 'C:\\dl\\cur.zip'
+    })
+    expect(pendingUpdateLibraryFile([installed], installed, '1.1')).toBeNull()
   })
 })
 

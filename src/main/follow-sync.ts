@@ -37,7 +37,10 @@ const status: FollowSyncStatus = {
   checked: 0,
   updated: 0,
   pending: 0,
-  cancelled: false
+  cancelled: false,
+  mode: null,
+  page: 0,
+  totalPages: 0
 }
 
 function wasCancelled(): boolean {
@@ -80,22 +83,41 @@ async function catalogCatchUp(): Promise<number> {
   let matched = 0
   let newestOnTop = 0
   let covered = false
+  status.mode = 'catchup'
+  status.page = 0
+  status.totalPages = 0
+  status.pending = 1
+  broadcastStatus()
 
-  while (true) {
+  // Prefetch the next page while applying the current one so catch-up is not
+  // stalled by the inter-page delay used on a full manual walk.
+  let pendingFetch: ReturnType<typeof fetchCatalog> | null = fetchCatalog({
+    page: 1,
+    rows: 90,
+    sort: 'date'
+  })
+
+  while (pendingFetch) {
     if (wasCancelled()) break
-    const result = await fetchCatalog({ page, rows: 90, sort: 'date' })
+    const result = await pendingFetch
+    pendingFetch = null
     if (wasCancelled()) break
     if (!result.games.length) break
 
     if (page === 1) newestOnTop = newestCatalogTimestamp(result.games)
 
+    const done = catalogCatchUpDone(page, result.totalPages, result.games, lastSeen, seedUntil)
+    if (!done && !wasCancelled()) {
+      pendingFetch = fetchCatalog({ page: page + 1, rows: 90, sort: 'date' })
+    }
+
     matched += await applyCatalogGames(result.games)
 
-    const done = catalogCatchUpDone(page, result.totalPages, result.games, lastSeen, seedUntil)
-
-    status.checked = matched
+    status.checked = page
     status.updated = matched
     status.pending = done ? 0 : 1
+    status.page = page
+    status.totalPages = result.totalPages
     broadcastStatus()
 
     if (done) {
@@ -103,7 +125,6 @@ async function catalogCatchUp(): Promise<number> {
       break
     }
     page += 1
-    if (!(await sleepUnlessCancelled(CATALOG_PAGE_DELAY_MS))) break
   }
 
   if (catalogCatchUpShouldSeed(newestOnTop, covered, wasCancelled(), lastSeen, seedUntil)) {
@@ -129,6 +150,9 @@ async function catalogRefreshFollowed(): Promise<number> {
   status.checked = 0
   status.updated = 0
   status.pending = remaining.size
+  status.mode = 'manual'
+  status.page = 0
+  status.totalPages = 0
   broadcastStatus()
 
   while (remaining.size > 0) {
@@ -145,6 +169,8 @@ async function catalogRefreshFollowed(): Promise<number> {
     status.checked = found
     status.updated = found
     status.pending = remaining.size
+    status.page = page
+    status.totalPages = result.totalPages
     broadcastStatus()
 
     const pastOldest = cutoff > 0 && catalogPagePastTimestamp(result.games, cutoff)
@@ -165,6 +191,9 @@ async function doRun(mode: SyncMode): Promise<FollowSyncStatus> {
   status.updated = 0
   status.pending = 0
   status.cancelled = false
+  status.mode = mode
+  status.page = 0
+  status.totalPages = 0
   broadcastStatus()
   try {
     if (mode === 'catchup') {
@@ -189,6 +218,8 @@ async function doRun(mode: SyncMode): Promise<FollowSyncStatus> {
     cancelRequested = false
     status.running = false
     status.pending = 0
+    status.page = 0
+    status.totalPages = 0
     broadcastStatus()
   }
   return getFollowSyncStatus()

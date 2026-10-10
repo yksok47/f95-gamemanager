@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent} from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type PointerEvent as ReactPointerEvent} from 'react'
 import { createPortal } from 'react-dom'
 import type {
   CatalogGame,
@@ -52,6 +52,7 @@ import {
   latestInstalledLibraryFile,
   latestOverviewVersion,
   libraryFileVersion,
+  pendingUpdateLibraryFile,
   compareLibraryFilesByVersion,
   mergeVersionPlayStats,
   usableVersion,
@@ -61,6 +62,7 @@ import {
 import EngineBadge from '../components/EngineBadge'
 import LibraryPresenceIcons from '../components/LibraryPresenceIcons'
 import FollowButton from '../components/FollowButton'
+import RosterButton from '../components/RosterButton'
 import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
 import GameP2pSection from '../components/GameP2pSection'
@@ -87,6 +89,7 @@ import {
   isActiveP2pDownload,
   transferMatchesLibraryFile
 } from '../lib/downloads'
+import { useGameDownloadProgress } from '../lib/download-progress'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import {
   gamesWithPatchInstalled,
@@ -137,6 +140,8 @@ type GameDetailsPageProps = {
   onOpenThread: (threadId: number, title: string) => void
   onApplyCatalogGame: (game: CatalogGame) => void
   onToggleFollow: (game: CatalogGame) => Promise<void>
+  inRoster?: boolean
+  onToggleRoster?: (game: CatalogGame) => Promise<void>
   onSetRarity?: (threadId: number, rarity: GameRarity) => Promise<void>
   onIgnoredChange?: (threadId: number, ignored: boolean) => void
   onSessionExpired: () => Promise<void>
@@ -421,6 +426,8 @@ function GameDetailsPage({
   onOpenThread,
   onApplyCatalogGame,
   onToggleFollow,
+  inRoster = false,
+  onToggleRoster,
   onSetRarity,
   onIgnoredChange,
   onSessionExpired,
@@ -503,6 +510,7 @@ function GameDetailsPage({
   const [ignoreBusy, setIgnoreBusy] = useState(false)
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [removeAllBusy, setRemoveAllBusy] = useState(false)
+  const [updateInstallBusy, setUpdateInstallBusy] = useState(false)
   const [tagEditFile, setTagEditFile] = useState<GameLibraryFile | null>(null)
   const [tagEditBusy, setTagEditBusy] = useState(false)
   const [versionManagerOpen, setVersionManagerOpen] = useState(false)
@@ -1318,6 +1326,14 @@ function GameDetailsPage({
         .at(-1) ?? null
     )
   }, [files, latestInstalled])
+  const pendingUpdate = useMemo(
+    () =>
+      latestInstalled && updates.updateAvailable
+        ? pendingUpdateLibraryFile(files, latestInstalled, version)
+        : null,
+    [files, latestInstalled, updates.updateAvailable, version]
+  )
+  const threadDownload = useGameDownloadProgress(summary.threadId)
 
   const libraryFileSections = useMemo(() => {
     const buckets = new Map<ContentKind, GameLibraryFile[]>()
@@ -1476,6 +1492,35 @@ function GameDetailsPage({
     } catch (err) {
       notifyCaught(err, 'Could not install that archive.')
     }
+  }
+
+  async function installUpdate(file: GameLibraryFile): Promise<void> {
+    const previousId =
+      latestInstalled && latestInstalled.id !== file.id ? latestInstalled.id : null
+    const playingPrevious = previousId ? Boolean(sessionFor(previousId)) : false
+    setUpdateInstallBusy(true)
+    try {
+      await window.api.library.install(file.id, engine)
+      if (previousId && !playingPrevious) {
+        try {
+          await window.api.library.uninstall(previousId)
+        } catch (err) {
+          notifyCaught(err, 'Updated, but the previous version could not be removed.')
+        }
+      }
+    } catch (err) {
+      notifyCaught(err, 'Could not install that archive.')
+    } finally {
+      setUpdateInstallBusy(false)
+    }
+  }
+
+  function onUpdateButtonClick(): void {
+    if (pendingUpdate) {
+      void installUpdate(pendingUpdate)
+      return
+    }
+    openDownloadsTab()
   }
 
   async function installUncensorPatch(patchId: string, targetFileId: string): Promise<void> {
@@ -1775,7 +1820,7 @@ function GameDetailsPage({
     if (target.closest('.details-tab')) return false
     return Boolean(
       target.closest(
-        'button, a, input, textarea, select, label, .follow-btn, .rarity-slider, .details-pill, .link-chip, .chip, .ghost-btn, .switch, .menu-popover'
+        'button, a, input, textarea, select, label, .follow-btn, .roster-btn, .rarity-slider, .details-pill, .link-chip, .chip, .ghost-btn, .switch, .menu-popover'
       )
     )
   }
@@ -1972,11 +2017,20 @@ function GameDetailsPage({
                 </>
               )}
             </div>
-            <FollowButton
-              variant="modal"
-              subscribed={subscribed}
-              onToggle={() => void onToggleFollow(toCatalogGame(summary, details))}
-            />
+            <div className="details-hero-actions">
+              {onToggleRoster ? (
+                <RosterButton
+                  variant="modal"
+                  inRoster={inRoster}
+                  onToggle={() => void onToggleRoster(toCatalogGame(summary, details))}
+                />
+              ) : null}
+              <FollowButton
+                variant="modal"
+                subscribed={subscribed}
+                onToggle={() => void onToggleFollow(toCatalogGame(summary, details))}
+              />
+            </div>
             <div className="details-info">
               <div className="details-title-row">
                 <h1 id={`details-title-${summary.threadId}`} className="details-title">
@@ -1992,7 +2046,24 @@ function GameDetailsPage({
                     {title}
                   </a>
                 </h1>
-                <span className="details-pill">{version || 'Unknown version'}</span>
+                <span
+                  className={
+                    updates.updateAvailable
+                      ? 'details-pill details-pill-update'
+                      : updates.unplayedUpdate
+                        ? 'details-pill details-pill-play'
+                        : 'details-pill'
+                  }
+                  title={
+                    updates.updateAvailable && latestInstalledVersion
+                      ? `Latest · installed ${latestInstalledVersion}`
+                      : updates.unplayedUpdate && lastPlayedVersion
+                        ? `Latest · last played ${lastPlayedVersion}`
+                        : undefined
+                  }
+                >
+                  {version || 'Unknown version'}
+                </span>
                 <span className="details-engine-meta">
                   {engine ? (
                     <EngineBadge name={engine} />
@@ -2029,16 +2100,6 @@ function GameDetailsPage({
               </div>
               <div className="details-sub">
                 <div className="details-sub-row">
-                  {updates.updateAvailable ? (
-                    <span className="details-pill details-pill-update">
-                      Update from {latestInstalledVersion}
-                    </span>
-                  ) : null}
-                  {updates.unplayedUpdate && lastPlayedVersion ? (
-                    <span className="details-pill details-pill-play">
-                      New since {lastPlayedVersion}
-                    </span>
-                  ) : null}
                   <div className="details-creator">
                     <span>{creator || 'Unknown creator'}</span>
                     {creatorLinks.map((link) => (
@@ -2124,16 +2185,35 @@ function GameDetailsPage({
                     Play{latestInstalledVersion ? ` ${latestInstalledVersion}` : ''}
                   </button>
                 ) : null}
-                {latestInstalled && updates.updateAvailable ? (
-                  <button className="update-btn" type="button" onClick={openDownloadsTab}>
-                    Update{version ? ` to ${version}` : ''}
-                  </button>
+                {latestInstalled &&
+                (updates.updateAvailable ||
+                  (installingFile && pendingUpdate && installingFile.id === pendingUpdate.id)) ? (
+                  <UpdateActionButton
+                    version={version}
+                    downloading={Boolean(updates.updateAvailable && threadDownload)}
+                    downloadingPercent={
+                      updates.updateAvailable && threadDownload ? threadDownload.percent : null
+                    }
+                    installing={
+                      updateInstallBusy ||
+                      Boolean(
+                        installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
+                      )
+                    }
+                    installingPercent={
+                      installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
+                        ? installingFile.installPercent
+                        : null
+                    }
+                    onClick={onUpdateButtonClick}
+                  />
                 ) : null}
                 {uninstallingFile ? (
                   <button className="primary-btn btn-with-spinner" type="button" disabled>
                     <Spinner size="sm" /> Uninstalling…
                   </button>
-                ) : installingFile ? (
+                ) : installingFile &&
+                  !(pendingUpdate && installingFile.id === pendingUpdate.id) ? (
                   <button className="primary-btn" type="button" disabled>
                     Installing… {installingFile.installPercent}%
                   </button>
@@ -3002,6 +3082,53 @@ function GameDetailsPage({
         </div>
       </div>
     </div>
+  )
+}
+
+function UpdateActionButton({
+  version,
+  downloading,
+  downloadingPercent,
+  installing,
+  installingPercent,
+  onClick
+}: {
+  version: string
+  downloading: boolean
+  downloadingPercent: number | null
+  installing: boolean
+  installingPercent: number | null
+  onClick: () => void
+}): JSX.Element {
+  const percent = installing ? installingPercent : downloading ? downloadingPercent : null
+  const label = installing
+    ? installingPercent == null
+      ? 'Installing…'
+      : `Installing… ${installingPercent}%`
+    : downloading
+      ? downloadingPercent == null
+        ? 'Downloading…'
+        : `Downloading ${downloadingPercent}%`
+      : `Update${version ? ` to ${version}` : ''}`
+  const progressStyle =
+    percent == null
+      ? undefined
+      : ({ ['--p' as string]: `${Math.max(0, Math.min(100, percent))}%` } as CSSProperties)
+  return (
+    <button
+      className={
+        installing || downloading
+          ? 'update-btn update-btn-progress btn-with-spinner'
+          : 'update-btn'
+      }
+      type="button"
+      disabled={installing}
+      style={progressStyle}
+      onClick={onClick}
+    >
+      {installing || downloading ? <Spinner size="sm" /> : null}
+      {label}
+    </button>
   )
 }
 

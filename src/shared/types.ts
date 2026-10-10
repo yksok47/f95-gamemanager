@@ -896,6 +896,8 @@ export type GameSummary = {
   archived?: boolean
 }
 
+export type FollowSyncMode = 'manual' | 'catchup'
+
 export type FollowSyncStatus = {
   running: boolean
   lastRunAt: number | null
@@ -904,6 +906,9 @@ export type FollowSyncStatus = {
   updated: number
   pending: number
   cancelled: boolean
+  mode: FollowSyncMode | null
+  page: number
+  totalPages: number
 }
 
 export type ThreadField = {

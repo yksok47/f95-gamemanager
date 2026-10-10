@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   FavoriteTag,
-  FollowSyncStatus,
   HatedTag,
   ImportResult,
   Subscription,
@@ -39,7 +38,9 @@ import {
 } from '../components/FilterChip'
 import { useAdvancedFilters } from '../lib/use-advanced-filters'
 import { useGroupByUpdateDate } from '../lib/group-by-update-date'
+import { useFollowSyncStatus } from '../lib/follow-sync'
 import { useLibraryByThread, usePlaySessions } from '../lib/library'
+import { followSyncLabel, followSyncProgress } from '@shared/follow-sync'
 
 type FollowedSort = 'title' | 'date' | 'rating' | 'rarity' | 'likes' | 'views'
 
@@ -119,11 +120,6 @@ export type FollowedPageProps = {
   hiddenThreadIds?: ReadonlySet<number>
 }
 
-function syncProgress(sync: FollowSyncStatus): number {
-  const total = sync.checked + sync.pending
-  return total ? sync.checked / total : 0
-}
-
 function formatImport(result: ImportResult): string {
   const label = result.source === 'watched' ? 'watched threads' : 'bookmarks'
   return `Imported ${result.added} ${label} (${result.alreadyFollowed} already followed, ${result.found} found).`
@@ -161,21 +157,9 @@ export default function FollowedPage({
   const [groupByUpdateDate, toggleGroupByUpdateDate] = useGroupByUpdateDate()
   const updatesOnly = mode === 'updates'
   const [archiveFilter, setArchiveFilter] = useState<FilterChipState>('exclude')
-  const [sync, setSync] = useState<FollowSyncStatus | null>(null)
+  const sync = useFollowSyncStatus()
   const [catalogWatermark, setCatalogWatermark] = useState<number | null>(null)
   const importBtnRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void window.api.subscriptions.syncStatus().then((next) => {
-      if (!cancelled) setSync(next)
-    })
-    const stop = window.api.subscriptions.onSyncStatus(setSync)
-    return () => {
-      cancelled = true
-      stop()
-    }
-  }, [])
 
   useEffect(() => {
     if (!updatesOnly) return
@@ -309,7 +293,6 @@ export default function FollowedPage({
     }
     try {
       const next = await window.api.subscriptions.sync()
-      setSync(next)
       if (next.cancelled) {
         setMessage(
           next.updated
@@ -434,16 +417,12 @@ export default function FollowedPage({
             type="button"
             aria-label={
               sync?.running
-                ? sync.pending
-                  ? `Stop update check, ${sync.pending} remaining`
-                  : 'Stop update check'
+                ? `Stop update check, ${followSyncLabel(sync)}`
                 : 'Check updates'
             }
             title={
               sync?.running
-                ? sync.pending
-                  ? `Click to stop… ${sync.pending} remaining`
-                  : 'Click to stop'
+                ? `Click to stop · ${followSyncLabel(sync)}`
                 : sync?.lastRunAt
                   ? `Last check ${formatRelativeTime(sync.lastRunAt)}`
                   : 'Refresh all followed games from the catalog'
@@ -454,7 +433,7 @@ export default function FollowedPage({
               <span
                 className="sync-progress"
                 style={{
-                  ['--p' as string]: syncProgress(sync)
+                  ['--p' as string]: followSyncProgress(sync)
                 }}
               />
             ) : null}
@@ -507,13 +486,6 @@ export default function FollowedPage({
           {watermarkDisplay ? (
             <span className="muted pager-label" title={watermarkDisplay.title}>
               {watermarkDisplay.label}
-            </span>
-          ) : null}
-          {sync?.running ? (
-            <span className="muted pager-label">
-              {sync.pending
-                ? `Checking ${sync.checked}/${sync.checked + sync.pending}`
-                : 'Checking…'}
             </span>
           ) : null}
         </div>

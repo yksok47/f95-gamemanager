@@ -560,6 +560,56 @@ export function compareLibraryFilesByVersion(a: VersionedLibraryFile, b: Version
   return (a.downloadedAt || 0) - (b.downloadedAt || 0)
 }
 
+type PendingUpdateLibraryFile = VersionedLibraryFile & {
+  hasArchive: boolean
+  isInstalled: boolean
+  packageTags?: GameLibraryFile['packageTags']
+}
+
+/**
+ * Newest downloaded game archive that can replace the current install.
+ * Prefers a file whose version matches the catalog latest.
+ */
+export function pendingUpdateLibraryFile<T extends PendingUpdateLibraryFile>(
+  files: T[],
+  installed: T | null,
+  catalogVersion?: string | null
+): T | null {
+  const candidates = files.filter(
+    (file) =>
+      file.hasArchive &&
+      !file.isInstalled &&
+      isInstallableLibraryPackage(file.packageTags)
+  )
+  if (!candidates.length) return null
+
+  const installedVersion = installed ? libraryFileVersion(installed) : ''
+  const catalog = usableVersion(catalogVersion)
+  const newerThanInstalled = (file: T): boolean => {
+    const version = libraryFileVersion(file)
+    if (!installedVersion) return Boolean(version || catalog)
+    if (!version) return false
+    return compareGameVersions(version, installedVersion) > 0
+  }
+
+  if (catalog) {
+    const match =
+      [...candidates]
+        .filter(
+          (file) =>
+            compareGameVersions(libraryFileVersion(file), catalog) === 0 &&
+            newerThanInstalled(file)
+        )
+        .sort(compareLibraryFilesByVersion)
+        .at(-1) ?? null
+    if (match) return match
+  }
+
+  const newer = candidates.filter(newerThanInstalled)
+  if (!newer.length) return null
+  return [...newer].sort(compareLibraryFilesByVersion).at(-1) ?? null
+}
+
 export type LatestInstalledHint = {
   catalogVersion?: string | null
   playedVersions?: VersionPlayStat[] | null

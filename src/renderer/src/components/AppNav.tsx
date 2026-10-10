@@ -16,6 +16,7 @@ type AppNavProps = {
   appUpdateAvailable?: boolean
   appUpdateVersion?: string | null
   storageScanning?: boolean
+  updatesChecking?: boolean
   onViewChange: (view: AppView) => void
   onLogout: () => void
 }
@@ -45,6 +46,7 @@ export default function AppNav({
   appUpdateAvailable = false,
   appUpdateVersion = null,
   storageScanning = false,
+  updatesChecking = false,
   onViewChange,
   onLogout
 }: AppNavProps): JSX.Element {
@@ -77,8 +79,25 @@ export default function AppNav({
         <button
           className={view === 'updates' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"
-          title={updatesCount ? `Updates (${updatesCount})` : 'Updates'}
-          aria-label={updatesCount ? `Updates (${updatesCount})` : 'Updates'}
+          title={
+            updatesChecking
+              ? updatesCount
+                ? `Checking updates (${updatesCount})`
+                : 'Checking updates'
+              : updatesCount
+                ? `Updates (${updatesCount})`
+                : 'Updates'
+          }
+          aria-label={
+            updatesChecking
+              ? updatesCount
+                ? `Updates (${updatesCount}), checking`
+                : 'Updates, checking'
+              : updatesCount
+                ? `Updates (${updatesCount})`
+                : 'Updates'
+          }
+          aria-busy={updatesChecking || undefined}
           onClick={() => onViewChange('updates')}
         >
           <span className="nav-btn-icon">
