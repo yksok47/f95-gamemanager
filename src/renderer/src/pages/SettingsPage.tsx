@@ -14,6 +14,7 @@ import type {
 import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
+import DownloadProvidersEditor from '../components/DownloadProvidersEditor'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
@@ -25,7 +26,17 @@ import Switch from '../components/Switch'
 import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
-type SettingsTab = 'general' | 'directories' | 'p2p' | 'cloud' | 'tags' | 'hated' | 'ignored' | 'about' | 'requests'
+type SettingsTab =
+  | 'general'
+  | 'directories'
+  | 'downloads'
+  | 'p2p'
+  | 'cloud'
+  | 'tags'
+  | 'hated'
+  | 'ignored'
+  | 'about'
+  | 'requests'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -129,6 +140,7 @@ export default function SettingsPage({
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: 'General' },
     { id: 'directories', label: 'Directories' },
+    { id: 'downloads', label: 'Downloads' },
     { id: 'p2p', label: 'P2P' },
     { id: 'cloud', label: 'Cloud' },
     { id: 'tags', label: 'Favorite tags' },
@@ -326,6 +338,21 @@ export default function SettingsPage({
                 </button>
               </div>
             </div>
+          </div>
+        ) : null}
+
+        {tab === 'downloads' ? (
+          <div className="settings-tab-body">
+            <h2 className="settings-heading">Download providers</h2>
+            <p className="muted settings-lead">
+              When a post offers several mirrors, the Download button uses the highest provider on
+              this list. The other mirrors stay one click away in the arrow next to it. One-click
+              providers download without opening a browser window.
+            </p>
+            <DownloadProvidersEditor
+              order={settings.downloadProviderOrder}
+              onChange={(next) => void persist({ downloadProviderOrder: next })}
+            />
           </div>
         ) : null}
 

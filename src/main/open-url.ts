@@ -14,7 +14,7 @@ import {
   rememberDownloadContext,
   setDownloadContext
 } from './download-context'
-import { isMediaFirePageUrl, resolveMediaFireDownload } from './mediafire'
+import { resolveConnectorDownload } from './download-connectors'
 import { isUsableWindow } from './windows'
 
 type GuestInfo = {
@@ -274,12 +274,10 @@ export async function openInAppWindow(
     return
   }
 
-  if (isMediaFirePageUrl(parsed.href)) {
-    const direct = await resolveMediaFireDownload(parsed.href)
-    if (direct) {
-      sessionDownload(direct, options.context, parsed.href)
-      return
-    }
+  const direct = await resolveConnectorDownload(parsed.href)
+  if (direct) {
+    sessionDownload(direct, options.context, parsed.href)
+    return
   }
 
   const reuse = options.reuse !== false

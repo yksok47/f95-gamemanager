@@ -1,3 +1,5 @@
+import type { DownloadProviderId } from './download-providers'
+
 export type AuthSession = {
   loggedIn: boolean
   userId: string | null
@@ -239,6 +241,8 @@ export type AppSettings = {
   cloudUserDataEnabled: boolean
   /** Named catalog filter shortcuts. Synced with portable user data. */
   quickFilters: QuickFilter[]
+  /** File hosts best-first; the Download button uses the highest one a post offers. */
+  downloadProviderOrder: DownloadProviderId[]
 }
 
 /** In-memory F95zone HTML/API request (not persisted; discarded when the app exits). */

@@ -1,4 +1,8 @@
 import { createHash } from 'crypto'
+import {
+  DEFAULT_DOWNLOAD_PROVIDER_ORDER,
+  normalizeDownloadProviderOrder
+} from '@shared/download-providers'
 import { parseQuickFilters } from '@shared/quick-filters'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
@@ -37,6 +41,7 @@ export type SyncedSettingKey =
   | 'cloudSaveKeepCount'
   | 'cloudSaveIncludeAutoQuick'
   | 'quickFilters'
+  | 'downloadProviderOrder'
 
 export const SYNCED_SETTING_KEYS: SyncedSettingKey[] = [
   'favoriteTags',
@@ -47,7 +52,8 @@ export const SYNCED_SETTING_KEYS: SyncedSettingKey[] = [
   'catalogPageSize',
   'cloudSaveKeepCount',
   'cloudSaveIncludeAutoQuick',
-  'quickFilters'
+  'quickFilters',
+  'downloadProviderOrder'
 ]
 
 export type SyncedSettings = Pick<AppSettings, SyncedSettingKey>
@@ -198,7 +204,8 @@ export function emptySyncedSettings(): SyncedSettings {
     catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
     cloudSaveIncludeAutoQuick: true,
-    quickFilters: []
+    quickFilters: [],
+    downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER]
   }
 }
 
@@ -218,7 +225,8 @@ export function pickPortableSettings(settings: AppSettings): SyncedSettings {
       typeof settings.cloudSaveIncludeAutoQuick === 'boolean'
         ? settings.cloudSaveIncludeAutoQuick
         : true,
-    quickFilters: parseQuickFilters(settings.quickFilters)
+    quickFilters: parseQuickFilters(settings.quickFilters),
+    downloadProviderOrder: normalizeDownloadProviderOrder(settings.downloadProviderOrder)
   }
 }
 

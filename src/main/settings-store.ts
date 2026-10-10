@@ -1,5 +1,9 @@
 ﻿import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, isAbsolute, join } from 'path'
+import {
+  DEFAULT_DOWNLOAD_PROVIDER_ORDER,
+  normalizeDownloadProviderOrder
+} from '@shared/download-providers'
 import { parseQuickFilters } from '@shared/quick-filters'
 import { capTagsPerTier } from '@shared/ranked-tags'
 import {
@@ -175,6 +179,7 @@ function emptySettings(): AppSettings {
     cloudSaveIncludeAutoQuick: true,
     cloudUserDataEnabled: false,
     quickFilters: [],
+    downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER],
     ...defaultFolders()
   }
 }
@@ -208,7 +213,8 @@ function normalizeSettings(value: unknown): AppSettings {
     cloudSaveIncludeAutoQuick:
       typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true,
     cloudUserDataEnabled: Boolean(raw.cloudUserDataEnabled),
-    quickFilters: parseQuickFilters(raw.quickFilters)
+    quickFilters: parseQuickFilters(raw.quickFilters),
+    downloadProviderOrder: normalizeDownloadProviderOrder(raw.downloadProviderOrder)
   }
 }
 

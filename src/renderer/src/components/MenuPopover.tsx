@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom'
 export type MenuItem = {
   id: string
   label: string
+  /** Secondary text shown on the right of the item. */
+  hint?: string
   disabled?: boolean
   active?: boolean
   onClick: () => void
@@ -86,7 +88,14 @@ export function MenuPopover({
             onClose()
           }}
         >
-          {item.label}
+          {item.hint ? (
+            <span className="card-menu-item">
+              <span>{item.label}</span>
+              <span className="card-menu-hint">{item.hint}</span>
+            </span>
+          ) : (
+            item.label
+          )}
         </button>
       ))}
     </div>,
@@ -96,17 +105,26 @@ export function MenuPopover({
 
 type SplitButtonProps = {
   label: string
+  /** Muted text after the label, e.g. where the action goes. */
+  detail?: string
+  title?: string
   onClick: () => void
   items?: MenuItem[]
+  menuHeader?: ReactNode
   variant?: 'primary' | 'ghost'
+  size?: 'md' | 'sm'
   disabled?: boolean
 }
 
 export function SplitButton({
   label,
+  detail,
+  title,
   onClick,
   items = [],
+  menuHeader,
   variant = 'ghost',
+  size = 'md',
   disabled = false
 }: SplitButtonProps): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -114,9 +132,16 @@ export function SplitButton({
   const hasMenu = items.length > 0
 
   return (
-    <div className={`split-btn split-btn-${variant}`}>
-      <button className="split-btn-main" type="button" disabled={disabled} onClick={onClick}>
+    <div className={`split-btn split-btn-${variant}${size === 'sm' ? ' split-btn-sm' : ''}`}>
+      <button
+        className="split-btn-main"
+        type="button"
+        title={title}
+        disabled={disabled}
+        onClick={onClick}
+      >
         {label}
+        {detail ? <span className="split-btn-detail">{detail}</span> : null}
       </button>
       {hasMenu ? (
         <>
@@ -136,6 +161,7 @@ export function SplitButton({
             <MenuPopover
               anchor={caretRef.current}
               items={items}
+              header={menuHeader}
               onClose={() => setOpen(false)}
             />
           ) : null}

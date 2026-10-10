@@ -3,10 +3,7 @@ import { createPortal } from 'react-dom'
 import type {
   CatalogGame,
   DownloadEntry,
-  DownloadMirror,
   DownloadRecord,
-  DownloadSection,
-  DownloadSectionKind,
   FavoriteTag,
   HatedTag,
   GameLibraryFile,
@@ -25,13 +22,9 @@ import {
   CONTENT_KIND_LABELS,
   LIBRARY_FILE_SECTION_ORDER,
   OS_KIND_IDS,
-  OS_KIND_LABELS,
   TAG_TIER_RANK,
   contentKindRequiresVersion,
-  downloadHostPreference,
-  downloadMatchesHostOs,
   isInstallableLibraryPackage,
-  osKindFromNavigator,
   renpyOverlayKind,
   renpyOverlayLabel,
   type ContentKind,
@@ -65,6 +58,7 @@ import FollowButton from '../components/FollowButton'
 import RosterButton from '../components/RosterButton'
 import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
+import GameDownloadsPanel from '../components/GameDownloadsPanel'
 import GameP2pSection from '../components/GameP2pSection'
 import P2pTransferRow from '../components/P2pTransferRow'
 import { confirm } from '../components/ConfirmDialog'
@@ -90,6 +84,11 @@ import {
   transferMatchesLibraryFile
 } from '../lib/downloads'
 import { useGameDownloadProgress } from '../lib/download-progress'
+import { countDownloadMirrors } from '../lib/download-layout'
+import {
+  DEFAULT_DOWNLOAD_PROVIDER_ORDER,
+  type DownloadProviderId
+} from '@shared/download-providers'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
 import {
   gamesWithPatchInstalled,
@@ -148,6 +147,7 @@ type GameDetailsPageProps = {
   /** When false/undefined, P2P section is hidden */
   p2pEnabled?: boolean
   p2pSharedHashes?: ReadonlySet<string>
+  downloadProviderOrder?: readonly DownloadProviderId[]
   initialTab?: DetailsTab
   initialTabKey?: number
   elevated?: boolean
@@ -174,78 +174,6 @@ function fileName(path: string): string {
   return path.split(/[/\\]/).pop() || path
 }
 
-function hostLabel(url: string): string {
-  try {
-    const parsed = new URL(url)
-    const masked = parsed.pathname.match(/^\/masked\/([^/]+)/i)
-    if (masked?.[1]) return masked[1]
-    return parsed.hostname.replace(/^www\./, '')
-  } catch {
-    return 'Link'
-  }
-}
-
-/** Mirror buttons show the link text, falling back to the host when it is a bare URL. */
-function linkLabel(link: DownloadMirror): string {
-  const label = link.label.trim().replace(/[*\s]+$/, '')
-  if (!label || /^https?:\/\//i.test(label)) return hostLabel(link.url)
-  return label
-}
-
-const SYSTEM_LABELS = OS_KIND_LABELS
-
-const HOST_OS =
-  typeof navigator === 'undefined'
-    ? null
-    : osKindFromNavigator(navigator.platform, navigator.userAgent)
-
-const CONTENT_TYPE_LABELS = CONTENT_KIND_LABELS
-
-const SECTION_KIND_LABELS: Record<DownloadSectionKind, string> = {
-  current: 'Current',
-  split: 'Split',
-  archive: 'Archive',
-  edition: 'Edition',
-  patches: 'Patches',
-  extras: 'Extras',
-  other: 'Other'
-}
-
-function prettyVariant(value: string): string {
-  const key = value.trim().toLowerCase()
-  if (!key) return ''
-  if (/^(hq|lq|hd|sd|4k|1080p|720p)$/i.test(key)) return key.toUpperCase()
-  return key.charAt(0).toUpperCase() + key.slice(1)
-}
-
-function sectionHeading(section: DownloadSection): string | null {
-  if (section.title?.trim()) return section.title.trim()
-  if (section.kind === 'current') return null
-  return SECTION_KIND_LABELS[section.kind]
-}
-
-function entryHeading(entry: DownloadEntry): string {
-  const parts: string[] = []
-  if (entry.variants.length) parts.push(entry.variants.map(prettyVariant).filter(Boolean).join(' '))
-  if (entry.systems.length) parts.push(entry.systems.map((system) => SYSTEM_LABELS[system]).join(' / '))
-  if (entry.title?.trim()) parts.push(entry.title.trim())
-  else if (entry.contentType !== 'game') parts.push(CONTENT_TYPE_LABELS[entry.contentType])
-  if (entry.version?.trim()) parts.push(entry.version.trim())
-  return parts.filter(Boolean).join(' · ') || CONTENT_TYPE_LABELS[entry.contentType]
-}
-
-function countDownloadMirrors(sections: DownloadSection[]): number {
-  let total = 0
-  for (const section of sections) {
-    total += countDownloadMirrors(section.sections)
-    for (const entry of section.entries) {
-      total += entry.mirrors.length
-      for (const part of entry.parts) total += part.mirrors.length
-    }
-  }
-  return total
-}
-
 function packageHintFromEntry(entry: DownloadEntry, fallbackVersion: string): PackageTagHint | undefined {
   const os = [...new Set(entry.systems.map((system) => OS_KIND_IDS[system]))].sort((a, b) => a - b)
   const contentKind = CONTENT_KIND_IDS[entry.contentType]
@@ -265,110 +193,6 @@ function libraryFileContentKind(file: GameLibraryFile): ContentKind {
     return CONTENT_KIND_BY_ID[id as ContentKindId]
   }
   return 'game'
-}
-
-function MirrorButtons({
-  mirrors,
-  onOpen
-}: {
-  mirrors: DownloadMirror[]
-  onOpen: (url: string) => void
-}): JSX.Element {
-  return (
-    <ul>
-      {mirrors.map((link) => (
-        <li key={link.url}>
-          <button
-            className="download-link"
-            type="button"
-            title={`${link.label} · ${hostLabel(link.url)}`}
-            onClick={() => onOpen(link.url)}
-          >
-            {linkLabel(link)}
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function DownloadEntryView({
-  entry,
-  onOpen
-}: {
-  entry: DownloadEntry
-  onOpen: (url: string, entry: DownloadEntry) => void
-}): JSX.Element {
-  const heading = entryHeading(entry)
-  const typeLabel = CONTENT_TYPE_LABELS[entry.contentType]
-  const showType = entry.contentType !== 'game' && Boolean(entry.title?.trim())
-  const forThisComputer = downloadMatchesHostOs(entry.systems, HOST_OS)
-
-  return (
-    <section className="download-group">
-      <div className="download-entry-heading">
-        <h3>{heading}</h3>
-        {showType ? <span className="download-meta">{typeLabel}</span> : null}
-        {forThisComputer ? <span className="download-meta download-meta-host">This computer</span> : null}
-        {entry.unofficial ? <span className="download-meta">Unofficial</span> : null}
-      </div>
-      {entry.parts.length ? (
-        <div className="download-parts">
-          {entry.parts.map((part) => (
-            <div key={`${part.index}-${part.label}`} className="download-part">
-              <span className="download-part-label">{part.label || `Part ${part.index}`}</span>
-              <MirrorButtons mirrors={part.mirrors} onOpen={(url) => onOpen(url, entry)} />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <MirrorButtons mirrors={entry.mirrors} onOpen={(url) => onOpen(url, entry)} />
-      )}
-    </section>
-  )
-}
-
-function DownloadSectionView({
-  section,
-  onOpen,
-  nested = false
-}: {
-  section: DownloadSection
-  onOpen: (url: string, entry: DownloadEntry) => void
-  nested?: boolean
-}): JSX.Element {
-  const heading = sectionHeading(section)
-  const entries = [...section.entries].sort(
-    (a, b) => downloadHostPreference(b.systems, HOST_OS) - downloadHostPreference(a.systems, HOST_OS)
-  )
-  const body = (
-    <>
-      {entries.map((entry, index) => (
-        <DownloadEntryView
-          key={`${entryHeading(entry)}-${index}`}
-          entry={entry}
-          onOpen={onOpen}
-        />
-      ))}
-      {section.sections.map((child, index) => (
-        <DownloadSectionView
-          key={`${child.kind}-${child.title ?? 'section'}-${index}`}
-          section={child}
-          onOpen={onOpen}
-          nested
-        />
-      ))}
-    </>
-  )
-
-  if (!heading) return <>{body}</>
-
-  return (
-    <section className={nested ? 'download-section download-section-nested' : 'download-section'}>
-      <h2>{heading}</h2>
-      {body}
-    </section>
-  )
 }
 
 /** Catalog tiles use the preview CDN; the same path on attachments is the full file. */
@@ -433,6 +257,7 @@ function GameDetailsPage({
   onSessionExpired,
   p2pEnabled = false,
   p2pSharedHashes,
+  downloadProviderOrder = DEFAULT_DOWNLOAD_PROVIDER_ORDER,
   initialTab,
   initialTabKey = 0,
   elevated = false,
@@ -2455,13 +2280,11 @@ function GameDetailsPage({
         {tab === 'downloads' ? (
           <div className="download-list">
             {downloadCount ? (
-              downloads.map((section, index) => (
-                <DownloadSectionView
-                  key={`${section.kind}-${section.title ?? 'current'}-${index}`}
-                  section={section}
-                  onOpen={(url, entry) => void openUrl(url, entry)}
-                />
-              ))
+              <GameDownloadsPanel
+                sections={downloads}
+                providerOrder={downloadProviderOrder}
+                onOpen={(url, entry) => void openUrl(url, entry)}
+              />
             ) : busy ? (
               <InlineLoading label="Loading download links" />
             ) : (

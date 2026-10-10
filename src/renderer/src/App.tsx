@@ -10,6 +10,7 @@ import type {
   Subscription
 } from '@shared/types'
 import { DEFAULT_CATALOG_PAGE_SIZE, DEFAULT_CLOUD_SAVE_KEEP_COUNT } from '@shared/types'
+import { DEFAULT_DOWNLOAD_PROVIDER_ORDER } from '@shared/download-providers'
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
 import { ErrorNotificationHost, errorMessage, notifyError } from './components/ErrorNotifications'
@@ -225,7 +226,8 @@ export default function App(): JSX.Element {
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
     cloudSaveIncludeAutoQuick: true,
     cloudUserDataEnabled: false,
-    quickFilters: []
+    quickFilters: [],
+    downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER]
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [pinnedGames, setPinnedGames] = useState<TaskbarPin[]>(() => loadTaskbarPins())
@@ -943,6 +945,7 @@ export default function App(): JSX.Element {
                 onSessionExpired={handleSessionExpired}
                 p2pEnabled={p2pEnabled}
                 p2pSharedHashes={p2pSharedHashes}
+                downloadProviderOrder={settings.downloadProviderOrder}
                 initialTab={
                   detailsOpenTab?.threadId === game.threadId ? detailsOpenTab.tab : undefined
                 }
