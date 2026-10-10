@@ -310,6 +310,11 @@ export type DownloadRecord = {
   packageHint?: PackageTagHint
 }
 
+/** Result of opening a download or provider link from the app. */
+export type ShellOpenResult = {
+  downloaded: boolean
+}
+
 export type GameFileContext = {
   threadId: number
   title: string

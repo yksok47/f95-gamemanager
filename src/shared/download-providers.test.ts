@@ -15,6 +15,7 @@ describe('mirrorTarget', () => {
     expect(mirrorProvider(mirror('PIXELDRAIN', 'https://pixeldrain.com/u/abc'))).toBe('pixeldrain')
     expect(mirrorProvider(mirror('MEGA', 'https://f95zone.to/masked/mega.nz/1/2/abc'))).toBe('mega')
     expect(mirrorProvider(mirror('BUZZHEAVIER', 'https://bzzhr.to/kwkqt9wacoeq'))).toBe('buzzheavier')
+    expect(mirrorProvider(mirror('VIKINGFILE', 'https://vik1ngfile.site/f/abc'))).toBe('vikingfile')
     expect(mirrorProvider(mirror('MIXDROP', 'https://mixdrop.top/f/x'))).toBe('mixdrop')
   })
 
@@ -43,6 +44,11 @@ describe('mirrorIsOneClick', () => {
       false
     )
     expect(mirrorIsOneClick(mirror('PIXELDRAIN', 'https://pixeldrain.com/u/abc'))).toBe(false)
+    expect(mirrorIsOneClick(mirror('VIKINGFILE', 'https://vikingfile.com/f/abc'))).toBe(true)
+    expect(mirrorIsOneClick(mirror('VIKINGFILE', 'https://vik1ngfile.site/f/abc'))).toBe(true)
+    expect(mirrorIsOneClick(mirror('VIKINGFILE', 'https://f95zone.to/masked/vikingfile.com/1/2/x'))).toBe(
+      false
+    )
   })
 })
 

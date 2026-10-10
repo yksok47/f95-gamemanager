@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { Spinner } from './Spinner'
 
 export type MenuItem = {
   id: string
@@ -111,9 +112,11 @@ type SplitButtonProps = {
   onClick: () => void
   items?: MenuItem[]
   menuHeader?: ReactNode
-  variant?: 'primary' | 'ghost'
+  variant?: 'primary' | 'ghost' | 'update'
   size?: 'md' | 'sm'
   disabled?: boolean
+  /** In-progress state: spinner on the main click, extra clicks ignored. */
+  busy?: boolean
 }
 
 export function SplitButton({
@@ -125,21 +128,29 @@ export function SplitButton({
   menuHeader,
   variant = 'ghost',
   size = 'md',
-  disabled = false
+  disabled = false,
+  busy = false
 }: SplitButtonProps): JSX.Element {
   const [open, setOpen] = useState(false)
   const caretRef = useRef<HTMLButtonElement>(null)
   const hasMenu = items.length > 0
 
   return (
-    <div className={`split-btn split-btn-${variant}${size === 'sm' ? ' split-btn-sm' : ''}`}>
+    <div
+      className={`split-btn split-btn-${variant}${size === 'sm' ? ' split-btn-sm' : ''}${busy ? ' is-busy' : ''}`}
+    >
       <button
         className="split-btn-main"
         type="button"
         title={title}
         disabled={disabled}
-        onClick={onClick}
+        aria-busy={busy || undefined}
+        onClick={() => {
+          if (busy) return
+          onClick()
+        }}
       >
+        {busy ? <Spinner size="sm" /> : null}
         {label}
         {detail ? <span className="split-btn-detail">{detail}</span> : null}
       </button>
@@ -153,7 +164,10 @@ export function SplitButton({
             aria-expanded={open}
             aria-label={`${label} more actions`}
             disabled={disabled}
-            onClick={() => setOpen((value) => !value)}
+            onClick={() => {
+              if (busy) return
+              setOpen((value) => !value)
+            }}
           >
             <span aria-hidden="true">▾</span>
           </button>

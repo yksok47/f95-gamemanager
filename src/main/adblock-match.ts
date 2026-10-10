@@ -43,6 +43,7 @@ export const FILE_HOST_SUFFIXES = [
   'uploadhaven.com',
   'uploadev.com',
   'vikingfile.com',
+  'vik1ngfile.site',
   'workupload.com'
 ]
 

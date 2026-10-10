@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session } from 'electron'
 import { isDirectFileHref } from '@shared/direct-file'
-import type { GameFileContext } from '@shared/types'
+import type { GameFileContext, ShellOpenResult } from '@shared/types'
 import {
   registerGuestContents,
   shouldBlockDownload,
@@ -263,7 +263,7 @@ export async function openInAppWindow(
     opener?: BrowserWindow | null
     download?: boolean
   } = {}
-): Promise<void> {
+): Promise<ShellOpenResult> {
   const parsed = parseHttpUrl(url)
   if (!parsed) {
     throw new Error('Invalid link')
@@ -271,13 +271,13 @@ export async function openInAppWindow(
 
   if (options.download || isDirectFileUrl(parsed)) {
     startDirectDownload(parsed.href, options)
-    return
+    return { downloaded: true }
   }
 
   const direct = await resolveConnectorDownload(parsed.href)
   if (direct) {
     sessionDownload(direct, options.context, parsed.href)
-    return
+    return { downloaded: true }
   }
 
   const reuse = options.reuse !== false
@@ -288,7 +288,7 @@ export async function openInAppWindow(
     if (reuse || !primary || !isUsableWindow(primary)) primary = win
   }
 
-  if (!isUsableWindow(win)) return
+  if (!isUsableWindow(win)) return { downloaded: false }
   if (options.context) setDownloadContext(win.webContents.id, options.context)
   else clearDownloadContext(win.webContents.id)
 
@@ -305,8 +305,9 @@ export async function openInAppWindow(
     if (isUsableWindow(win) && !win.isVisible() && !guests.get(win)?.downloadStarted) {
       closeGuest(win)
     }
-    return
+    return { downloaded: Boolean(guests.get(win)?.downloadStarted) }
   }
+  return { downloaded: false }
 }
 
 export function closeAllInAppWindows(): void {

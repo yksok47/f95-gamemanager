@@ -7,7 +7,6 @@ import {
   type DownloadSection
 } from '@shared/types'
 import {
-  downloadProviderLabel,
   mirrorIsOneClick,
   mirrorTarget,
   rankMirrors,
@@ -23,6 +22,7 @@ import {
   type DownloadRowModel,
   type PlatformFilter
 } from '../lib/download-layout'
+import { linkText, mirrorAction, mirrorSource, mirrorTitle } from '../lib/download-picks'
 import { SplitButton, type MenuItem } from './MenuPopover'
 
 const HOST_OS =
@@ -31,39 +31,6 @@ const HOST_OS =
     : osKindFromNavigator(navigator.platform, navigator.userAgent)
 
 type OpenMirror = (url: string, entry: DownloadEntry) => void
-
-function hostLabel(url: string): string {
-  try {
-    const parsed = new URL(url)
-    const masked = parsed.pathname.match(/^\/masked\/([^/]+)/i)
-    if (masked?.[1]) return masked[1]
-    return parsed.hostname.replace(/^www\./, '')
-  } catch {
-    return 'Link'
-  }
-}
-
-/** Link text as posted, falling back to the host when it is a bare URL. */
-function linkText(link: DownloadMirror): string {
-  const label = link.label.trim().replace(/[*\s]+$/, '')
-  if (!label || /^https?:\/\//i.test(label)) return hostLabel(link.url)
-  return label
-}
-
-function mirrorSource(mirror: DownloadMirror): string {
-  const target = mirrorTarget(mirror)
-  if (target.kind === 'provider') return downloadProviderLabel(target.provider)
-  if (target.kind === 'file') return 'Direct file'
-  if (target.kind === 'forum') return 'F95zone'
-  return target.host.includes('.') ? target.host : linkText(mirror)
-}
-
-function mirrorAction(mirror: DownloadMirror): string {
-  const kind = mirrorTarget(mirror).kind
-  if (kind === 'forum') return 'Open post'
-  if (kind === 'web') return 'Open'
-  return 'Download'
-}
 
 function mirrorMenuItem(mirror: DownloadMirror, index: number, onOpen: (url: string) => void): MenuItem {
   const kind = mirrorTarget(mirror).kind
@@ -81,23 +48,27 @@ function MirrorPicker({
   mirrors,
   providerOrder,
   primary,
+  startingUrl,
   onOpen
 }: {
   mirrors: DownloadMirror[]
   providerOrder: readonly DownloadProviderId[]
   primary: boolean
+  startingUrl?: string | null
   onOpen: (url: string) => void
 }): JSX.Element | null {
   const ranked = useMemo(() => rankMirrors(mirrors, providerOrder), [mirrors, providerOrder])
   const best = ranked[0]
   if (!best) return null
+  const starting = Boolean(startingUrl && ranked.some((mirror) => mirror.url === startingUrl))
   return (
     <SplitButton
-      label={mirrorAction(best)}
+      label={starting ? 'Starting…' : mirrorAction(best)}
       detail={mirrorSource(best)}
-      title={`${linkText(best)} · ${hostLabel(best.url)}`}
+      title={mirrorTitle(best)}
       variant={primary ? 'primary' : 'ghost'}
       size="sm"
+      busy={starting}
       menuHeader={`${ranked.length} mirrors`}
       items={ranked.length > 1 ? ranked.map((mirror, index) => mirrorMenuItem(mirror, index, onOpen)) : []}
       onClick={() => onOpen(best.url)}
@@ -109,11 +80,13 @@ function DownloadOptionRow({
   row,
   providerOrder,
   primary,
+  startingUrl,
   onOpen
 }: {
   row: DownloadRowModel
   providerOrder: readonly DownloadProviderId[]
   primary: boolean
+  startingUrl?: string | null
   onOpen: OpenMirror
 }): JSX.Element {
   const { entry } = row
@@ -137,6 +110,7 @@ function DownloadOptionRow({
           mirrors={entry.mirrors}
           providerOrder={providerOrder}
           primary={primary}
+          startingUrl={startingUrl}
           onOpen={open}
         />
       </li>
@@ -168,6 +142,7 @@ function DownloadOptionRow({
               mirrors={part.mirrors}
               providerOrder={providerOrder}
               primary={false}
+              startingUrl={startingUrl}
               onOpen={open}
             />
           </li>
@@ -181,11 +156,13 @@ function DownloadBlocks({
   blocks,
   providerOrder,
   primaryKey,
+  startingUrl,
   onOpen
 }: {
   blocks: DownloadBlock[]
   providerOrder: readonly DownloadProviderId[]
   primaryKey?: string
+  startingUrl?: string | null
   onOpen: OpenMirror
 }): JSX.Element {
   return (
@@ -200,6 +177,7 @@ function DownloadBlocks({
                 row={row}
                 providerOrder={providerOrder}
                 primary={row.key === primaryKey}
+                startingUrl={startingUrl}
                 onOpen={onOpen}
               />
             ))}
@@ -213,12 +191,14 @@ function DownloadBlocks({
 type GameDownloadsPanelProps = {
   sections: DownloadSection[]
   providerOrder: readonly DownloadProviderId[]
+  startingUrl?: string | null
   onOpen: OpenMirror
 }
 
 export default function GameDownloadsPanel({
   sections,
   providerOrder,
+  startingUrl,
   onOpen
 }: GameDownloadsPanelProps): JSX.Element {
   const platforms = useMemo(() => availablePlatforms(sections, HOST_OS), [sections])
@@ -260,6 +240,7 @@ export default function GameDownloadsPanel({
             blocks={layout.game}
             providerOrder={providerOrder}
             primaryKey={primaryKey}
+            startingUrl={startingUrl}
             onOpen={onOpen}
           />
         </section>
@@ -278,7 +259,12 @@ export default function GameDownloadsPanel({
       {layout.addons.length ? (
         <section className="download-card">
           <h2 className="download-card-title">Patches &amp; extras</h2>
-          <DownloadBlocks blocks={layout.addons} providerOrder={providerOrder} onOpen={onOpen} />
+          <DownloadBlocks
+            blocks={layout.addons}
+            providerOrder={providerOrder}
+            startingUrl={startingUrl}
+            onOpen={onOpen}
+          />
         </section>
       ) : null}
 
@@ -287,13 +273,18 @@ export default function GameDownloadsPanel({
           <summary className="download-card-title">
             Older versions <span className="download-count">{olderCount}</span>
           </summary>
-          <DownloadBlocks blocks={layout.older} providerOrder={providerOrder} onOpen={onOpen} />
+          <DownloadBlocks
+            blocks={layout.older}
+            providerOrder={providerOrder}
+            startingUrl={startingUrl}
+            onOpen={onOpen}
+          />
         </details>
       ) : null}
 
       <p className="download-footnote">
-        Download uses the highest-ranked host from Settings › Downloads. Use the arrow for other
-        mirrors.
+        Download and Update use the highest-ranked host from Settings › Downloads. Use the arrow
+        for other mirrors.
       </p>
     </div>
   )

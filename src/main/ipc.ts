@@ -1764,7 +1764,7 @@ export function registerIpc(): void {
     'shell:open',
     async (_event, url: string, context?: GameFileContext, options?: { download?: boolean }) => {
       try {
-        await openInAppWindow(String(url), {
+        return await openInAppWindow(String(url), {
           context,
           download: Boolean(options?.download)
         })

@@ -30,6 +30,8 @@ describe('isFileLockerLandingHost', () => {
   test('matches locker front pages, not their download CDNs', () => {
     expect(isFileLockerLandingHost('www.mediafire.com')).toBe(true)
     expect(isFileLockerLandingHost('mediafire.com')).toBe(true)
+    expect(isFileLockerLandingHost('vikingfile.com')).toBe(true)
+    expect(isFileLockerLandingHost('vik1ngfile.site')).toBe(true)
     expect(isFileLockerLandingHost('download1234.mediafire.com')).toBe(false)
     expect(isFileLockerLandingHost('store1.gofile.io')).toBe(false)
   })

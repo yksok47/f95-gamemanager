@@ -41,6 +41,7 @@ const FILE_LOCKER_LANDING_HOSTS = new Set([
   'uploadev.com',
   'uploadhaven.com',
   'vikingfile.com',
+  'vik1ngfile.site',
   'workupload.com'
 ])
 

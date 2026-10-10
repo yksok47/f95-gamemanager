@@ -93,8 +93,11 @@ export default function DownloadProvidersEditor({
                 <span className="provider-hosts">{PROVIDER_HOSTS.get(id)?.join(', ')}</span>
               </span>
               {isConnectedProvider(id) ? (
-                <span className="download-tag download-tag-accent" title="Downloads without opening a browser window">
-                  One-click
+                <span
+                  className="download-tag download-tag-accent"
+                  title="Has a download connector — starts the file in the app without opening the host site"
+                >
+                  Connector
                 </span>
               ) : null}
               <span className="provider-actions">

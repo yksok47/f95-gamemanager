@@ -345,9 +345,9 @@ export default function SettingsPage({
           <div className="settings-tab-body">
             <h2 className="settings-heading">Download providers</h2>
             <p className="muted settings-lead">
-              When a post offers several mirrors, the Download button uses the highest provider on
-              this list. The other mirrors stay one click away in the arrow next to it. One-click
-              providers download without opening a browser window.
+              When a post offers several mirrors, Download and Update use the highest provider on
+              this list. The arrow next to the button picks a different host. Providers with a
+              connector (One-click) start the file in the app instead of opening their site.
             </p>
             <DownloadProvidersEditor
               order={settings.downloadProviderOrder}

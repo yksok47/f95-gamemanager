@@ -25,6 +25,7 @@ import {
   TAG_TIER_RANK,
   contentKindRequiresVersion,
   isInstallableLibraryPackage,
+  osKindFromNavigator,
   renpyOverlayKind,
   renpyOverlayLabel,
   type ContentKind,
@@ -84,9 +85,11 @@ import {
   transferMatchesLibraryFile
 } from '../lib/downloads'
 import { useGameDownloadProgress } from '../lib/download-progress'
-import { countDownloadMirrors } from '../lib/download-layout'
+import { countDownloadMirrors, defaultPlatformFilter } from '../lib/download-layout'
+import { listHeaderDownloadPicks, mirrorTitle, type DownloadPick } from '../lib/download-picks'
 import {
   DEFAULT_DOWNLOAD_PROVIDER_ORDER,
+  mirrorIsOneClick,
   type DownloadProviderId
 } from '@shared/download-providers'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
@@ -112,6 +115,11 @@ import {
   writeDetailsSession,
   type DetailsModalTab
 } from '../lib/details-session-cache'
+
+const HOST_OS =
+  typeof navigator === 'undefined'
+    ? null
+    : osKindFromNavigator(navigator.platform, navigator.userAgent)
 
 type DetailsTab = DetailsModalTab
 
@@ -336,6 +344,7 @@ function GameDetailsPage({
   const [archiveBusy, setArchiveBusy] = useState(false)
   const [removeAllBusy, setRemoveAllBusy] = useState(false)
   const [updateInstallBusy, setUpdateInstallBusy] = useState(false)
+  const [startingUrl, setStartingUrl] = useState<string | null>(null)
   const [tagEditFile, setTagEditFile] = useState<GameLibraryFile | null>(null)
   const [tagEditBusy, setTagEditBusy] = useState(false)
   const [versionManagerOpen, setVersionManagerOpen] = useState(false)
@@ -698,6 +707,14 @@ function GameDetailsPage({
   const gallery = details?.gallery ?? []
   const downloads = details?.downloads ?? []
   const downloadCount = useMemo(() => countDownloadMirrors(downloads), [downloads])
+  const downloadPicks = useMemo(() => {
+    if (!downloads.length) return []
+    return listHeaderDownloadPicks(
+      downloads,
+      defaultPlatformFilter(downloads, HOST_OS),
+      downloadProviderOrder
+    )
+  }, [downloads, downloadProviderOrder])
   const changelog = details?.changelog ?? []
   const notes = details?.notes ?? []
   const updatedLabel =
@@ -1160,6 +1177,16 @@ function GameDetailsPage({
   )
   const threadDownload = useGameDownloadProgress(summary.threadId)
 
+  useEffect(() => {
+    if (!startingUrl) return
+    if (threadDownload) {
+      setStartingUrl(null)
+      return
+    }
+    const timer = window.setTimeout(() => setStartingUrl(null), 30_000)
+    return () => window.clearTimeout(timer)
+  }, [startingUrl, threadDownload])
+
   const libraryFileSections = useMemo(() => {
     const buckets = new Map<ContentKind, GameLibraryFile[]>()
     for (const file of files) {
@@ -1241,28 +1268,36 @@ function GameDetailsPage({
     const contextVersion = entry
       ? entryVersion || (requiresVersion ? version : '')
       : version
-    await window.api.shell.open(
-      url,
-      {
-        threadId: summary.threadId,
-        title,
-        version: contextVersion,
-        engine,
-        creator,
-        coverUrl: coverUrl || summary.coverUrl,
-        rating: summary.rating,
-        likes: summary.likes,
-        views: summary.views,
-        threadUrl: summary.threadUrl || details?.threadUrl,
-        prefixes: summary.prefixes,
-        tags: summary.tags,
-        timestamp: summary.timestamp,
-        updatedAt: summary.updatedAt,
-        screens: summary.screens,
-        packageHint
-      },
-      download ? { download: true } : undefined
-    )
+    const oneClick = Boolean(entry) && mirrorIsOneClick({ label: '', url })
+    if (oneClick) setStartingUrl(url)
+    try {
+      const result = await window.api.shell.open(
+        url,
+        {
+          threadId: summary.threadId,
+          title,
+          version: contextVersion,
+          engine,
+          creator,
+          coverUrl: coverUrl || summary.coverUrl,
+          rating: summary.rating,
+          likes: summary.likes,
+          views: summary.views,
+          threadUrl: summary.threadUrl || details?.threadUrl,
+          prefixes: summary.prefixes,
+          tags: summary.tags,
+          timestamp: summary.timestamp,
+          updatedAt: summary.updatedAt,
+          screens: summary.screens,
+          packageHint
+        },
+        download ? { download: true } : undefined
+      )
+      if (oneClick && !result?.downloaded) setStartingUrl(null)
+    } catch (err) {
+      if (oneClick) setStartingUrl(null)
+      notifyCaught(err, 'Could not start that download.')
+    }
   }
 
   async function approveTransfer(id: string, tags: PackageInstallTags): Promise<void> {
@@ -1309,6 +1344,10 @@ function GameDetailsPage({
   function openDownloadsTab(): void {
     setTab('downloads')
     setP2pReloadKey((n) => n + 1)
+  }
+
+  function openDownloadPick(pick: DownloadPick): void {
+    void openUrl(pick.mirror.url, pick.entry)
   }
 
   async function installFile(id: string): Promise<void> {
@@ -2013,25 +2052,42 @@ function GameDetailsPage({
                 {latestInstalled &&
                 (updates.updateAvailable ||
                   (installingFile && pendingUpdate && installingFile.id === pendingUpdate.id)) ? (
-                  <UpdateActionButton
-                    version={version}
-                    downloading={Boolean(updates.updateAvailable && threadDownload)}
-                    downloadingPercent={
-                      updates.updateAvailable && threadDownload ? threadDownload.percent : null
-                    }
-                    installing={
-                      updateInstallBusy ||
-                      Boolean(
+                  updateInstallBusy ||
+                  Boolean(
+                    installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
+                  ) ||
+                  (updates.updateAvailable && threadDownload) ||
+                  Boolean(startingUrl) ||
+                  pendingUpdate ||
+                  !downloadPicks.length ? (
+                    <UpdateActionButton
+                      version={version}
+                      starting={Boolean(startingUrl) && !threadDownload}
+                      downloading={Boolean(updates.updateAvailable && threadDownload)}
+                      downloadingPercent={
+                        updates.updateAvailable && threadDownload ? threadDownload.percent : null
+                      }
+                      installing={
+                        updateInstallBusy ||
+                        Boolean(
+                          installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
+                        )
+                      }
+                      installingPercent={
                         installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
-                      )
-                    }
-                    installingPercent={
-                      installingFile && pendingUpdate && installingFile.id === pendingUpdate.id
-                        ? installingFile.installPercent
-                        : null
-                    }
-                    onClick={onUpdateButtonClick}
-                  />
+                          ? installingFile.installPercent
+                          : null
+                      }
+                      onClick={onUpdateButtonClick}
+                    />
+                  ) : (
+                    <HeaderDownloadSplit
+                      label={`Update${version ? ` to ${version}` : ''}`}
+                      picks={downloadPicks}
+                      variant="update"
+                      onOpen={openDownloadPick}
+                    />
+                  )
                 ) : null}
                 {uninstallingFile ? (
                   <button className="primary-btn btn-with-spinner" type="button" disabled>
@@ -2051,9 +2107,31 @@ function GameDetailsPage({
                     Install{libraryFileVersion(pendingInstall) ? ` ${libraryFileVersion(pendingInstall)}` : ''}
                   </button>
                 ) : filesReady && !hasLocalCopy ? (
-                  <button className="primary-btn" type="button" onClick={openDownloadsTab}>
-                    Download
-                  </button>
+                  startingUrl || threadDownload ? (
+                    <button
+                      className="primary-btn btn-progress"
+                      type="button"
+                      disabled={Boolean(startingUrl)}
+                      style={buttonProgressStyle(threadDownload?.percent)}
+                    >
+                      {startingUrl
+                        ? 'Starting…'
+                        : threadDownload?.percent == null
+                          ? 'Downloading…'
+                          : `Downloading ${threadDownload.percent}%`}
+                    </button>
+                  ) : downloadPicks.length ? (
+                    <HeaderDownloadSplit
+                      label="Download"
+                      picks={downloadPicks}
+                      variant="primary"
+                      onOpen={openDownloadPick}
+                    />
+                  ) : (
+                    <button className="primary-btn" type="button" onClick={openDownloadsTab}>
+                      Download
+                    </button>
+                  )
                 ) : null}
                 <MoreMenu
                   disabled={ignoreBusy || archiveBusy || removeAllBusy}
@@ -2283,6 +2361,7 @@ function GameDetailsPage({
               <GameDownloadsPanel
                 sections={downloads}
                 providerOrder={downloadProviderOrder}
+                startingUrl={startingUrl}
                 onOpen={(url, entry) => void openUrl(url, entry)}
               />
             ) : busy ? (
@@ -2908,8 +2987,54 @@ function GameDetailsPage({
   )
 }
 
+function HeaderDownloadSplit({
+  label,
+  picks,
+  variant,
+  onOpen
+}: {
+  label: string
+  picks: DownloadPick[]
+  variant: 'primary' | 'update'
+  onOpen: (pick: DownloadPick) => void
+}): JSX.Element | null {
+  const best = picks[0]
+  if (!best) return null
+  return (
+    <SplitButton
+      label={label}
+      title={mirrorTitle(best.mirror)}
+      variant={variant}
+      menuHeader={picks.length > 1 ? `${picks.length} downloads` : undefined}
+      items={
+        picks.length > 1
+          ? picks.map((pick, index) => ({
+              id: pick.key,
+              label: pick.source,
+              hint: [
+                pick.heading !== best.heading ? pick.heading : '',
+                pick.oneClick ? 'One-click' : ''
+              ]
+                .filter(Boolean)
+                .join(' · ') || undefined,
+              active: index === 0,
+              onClick: () => onOpen(pick)
+            }))
+          : []
+      }
+      onClick={() => onOpen(best)}
+    />
+  )
+}
+
+function buttonProgressStyle(percent: number | null | undefined): CSSProperties | undefined {
+  if (percent == null) return undefined
+  return { ['--p' as string]: `${Math.max(0, Math.min(100, percent))}%` }
+}
+
 function UpdateActionButton({
   version,
+  starting,
   downloading,
   downloadingPercent,
   installing,
@@ -2917,6 +3042,7 @@ function UpdateActionButton({
   onClick
 }: {
   version: string
+  starting?: boolean
   downloading: boolean
   downloadingPercent: number | null
   installing: boolean
@@ -2928,28 +3054,22 @@ function UpdateActionButton({
     ? installingPercent == null
       ? 'Installing…'
       : `Installing… ${installingPercent}%`
-    : downloading
-      ? downloadingPercent == null
-        ? 'Downloading…'
-        : `Downloading ${downloadingPercent}%`
-      : `Update${version ? ` to ${version}` : ''}`
-  const progressStyle =
-    percent == null
-      ? undefined
-      : ({ ['--p' as string]: `${Math.max(0, Math.min(100, percent))}%` } as CSSProperties)
+    : starting
+      ? 'Starting…'
+      : downloading
+        ? downloadingPercent == null
+          ? 'Downloading…'
+          : `Downloading ${downloadingPercent}%`
+        : `Update${version ? ` to ${version}` : ''}`
+  const inProgress = installing || starting || downloading
   return (
     <button
-      className={
-        installing || downloading
-          ? 'update-btn update-btn-progress btn-with-spinner'
-          : 'update-btn'
-      }
+      className={inProgress ? 'update-btn btn-progress' : 'update-btn'}
       type="button"
-      disabled={installing}
-      style={progressStyle}
+      disabled={installing || starting}
+      style={buttonProgressStyle(percent)}
       onClick={onClick}
     >
-      {installing || downloading ? <Spinner size="sm" /> : null}
       {label}
     </button>
   )

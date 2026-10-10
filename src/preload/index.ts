@@ -46,6 +46,7 @@ import type {
   ThreadPostSearchPage,
   ThreadPostsPage,
   ThreadReviewsPage,
+  ShellOpenResult,
   IgnoredThread,
   FollowSyncStatus,
   UnRenAction,
@@ -585,8 +586,11 @@ const api = {
       ipcRenderer.invoke('htmlgame:deleteKeys', fileId, threadId, keys, title)
   },
   shell: {
-    open: (url: string, context?: GameFileContext, options?: { download?: boolean }): Promise<void> =>
-      ipcRenderer.invoke('shell:open', url, context, options)
+    open: (
+      url: string,
+      context?: GameFileContext,
+      options?: { download?: boolean }
+    ): Promise<ShellOpenResult> => ipcRenderer.invoke('shell:open', url, context, options)
   },
   p2p: {
     status: (): Promise<unknown> => ipcRenderer.invoke('p2p:status'),

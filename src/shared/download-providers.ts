@@ -23,7 +23,7 @@ export const DOWNLOAD_PROVIDERS = [
   { id: 'datanodes', label: 'DataNodes', hosts: ['datanodes.to'] },
   { id: 'workupload', label: 'Workupload', hosts: ['workupload.com'] },
   { id: 'uploadhaven', label: 'UploadHaven', hosts: ['uploadhaven.com'] },
-  { id: 'vikingfile', label: 'VikingFile', hosts: ['vikingfile.com'] },
+  { id: 'vikingfile', label: 'VikingFile', hosts: ['vikingfile.com', 'vik1ngfile.site'] },
   { id: 'akirabox', label: 'AkiraBox', hosts: ['akirabox.com'] },
   { id: 'krakenfiles', label: 'KrakenFiles', hosts: ['krakenfiles.com'] },
   { id: 'uploadnow', label: 'UploadNow', hosts: ['uploadnow.io'] },
@@ -50,7 +50,7 @@ type KnownProvider = (typeof DOWNLOAD_PROVIDERS)[number]
 export type DownloadProviderId = KnownProvider['id']
 
 /** Providers with a main-process connector that fetches the file without a browser window. */
-export const CONNECTED_PROVIDER_IDS = ['mediafire'] as const satisfies readonly DownloadProviderId[]
+export const CONNECTED_PROVIDER_IDS = ['mediafire', 'vikingfile'] as const satisfies readonly DownloadProviderId[]
 
 export type ConnectedProviderId = (typeof CONNECTED_PROVIDER_IDS)[number]
 

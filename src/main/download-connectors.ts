@@ -5,12 +5,14 @@ import {
   type ConnectedProviderId
 } from '@shared/download-providers'
 import { resolveMediaFireDownload } from './mediafire'
+import { resolveVikingFileDownload } from './vikingfile'
 
 /** Turns a host page URL into a file URL the session can download, or null to fall back to a browser window. */
 type DownloadConnector = (pageUrl: string) => Promise<string | null>
 
 const CONNECTORS: Record<ConnectedProviderId, DownloadConnector> = {
-  mediafire: resolveMediaFireDownload
+  mediafire: resolveMediaFireDownload,
+  vikingfile: resolveVikingFileDownload
 }
 
 export async function resolveConnectorDownload(pageUrl: string): Promise<string | null> {
