@@ -1,14 +1,17 @@
 import { useMemo, useState, type JSX } from 'react'
 import {
+  CONTENT_KIND_LABELS,
   OS_KIND_LABELS,
   osKindFromNavigator,
   type DownloadEntry,
   type DownloadMirror,
-  type DownloadSection
+  type DownloadSection,
+  type KnownDownloadFile
 } from '@shared/types'
 import {
   mirrorIsOneClick,
   mirrorTarget,
+  mirrorUsesConnector,
   rankMirrors,
   type DownloadProviderId
 } from '@shared/download-providers'
@@ -23,6 +26,8 @@ import {
   type PlatformFilter
 } from '../lib/download-layout'
 import { linkText, mirrorAction, mirrorSource, mirrorTitle } from '../lib/download-picks'
+import { formatBytes } from '../lib/downloads'
+import { trustWarning } from '../lib/p2p-trust'
 import { SplitButton, type MenuItem } from './MenuPopover'
 
 const HOST_OS =
@@ -30,18 +35,49 @@ const HOST_OS =
     ? null
     : osKindFromNavigator(navigator.platform, navigator.userAgent)
 
-type OpenMirror = (url: string, entry: DownloadEntry) => void
+type OpenMirrorOptions = { skipConnector?: boolean }
+type OpenMirror = (url: string, entry: DownloadEntry, options?: OpenMirrorOptions) => void
 
-function mirrorMenuItem(mirror: DownloadMirror, index: number, onOpen: (url: string) => void): MenuItem {
+function peerHint(mirror: DownloadMirror): string | undefined {
+  const p2p = mirror.p2p
+  if (!p2p) return undefined
+  if (p2p.flagCounts.harmful > 0) return `Flagged harmful ×${p2p.flagCounts.harmful}`
+  if (p2p.seeders == null) return 'One-click'
+  return p2p.seeders > 0 ? `${p2p.seeders} seeding` : 'Nobody seeding'
+}
+
+function mirrorMenuItem(
+  mirror: DownloadMirror,
+  index: number,
+  onOpen: (url: string, options?: OpenMirrorOptions) => void
+): MenuItem {
   const kind = mirrorTarget(mirror).kind
   const named = kind === 'forum' || kind === 'web'
-  return {
+  const item: MenuItem = {
     id: `${index}-${mirror.url}`,
     label: named ? linkText(mirror) : mirrorSource(mirror),
-    hint: named ? mirrorSource(mirror) : mirrorIsOneClick(mirror) ? 'One-click' : undefined,
+    hint: named
+      ? mirrorSource(mirror)
+      : (peerHint(mirror) ?? (mirrorIsOneClick(mirror) ? 'One-click' : undefined)),
     active: index === 0,
     onClick: () => onOpen(mirror.url)
   }
+  if (mirrorUsesConnector(mirror)) {
+    item.link = {
+      label: 'Open in browser',
+      title: 'If one-click fails',
+      onClick: () => onOpen(mirror.url, { skipConnector: true })
+    }
+  }
+  return item
+}
+
+function pickerMenuItems(
+  ranked: DownloadMirror[],
+  onOpen: (url: string, options?: OpenMirrorOptions) => void
+): MenuItem[] {
+  if (ranked.length < 2 && !ranked.some(mirrorUsesConnector)) return []
+  return ranked.map((mirror, index) => mirrorMenuItem(mirror, index, onOpen))
 }
 
 function MirrorPicker({
@@ -55,12 +91,13 @@ function MirrorPicker({
   providerOrder: readonly DownloadProviderId[]
   primary: boolean
   startingUrl?: string | null
-  onOpen: (url: string) => void
+  onOpen: (url: string, options?: OpenMirrorOptions) => void
 }): JSX.Element | null {
   const ranked = useMemo(() => rankMirrors(mirrors, providerOrder), [mirrors, providerOrder])
   const best = ranked[0]
   if (!best) return null
   const starting = Boolean(startingUrl && ranked.some((mirror) => mirror.url === startingUrl))
+  const items = pickerMenuItems(ranked, onOpen)
   return (
     <SplitButton
       label={starting ? 'Starting…' : mirrorAction(best)}
@@ -69,10 +106,56 @@ function MirrorPicker({
       variant={primary ? 'primary' : 'ghost'}
       size="sm"
       busy={starting}
-      menuHeader={`${ranked.length} mirrors`}
-      items={ranked.length > 1 ? ranked.map((mirror, index) => mirrorMenuItem(mirror, index, onOpen)) : []}
+      menuHeader={ranked.length > 1 ? `${ranked.length} mirrors` : undefined}
+      items={items}
       onClick={() => onOpen(best.url)}
     />
+  )
+}
+
+const KNOWN_FILES_SHOWN = 3
+
+function knownFileFacts(file: KnownDownloadFile): string {
+  return [
+    file.sizeBytes ? formatBytes(file.sizeBytes) : '',
+    file.os.map((os) => OS_KIND_LABELS[os]).join(' / '),
+    file.contentKind ? CONTENT_KIND_LABELS[file.contentKind] : 'Untagged',
+    file.version ?? '',
+    `${file.installCount} install${file.installCount === 1 ? '' : 's'}`
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function KnownFiles({ files, peerShared }: { files: KnownDownloadFile[]; peerShared: boolean }): JSX.Element {
+  const extra = files.length - KNOWN_FILES_SHOWN
+  return (
+    <ul
+      className="download-known"
+      title={
+        peerShared
+          ? 'Shared over P2P by other app users; not linked in the post'
+          : 'Files app users got from these links, with the tags they voted on'
+      }
+    >
+      {files.slice(0, KNOWN_FILES_SHOWN).map((file) => {
+        const warning = trustWarning(file)
+        return (
+          <li key={file.contentHash}>
+            {peerShared ? null : <span className="download-known-name">{file.filename}</span>}
+            <span className="download-known-facts">{knownFileFacts(file)}</span>
+            {warning ? (
+              <span className={`download-known-warning p2p-trust-note-${warning.tone}`}>{warning.text}</span>
+            ) : null}
+          </li>
+        )
+      })}
+      {extra > 0 ? (
+        <li className="download-known-facts">
+          +{extra} more file{extra === 1 ? '' : 's'}
+        </li>
+      ) : null}
+    </ul>
   )
 }
 
@@ -90,7 +173,7 @@ function DownloadOptionRow({
   onOpen: OpenMirror
 }): JSX.Element {
   const { entry } = row
-  const open = (url: string): void => onOpen(url, entry)
+  const open = (url: string, options?: OpenMirrorOptions): void => onOpen(url, entry, options)
   const head = (
     <div className="download-option-head">
       <span className="download-option-title">{entryHeading(entry)}</span>
@@ -99,8 +182,16 @@ function DownloadOptionRow({
           {tag}
         </span>
       ))}
+      {entry.peerShared ? (
+        <span className="download-tag download-tag-accent" title="Not in the post — shared by other app users">
+          P2P only
+        </span>
+      ) : null}
     </div>
   )
+  const known = entry.known?.length ? (
+    <KnownFiles files={entry.known} peerShared={Boolean(entry.peerShared)} />
+  ) : null
 
   if (!entry.parts.length) {
     return (
@@ -113,6 +204,7 @@ function DownloadOptionRow({
           startingUrl={startingUrl}
           onOpen={open}
         />
+        {known}
       </li>
     )
   }
@@ -148,6 +240,7 @@ function DownloadOptionRow({
           </li>
         ))}
       </ol>
+      {known}
     </li>
   )
 }
@@ -283,8 +376,9 @@ export default function GameDownloadsPanel({
       ) : null}
 
       <p className="download-footnote">
-        Download and Update use the highest-ranked host from Settings › Downloads. Use the arrow
-        for other mirrors.
+        Download and Update use the highest-ranked host from Settings › Downloads, where
+        Peer-to-peer can be ranked too. Use the arrow for other mirrors, or to open a host page if
+        one-click fails.
       </p>
     </div>
   )

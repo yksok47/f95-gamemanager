@@ -1056,8 +1056,56 @@ input[type='search']::-webkit-search-results-decoration {
   max-width: 220px;
 }
 
+.card-menu-row {
+  display: flex;
+  align-items: stretch;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.card-menu-row .card-menu-main {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  border-radius: 0;
+}
+
+.card-menu-row .card-menu-link {
+  width: auto;
+  flex: none;
+  padding: 9px 12px 9px 4px;
+  border-radius: 0;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--muted);
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.card-menu-row:hover {
+  background: var(--bg-card);
+}
+
+.card-menu-row.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.card-menu-row.is-active .card-menu-main {
+  color: var(--accent);
+}
+
 .card-menu button:hover:not(:disabled) {
   background: var(--bg-card);
+}
+
+.card-menu-row button:hover:not(:disabled) {
+  background: transparent;
+}
+
+.card-menu-row .card-menu-link:hover:not(:disabled) {
+  color: var(--accent);
 }
 
 .card-menu button.is-active,
@@ -4818,6 +4866,40 @@ body.is-details-modal-dragging .details-modal-shell * {
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+.download-known {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 100%;
+  display: grid;
+  gap: 2px;
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.download-known li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.download-known-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.download-known-facts {
+  color: var(--muted);
+}
+
+.download-known-warning {
+  flex: 1 1 100%;
+}
+
 .download-part-list {
   list-style: none;
   margin: 0;
@@ -6929,78 +7011,9 @@ body.is-save-dragging * {
   align-items: baseline;
   margin: 8px 0 4px;
 }
-.p2p-discovery-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin: 12px 0 16px;
-}
-.p2p-discovery-search {
-  flex: 1 1 240px;
-  min-width: 200px;
-  max-width: 480px;
-}
-.p2p-discovery-sort {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-.p2p-discovery-flagged {
-  margin: 0;
-}
-.p2p-discovery-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 12px;
-}
-.p2p-discovery-item {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-raised);
-}
-.p2p-discovery-main {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-.p2p-discovery-sub {
-  font-size: 0.9rem;
-  margin-top: 2px;
-}
-.p2p-discovery-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 6px;
-  font-size: 0.85rem;
-}
-.p2p-discovery-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
-}
 .p2p-share-count {
   font-size: 0.9rem;
   color: var(--muted, #9aa3b2);
-}
-.p2p-flag-warning {
-  color: #f0a0a0;
-  margin: 8px 0 4px;
-  font-size: 0.85rem;
-}
-
-.p2p-discovery-title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
 }
 
 .p2p-trust-badge {
@@ -7054,19 +7067,6 @@ body.is-save-dragging * {
   width: 100%;
   max-width: 420px;
 }
-.p2p-discovery-footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  margin-top: 16px;
-}
-.p2p-discovery-pager {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
 .p2p-transfers {
   margin-top: 24px;
 }
@@ -7076,24 +7076,6 @@ body.is-save-dragging * {
   padding: 0;
   display: grid;
   gap: 4px;
-}
-
-.game-p2p-section {
-  margin-top: 28px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border, #333);
-}
-
-.game-p2p-section > h2 {
-  margin-bottom: 6px;
-}
-
-.game-p2p-transfers {
-  margin: 16px 0 20px;
-}
-
-.game-p2p-share {
-  margin-top: 24px;
 }
 
 .p2p-transfer-row {
@@ -7112,31 +7094,6 @@ body.is-save-dragging * {
   margin-top: 28px;
 }
 
-.game-p2p-section {
-  position: relative;
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-}
-
-.game-p2p-section > h2 {
-  margin: 0 0 6px;
-}
-
-.game-p2p-active {
-  margin: 12px 0 16px;
-}
-
-.game-p2p-controls {
-  margin: 12px 0 16px;
-  align-items: center;
-}
-
-.game-p2p-pager {
-  margin-top: 12px;
-  align-items: center;
-}
-
 .p2p-check-label {
   display: inline-flex;
   align-items: center;
@@ -7144,142 +7101,6 @@ body.is-save-dragging * {
   margin: 0;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.p2p-discovery-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 12px;
-}
-
-.p2p-discovery-item {
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg);
-}
-
-.p2p-discovery-main {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 12px 16px;
-  align-items: center;
-}
-
-.p2p-discovery-body {
-  display: flex;
-  align-items: stretch;
-  gap: 14px;
-  min-width: 0;
-  flex: 1 1 240px;
-}
-
-.p2p-discovery-kind {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  flex: 0 0 76px;
-  width: 76px;
-  padding: 8px 6px;
-  border-right: 1px solid var(--border);
-  text-align: center;
-  color: var(--text);
-}
-
-.p2p-discovery-kind-icon {
-  display: grid;
-  place-items: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
-}
-
-.p2p-discovery-kind-icon .p2p-tag-icon {
-  width: 24px;
-  height: 24px;
-}
-
-.p2p-discovery-kind-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: 0.02em;
-  color: var(--muted);
-}
-
-.p2p-discovery-content {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: grid;
-  gap: 2px;
-  align-content: center;
-}
-
-.p2p-discovery-title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem 0.75rem;
-}
-
-.p2p-discovery-version {
-  font-size: 1.08rem;
-  font-weight: 750;
-  letter-spacing: 0.01em;
-  line-height: 1.25;
-}
-
-.p2p-discovery-platforms {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.p2p-discovery-platform {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text);
-}
-
-.p2p-discovery-platform .p2p-tag-icon {
-  width: 18px;
-  height: 18px;
-}
-
-.p2p-discovery-platform-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.p2p-discovery-filename {
-  margin: 0;
-  font-size: 0.9rem;
-  font-weight: 500;
-  line-height: 1.35;
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.p2p-discovery-content .download-meta {
-  margin: 4px 0 0;
-}
-
-.p2p-flag-warning {
-  color: #f0a0a0;
-  margin: 8px 0 0;
-  font-size: 0.85rem;
 }
 
 .p2p-trust-note-good {
@@ -7657,16 +7478,6 @@ body.is-save-dragging * {
   font-size: 0.95rem;
 }
 
-.game-p2p-controls {
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.game-p2p-controls .toolbar-select,
-.game-p2p-controls .toolbar-select-btn {
-  flex: 0 0 auto;
-}
-
 .downloads-p2p-card {
   margin-top: 16px;
 }
@@ -7744,6 +7555,51 @@ body.is-save-dragging * {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+}
+
+.app-file-pick-dialog {
+  width: min(520px, 100%);
+}
+
+.app-file-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  margin-top: 14px;
+}
+
+.app-file-pick-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.app-file-pick-item:hover,
+.app-file-pick-item.is-selected {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.app-file-pick-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.app-file-pick-meta {
+  color: var(--muted, #9aa3b2);
+  font-size: 0.8rem;
 }
 
 .save-editor-dialog .app-confirm-actions {

@@ -35,7 +35,6 @@ export type SyncedSettingKey =
   | 'favoriteTags'
   | 'hatedTags'
   | 'p2pEnabled'
-  | 'metadataApiEnabled'
   | 'p2pUploadLimitKBps'
   | 'catalogPageSize'
   | 'cloudSaveKeepCount'
@@ -47,7 +46,6 @@ export const SYNCED_SETTING_KEYS: SyncedSettingKey[] = [
   'favoriteTags',
   'hatedTags',
   'p2pEnabled',
-  'metadataApiEnabled',
   'p2pUploadLimitKBps',
   'catalogPageSize',
   'cloudSaveKeepCount',
@@ -199,7 +197,6 @@ export function emptySyncedSettings(): SyncedSettings {
     favoriteTags: [],
     hatedTags: [],
     p2pEnabled: false,
-    metadataApiEnabled: true,
     p2pUploadLimitKBps: 0,
     catalogPageSize: DEFAULT_CATALOG_PAGE_SIZE,
     cloudSaveKeepCount: DEFAULT_CLOUD_SAVE_KEEP_COUNT,
@@ -216,8 +213,6 @@ export function pickPortableSettings(settings: AppSettings): SyncedSettings {
     favoriteTags,
     hatedTags: readHatedTags(settings.hatedTags).filter((tag) => !favoriteIds.has(tag.id)),
     p2pEnabled: Boolean(settings.p2pEnabled),
-    metadataApiEnabled:
-      typeof settings.metadataApiEnabled === 'boolean' ? settings.metadataApiEnabled : true,
     p2pUploadLimitKBps: normalizeUploadLimitKBps(settings.p2pUploadLimitKBps),
     catalogPageSize: normalizeCatalogPageSize(settings.catalogPageSize),
     cloudSaveKeepCount: normalizeCloudSaveKeepCount(settings.cloudSaveKeepCount),

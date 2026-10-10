@@ -48,8 +48,7 @@ import {
   getDownloadsDirSync,
   getExtraArchiveDirsSync,
   getExtraLibraryDirsSync,
-  getLibraryDirSync,
-  getMetadataApiEnabledSync
+  getLibraryDirSync
 } from './settings-store'
 import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { uniqueScreenUrls } from './f95/catalog'
@@ -58,8 +57,7 @@ import { listSubscriptions, recordSubscriptionPlay } from './subscriptions-store
 import { removeTree } from './remove-tree'
 import { pathExists, resolveLongPath, toFsPath } from './win-path'
 import { sendToRenderer } from './windows'
-import { signMessageBytes } from './p2p/identity'
-import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
+import { reportSignedInstall } from './p2p/metadata-client'
 import {
   pauseTorrentsForArchive,
   resumeTorrentsByIds,
@@ -513,6 +511,14 @@ async function hydrateLaunchInfo(files: StoredGameFile[]): Promise<boolean> {
     }
   }
   return changed
+}
+
+export async function findGameFileByHash(contentHash: string): Promise<GameLibraryFile | null> {
+  const hash = contentHash.trim().toLowerCase()
+  if (!hash) return null
+  const files = await readStore()
+  const file = files.find((item) => String(item.hash || '').trim().toLowerCase() === hash)
+  return file ? present(file) : null
 }
 
 export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[]> {
@@ -1336,19 +1342,6 @@ async function getFile(id: string): Promise<{ files: StoredGameFile[]; file: Sto
   return { files, file }
 }
 
-async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
-  if (!getMetadataApiEnabledSync() || !contentHash) return
-  const ts = Math.floor(Date.now() / 1000)
-  const msg = buildInstallClaimMessage(contentHash, ts, tags)
-  const { seederPubkey, signature } = await signMessageBytes(msg)
-  await reportPackageInstall(contentHash, {
-    seederPubkey,
-    ts,
-    signature,
-    tags
-  })
-}
-
 /** Update OS / content kind / version on a file already in the library. */
 export async function updateGameFileTags(
   id: string,
@@ -1375,7 +1368,7 @@ export async function updateGameFileTags(
   }
   await writeStore(files)
   broadcast()
-  void reportInstallTags(file.hash, normalized).catch((error) => {
+  void reportSignedInstall(file.hash, normalized).catch((error) => {
     console.warn('[library] could not report updated package tags', error)
   })
   const installPath = file.installPath

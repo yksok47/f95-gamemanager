@@ -4,6 +4,9 @@ const DIRECT_FILE_EXT = /\.(zip|7z|rar|exe|rpy|rpyc|rpa|rpu)$/i
 /**
  * File lockers that put a filename in the path but still serve an HTML interstitial.
  * CDN subdomains (`download1234.mediafire.com`) are not listed here.
+ *
+ * Dead lockers (`nopy.to`) also match every subdomain — the domain is parked, so
+ * those paths are not file CDNs either.
  */
 const FILE_LOCKER_LANDING_HOSTS = new Set([
   '1fichier.com',
@@ -12,6 +15,7 @@ const FILE_LOCKER_LANDING_HOSTS = new Set([
   'bowfile.com',
   'buzzheavier.com',
   'bzzhr.co',
+  'bzzhr.to',
   'cancerads.com',
   'datanodes.to',
   'ddownload.com',
@@ -31,6 +35,9 @@ const FILE_LOCKER_LANDING_HOSTS = new Set([
   'mixdrop.ag',
   'mixdrop.co',
   'mixdrop.sx',
+  'mixdrop.top',
+  'mixdrop.to',
+  'mxdrop.top',
   'nitroflare.com',
   'nopy.to',
   'pixeldrain.com',
@@ -53,9 +60,18 @@ function hostnameOf(value: string): string {
   return value.toLowerCase().replace(/\.$/, '').replace(/^(www|m)\./, '')
 }
 
+/** Parked lockers: every subdomain is junk, not a download CDN. */
+const DEAD_LOCKER_SUFFIXES = ['nopy.to'] as const
+
+function hostMatchesSuffix(hostname: string, suffix: string): boolean {
+  return hostname === suffix || hostname.endsWith(`.${suffix}`)
+}
+
 /** True when the host is a locker landing page, not a file CDN. */
 export function isFileLockerLandingHost(hostname: string): boolean {
-  return FILE_LOCKER_LANDING_HOSTS.has(hostnameOf(hostname))
+  const host = hostnameOf(hostname)
+  if (FILE_LOCKER_LANDING_HOSTS.has(host)) return true
+  return DEAD_LOCKER_SUFFIXES.some((suffix) => hostMatchesSuffix(host, suffix))
 }
 
 /** True when a filename (or XenForo `name.ext.id` slug) should be saved, not opened. */

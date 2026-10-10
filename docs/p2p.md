@@ -26,19 +26,21 @@ TLS: metadata-api (HTTPS) and the WebSocket tracker (WSS) share a private CA (`p
   - Query: `contentHash`, `infoHash` (40-char hex), `normalizedName`, `f95ThreadId`, `q` (substring on gameName|normalizedName), `includeFlagged` (default true), `sort=updated|popularity`, `limit`/`offset`
   - Response: `{ items, limit, offset, total }` — package rows include hashes, game/thread, flags, `uniqueSeederPubkeyCount`
 - `POST /api/v1/packages/{contentHash}/flags` — body `{ flags: ["broken"|"harmful"], seederPubkey, note? }`
+- `POST /api/v1/links` — signed link report: which file (`contentHash`) an F95 download link and its mirrors served. Creates the package row when missing, so install tags work with P2P off.
+- `GET /api/v1/links?f95ThreadId=` — `{ links: [{ url, files: [{ contentHash, reports }] }], packages }` for one thread.
 - Popularity = `uniqueSeederPubkeyCount` (unique seeder pubkeys). Flags: `broken` | `harmful`.
 - `infoHash` is always normalized to lowercase 40-char hex before metadata/share POSTs and in UI.
 
-## Discovery / management UI
-- **No standalone P2P nav page.**
-- Per-game: **P2P downloads** section on the game **Downloads** tab (download only — no share/upload UI there).
-- Global **Downloads** page: dedicated **P2P** section — flat list of downloads + shares with game name, status, down/up speeds (not grouped by game).
-- Sharing remains opt-in via Settings (p2pEnabled / seed-all); monitor shares on the Downloads page.
+## Download links and metadata
+- Approving an HTTP download reports the clicked link plus every mirror of the same entry/part (`GameFileContext.sourceLinks`), then the install tags. Mirrors carry the same content, so one report covers all of them; one link may serve several files over time.
+- Link URLs are keyed by `downloadLinkKey` (`src/shared/download-links.ts`), which matches the server's `NormalizeLinkURL`.
+- The game **Downloads** tab loads `p2p:threadDownloads` and runs `applyDownloadMetadata` (`src/renderer/src/lib/download-metadata.ts`): unanimous votes set the entry's kind and version, voted platforms are added, and each row lists the known files behind its links.
 
-## Discovery UI (catalog)
-- P2P lives on its **own nav page** (`P2P`). Do **not** attach P2P controls to Game Details download-link rows.
-- Browse/search what the metadata API already knows is available (packages others shared).
-- Download via P2P by `contentHash` → metadata → `infoHash` magnet (requires Settings `p2pEnabled`).
+## P2P in the Downloads tab
+- With `p2pEnabled`, every known file with an `infoHash` becomes one more mirror (`Peer-to-peer`, URL `p2p:<contentHash>`) of the entry or part whose links served it.
+- Its priority is the `p2p` slot in Settings › Downloads (`downloadProviderOrder`, appended last for existing users). Copies nobody seeds or reported harmful always rank behind posted links.
+- Thread files not behind any posted link appear as **Shared by app users** rows (current, older, or add-on by vote), except ones with more flags than installs.
+- Global **Downloads** page: dedicated **P2P** section — flat list of downloads + shares with game name, status, down/up speeds.
 - Seeding remains opt-in (`p2pEnabled` default OFF) + seed-all local packages when enabled.
 
 ## Share-claim v1
@@ -58,10 +60,10 @@ ts=<unixSeconds>
 
 ## Settings / local seed path
 - `p2pEnabled` default **false**. When on → sync game-files `archivePath` (+ downloadsDir archives) into torrent map, then seed-all (best-effort).
-- `metadataApiEnabled` default **true** (Settings → General). Independent of P2P. When off → no catalog/share-claim/flags/install reports; swarm seeding/downloading via known infoHash still works when `p2pEnabled`.
+- The metadata API is always on (no setting): link reports, install tags, and flags are sent with P2P off too.
 - `p2pUploadLimitKBps` default **0** (unlimited). Caps WebTorrent upload; change applies immediately while P2P is on.
 - Unhashed downloads are skipped until hashed/seeded individually.
-- Discovery/download UI is separate from F95 link rows; `p2pEnabled` gates swarm work, `metadataApiEnabled` gates metadata REST.
+- `p2pEnabled` gates swarm work only.
 
 ## Direct internet connections
 

@@ -36,6 +36,7 @@ export function linkText(link: DownloadMirror): string {
 }
 
 export function mirrorSource(mirror: DownloadMirror): string {
+  if (mirror.p2p) return mirror.label
   const target = mirrorTarget(mirror)
   if (target.kind === 'provider') return downloadProviderLabel(target.provider)
   if (target.kind === 'file') return 'Direct file'
@@ -44,6 +45,7 @@ export function mirrorSource(mirror: DownloadMirror): string {
 }
 
 export function mirrorAction(mirror: DownloadMirror): string {
+  if (mirror.p2p) return 'Download from peers'
   const kind = mirrorTarget(mirror).kind
   if (kind === 'forum') return 'Open post'
   if (kind === 'web') return 'Open'
@@ -51,6 +53,11 @@ export function mirrorAction(mirror: DownloadMirror): string {
 }
 
 export function mirrorTitle(mirror: DownloadMirror): string {
+  const p2p = mirror.p2p
+  if (p2p) {
+    const seeders = p2p.seeders == null ? 'peers unknown' : `${p2p.seeders} seeding`
+    return `${p2p.filename} · from other app users · ${seeders}`
+  }
   return `${linkText(mirror)} · ${hostLabel(mirror.url)}`
 }
 

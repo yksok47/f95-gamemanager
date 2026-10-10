@@ -32,6 +32,10 @@ describe('isFileLockerLandingHost', () => {
     expect(isFileLockerLandingHost('mediafire.com')).toBe(true)
     expect(isFileLockerLandingHost('vikingfile.com')).toBe(true)
     expect(isFileLockerLandingHost('vik1ngfile.site')).toBe(true)
+    expect(isFileLockerLandingHost('mixdrop.top')).toBe(true)
+    expect(isFileLockerLandingHost('mxdrop.top')).toBe(true)
+    expect(isFileLockerLandingHost('nopy.to')).toBe(true)
+    expect(isFileLockerLandingHost('files.nopy.to')).toBe(true)
     expect(isFileLockerLandingHost('download1234.mediafire.com')).toBe(false)
     expect(isFileLockerLandingHost('store1.gofile.io')).toBe(false)
   })
@@ -70,6 +74,10 @@ describe('isDirectFileHref', () => {
       false
     )
     expect(isDirectFileHref('https://dropbox.com/s/abc/Game.zip')).toBe(false)
+    expect(isDirectFileHref('https://nopy.to/n0e6G5zw/HalloweenSpecial-1.0-pc.zip')).toBe(false)
+    expect(isDirectFileHref('https://files.nopy.to/n0e6G5zw/HalloweenSpecial-1.0-pc.zip')).toBe(
+      false
+    )
   })
 
   test('still treats locker CDN URLs with a filename as direct files', () => {

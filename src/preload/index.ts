@@ -46,6 +46,7 @@ import type {
   ThreadPostSearchPage,
   ThreadPostsPage,
   ThreadReviewsPage,
+  ShellOpenOptions,
   ShellOpenResult,
   IgnoredThread,
   FollowSyncStatus,
@@ -60,9 +61,11 @@ import type {
   PackageListResponse,
   PackageMetadata,
   P2pTransferProgress,
+  ThreadDownloadMetadata,
   TorrentMapEntry
 } from '@shared/p2p'
 import type { AppUpdateStatus } from '@shared/app-update'
+import type { ChooseDownloadFileRequest } from '@shared/connector-files'
 
 const api = {
   window: {
@@ -351,7 +354,16 @@ const api = {
       return () => {
         ipcRenderer.removeListener('downloads:changed', wrapped)
       }
-    }
+    },
+    onChooseFile: (listener: (request: ChooseDownloadFileRequest) => void): (() => void) => {
+      const wrapped = (_event: unknown, request: ChooseDownloadFileRequest): void => listener(request)
+      ipcRenderer.on('downloads:choose-file', wrapped)
+      return () => {
+        ipcRenderer.removeListener('downloads:choose-file', wrapped)
+      }
+    },
+    chooseFile: (id: string, index: number | null): Promise<void> =>
+      ipcRenderer.invoke('downloads:choose-file-result', id, index)
   },
   library: {
     list: (threadId?: number): Promise<GameLibraryFile[]> =>
@@ -589,7 +601,7 @@ const api = {
     open: (
       url: string,
       context?: GameFileContext,
-      options?: { download?: boolean }
+      options?: ShellOpenOptions
     ): Promise<ShellOpenResult> => ipcRenderer.invoke('shell:open', url, context, options)
   },
   p2p: {
@@ -615,6 +627,8 @@ const api = {
     seedAll: (): Promise<{ started: number; errors: string[] }> => ipcRenderer.invoke('p2p:seedAll'),
     listPackages: (query: PackageListQuery): Promise<PackageListResponse> =>
       ipcRenderer.invoke('p2p:listPackages', query),
+    threadDownloads: (threadId: number): Promise<ThreadDownloadMetadata> =>
+      ipcRenderer.invoke('p2p:threadDownloads', threadId),
     getPackage: (contentHash: string): Promise<PackageMetadata | null> =>
       ipcRenderer.invoke('p2p:getPackage', contentHash),
     downloadByHash: (contentHash: string): Promise<P2pTransferProgress> =>

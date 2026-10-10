@@ -11,6 +11,7 @@ import type {
   LoginPayload,
   RenpyInfoScope,
   RenpyToolId,
+  ShellOpenOptions,
   ThreadAttachment,
   UnRenAction,
   VersionPlayStatus
@@ -30,6 +31,7 @@ import {
   resumeDownload,
   showDownloadInFolder
 } from './downloads'
+import { resolveConnectorFileChoice } from './connector-pick'
 import { F95Error } from './f95/http'
 import {
   clearF95RequestLog,
@@ -207,6 +209,7 @@ import {
   p2pStatus,
   seedAllLocalPackages,
   subscribeP2pProgress,
+  threadDownloadMetadata,
   applyP2pUploadLimit,
   onP2pEnabledChanged,
   onTorrentMapChanged
@@ -1017,6 +1020,11 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('downloads:choose-file-result', async (_event, id: string, index: unknown) => {
+    const picked = typeof index === 'number' && Number.isInteger(index) ? index : null
+    resolveConnectorFileChoice(String(id), picked)
+  })
+
   ipcMain.handle('downloads:cancel', async (_event, id: string) => {
     try {
       return cancelDownload(String(id))
@@ -1762,11 +1770,12 @@ export function registerIpc(): void {
 
   ipcMain.handle(
     'shell:open',
-    async (_event, url: string, context?: GameFileContext, options?: { download?: boolean }) => {
+    async (_event, url: string, context?: GameFileContext, options?: ShellOpenOptions) => {
       try {
         return await openInAppWindow(String(url), {
           context,
-          download: Boolean(options?.download)
+          download: Boolean(options?.download),
+          skipConnector: Boolean(options?.skipConnector)
         })
       } catch (error) {
         throw toIpcError(error)
@@ -1854,6 +1863,13 @@ export function registerIpc(): void {
   ipcMain.handle('p2p:listPackages', async (_event, query?: PackageListQuery) => {
     try {
       return await listPackagesForDiscovery(query && typeof query === 'object' ? (query as PackageListQuery) : ({ f95ThreadId: '' } as PackageListQuery))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+  ipcMain.handle('p2p:threadDownloads', async (_event, threadId: number) => {
+    try {
+      return await threadDownloadMetadata(Number(threadId))
     } catch (error) {
       throw toIpcError(error)
     }

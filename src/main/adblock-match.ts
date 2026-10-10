@@ -11,6 +11,7 @@ export const FILE_HOST_SUFFIXES = [
   'bowfile.com',
   'buzzheavier.com',
   'bzzhr.co',
+  'bzzhr.to',
   'cancerads.com',
   'datanodes.to',
   'ddownload.com',
@@ -33,6 +34,9 @@ export const FILE_HOST_SUFFIXES = [
   'mixdrop.ag',
   'mixdrop.co',
   'mixdrop.sx',
+  'mixdrop.top',
+  'mixdrop.to',
+  'mxdrop.top',
   'nitroflare.com',
   'nopy.to',
   'pixeldrain.com',
@@ -55,7 +59,8 @@ export const FILE_CDN_SUFFIXES = [
   'cloudfront.net',
   'digitaloceanspaces.com',
   'r2.dev',
-  'storage.googleapis.com'
+  'storage.googleapis.com',
+  'mxcontent.net'
 ]
 
 const EXECUTABLE_EXT = /\.(exe|msi|scr|bat|cmd|pif|com|apk|dmg|pkg)(?:$|\?)/i

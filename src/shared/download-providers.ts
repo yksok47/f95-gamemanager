@@ -1,4 +1,4 @@
-import { isDirectFileHref } from './direct-file'
+import { isDirectFileHref, isFileLockerLandingHost } from './direct-file'
 import type { DownloadMirror } from './types'
 
 export type DownloadProvider = {
@@ -22,7 +22,12 @@ export const DOWNLOAD_PROVIDERS = [
   },
   { id: 'datanodes', label: 'DataNodes', hosts: ['datanodes.to'] },
   { id: 'workupload', label: 'Workupload', hosts: ['workupload.com'] },
-  { id: 'uploadhaven', label: 'UploadHaven', hosts: ['uploadhaven.com'] },
+  {
+    id: 'uploadhaven',
+    label: 'UploadHaven',
+    hosts: ['uploadhaven.com'],
+    aliases: ['uploadheaven']
+  },
   { id: 'vikingfile', label: 'VikingFile', hosts: ['vikingfile.com', 'vik1ngfile.site'] },
   { id: 'akirabox', label: 'AkiraBox', hosts: ['akirabox.com'] },
   { id: 'krakenfiles', label: 'KrakenFiles', hosts: ['krakenfiles.com'] },
@@ -31,7 +36,7 @@ export const DOWNLOAD_PROVIDERS = [
   {
     id: 'mixdrop',
     label: 'Mixdrop',
-    hosts: ['mixdrop.ag', 'mixdrop.co', 'mixdrop.sx', 'mixdrop.top']
+    hosts: ['mixdrop.ag', 'mixdrop.co', 'mixdrop.sx', 'mixdrop.top', 'mixdrop.to', 'mxdrop.top']
   },
   {
     id: 'gdrive',
@@ -42,7 +47,8 @@ export const DOWNLOAD_PROVIDERS = [
   { id: 'onefichier', label: '1fichier', hosts: ['1fichier.com'], aliases: ['1fichier'] },
   { id: 'racaty', label: 'Racaty', hosts: ['racaty.io', 'racaty.net'] },
   { id: 'bowfile', label: 'Bowfile', hosts: ['bowfile.com'] },
-  { id: 'nopy', label: 'Nopy', hosts: ['nopy.to'] }
+  /** Known files fetched from other app users; never matched from a posted link. */
+  { id: 'p2p', label: 'Peer-to-peer', hosts: [] }
 ] as const satisfies readonly DownloadProvider[]
 
 type KnownProvider = (typeof DOWNLOAD_PROVIDERS)[number]
@@ -50,7 +56,19 @@ type KnownProvider = (typeof DOWNLOAD_PROVIDERS)[number]
 export type DownloadProviderId = KnownProvider['id']
 
 /** Providers with a main-process connector that fetches the file without a browser window. */
-export const CONNECTED_PROVIDER_IDS = ['mediafire', 'vikingfile'] as const satisfies readonly DownloadProviderId[]
+export const CONNECTED_PROVIDER_IDS = [
+  'mediafire',
+  'pixeldrain',
+  'gofile',
+  'buzzheavier',
+  'datanodes',
+  'workupload',
+  'uploadhaven',
+  'vikingfile',
+  'mega',
+  'gdrive',
+  'mixdrop'
+] as const satisfies readonly DownloadProviderId[]
 
 export type ConnectedProviderId = (typeof CONNECTED_PROVIDER_IDS)[number]
 
@@ -116,7 +134,7 @@ function parseUrl(value: string): URL | null {
   }
 }
 
-/** F95 `/masked/<host>/…` links need a browser round-trip before they reach the host. */
+/** F95 `/masked/<host>/…` interstitial; connectors unmask this before hitting the host. */
 export function isMaskedDownloadLink(url: string): boolean {
   const parsed = parseUrl(url)
   return Boolean(parsed && maskedHost(parsed))
@@ -138,6 +156,7 @@ function providerForLabel(label: string): KnownProvider | null {
   const key = labelKey(label)
   if (!key) return null
   for (const provider of DOWNLOAD_PROVIDERS) {
+    if (!provider.hosts.length) continue
     const aliases: readonly string[] = 'aliases' in provider ? provider.aliases : []
     if (provider.id === key || labelKey(provider.label) === key || aliases.includes(key)) {
       return provider
@@ -154,11 +173,15 @@ export type MirrorTarget =
   | { kind: 'web'; host: string }
 
 export function mirrorTarget(mirror: DownloadMirror): MirrorTarget {
+  if (mirror.p2p) return { kind: 'provider', provider: 'p2p' }
   const parsed = parseUrl(mirror.url)
   if (!parsed) return { kind: 'web', host: '' }
   const host = maskedHost(parsed) ?? hostnameOf(parsed.hostname)
   const byHost = providerForHost(host)
   if (byHost) return { kind: 'provider', provider: byHost.id }
+  // Dead/unknown lockers put a filename in the path (`nopy.to/id/Game.zip`) but are
+  // not a file CDN. Treat them as a normal site so they are not one-click or first.
+  if (isFileLockerLandingHost(host)) return { kind: 'web', host }
   if (/^attachments\.f95zone\./.test(host) || isDirectFileHref(parsed.href, mirror.label)) {
     return { kind: 'file' }
   }
@@ -176,18 +199,28 @@ export function mirrorProvider(mirror: DownloadMirror): DownloadProviderId | nul
   return target.kind === 'provider' ? target.provider : null
 }
 
+/** True when a host connector would fetch the file instead of opening the provider page. */
+export function mirrorUsesConnector(mirror: DownloadMirror): boolean {
+  const target = mirrorTarget(mirror)
+  return target.kind === 'provider' && isConnectedProvider(target.provider)
+}
+
 /** True when clicking the mirror starts a download without a browser window. */
 export function mirrorIsOneClick(mirror: DownloadMirror): boolean {
+  if (mirror.p2p) return true
   const target = mirrorTarget(mirror)
   if (target.kind === 'file') return true
-  return (
-    target.kind === 'provider' &&
-    isConnectedProvider(target.provider) &&
-    !isMaskedDownloadLink(mirror.url)
-  )
+  return mirrorUsesConnector(mirror)
+}
+
+/** Swarm copy nobody seeds right now, or one reported harmful — never the default pick. */
+export function isWeakP2pMirror(mirror: DownloadMirror): boolean {
+  const p2p = mirror.p2p
+  return Boolean(p2p && (p2p.seeders === 0 || p2p.flagCounts.harmful > 0))
 }
 
 function mirrorRank(mirror: DownloadMirror, order: readonly DownloadProviderId[]): number {
+  if (isWeakP2pMirror(mirror)) return order.length + 2
   const target = mirrorTarget(mirror)
   if (target.kind === 'file') return -1
   if (target.kind === 'provider') {

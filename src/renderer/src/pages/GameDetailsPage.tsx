@@ -31,7 +31,13 @@ import {
   type ContentKind,
   type ContentKindId
 } from '@shared/types'
-import type { PackageInstallTags, P2pTransferProgress } from '@shared/p2p'
+import {
+  isInFlightP2pState,
+  type PackageInstallTags,
+  type P2pTransferProgress,
+  type ThreadDownloadMetadata
+} from '@shared/p2p'
+import { sourceLinksFor } from '@shared/download-links'
 import { engineKind, isHtmlPlayableEngine, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import {
@@ -60,7 +66,6 @@ import RosterButton from '../components/RosterButton'
 import RaritySlider from '../components/RaritySlider'
 import DownloadRow from '../components/DownloadRow'
 import GameDownloadsPanel from '../components/GameDownloadsPanel'
-import GameP2pSection from '../components/GameP2pSection'
 import P2pTransferRow from '../components/P2pTransferRow'
 import { confirm } from '../components/ConfirmDialog'
 import { notifyCaught, notifyError } from '../components/ErrorNotifications'
@@ -85,11 +90,14 @@ import {
   transferMatchesLibraryFile
 } from '../lib/downloads'
 import { useGameDownloadProgress } from '../lib/download-progress'
+import { applyDownloadMetadata } from '../lib/download-metadata'
 import { countDownloadMirrors, defaultPlatformFilter } from '../lib/download-layout'
+import { flagCountsOf, trustSignal } from '../lib/p2p-trust'
 import { listHeaderDownloadPicks, mirrorTitle, type DownloadPick } from '../lib/download-picks'
 import {
   DEFAULT_DOWNLOAD_PROVIDER_ORDER,
   mirrorIsOneClick,
+  mirrorUsesConnector,
   type DownloadProviderId
 } from '@shared/download-providers'
 import { formatCount, formatRating, ratingClass } from '../lib/format'
@@ -294,7 +302,8 @@ function GameDetailsPage({
   const [postsJump, setPostsJump] = useState<{ postId: number; key: number } | null>(null)
   const [aboutMode, setAboutMode] = useState<AboutMode>('description')
   const [renpyMode, setRenpyMode] = useState<RenpyMode>('options')
-  const [p2pReloadKey, setP2pReloadKey] = useState(0)
+  const [downloadMetaKey, setDownloadMetaKey] = useState(0)
+  const [downloadMeta, setDownloadMeta] = useState<ThreadDownloadMetadata | null>(null)
   const [lightbox, setLightbox] = useState<number | null>(null)
   const lightboxThumbRefs = useRef<Array<HTMLButtonElement | null>>([])
   const lightboxThumbsRef = useRef<HTMLDivElement>(null)
@@ -529,6 +538,31 @@ function GameDetailsPage({
     }
   }, [summary.threadId])
 
+  const downloadsTabOpen = tab === 'downloads'
+  useEffect(() => {
+    let cancelled = false
+    const load = (): void => {
+      window.api.p2p
+        .threadDownloads(summary.threadId)
+        .then((meta) => {
+          if (!cancelled) setDownloadMeta(meta)
+        })
+        .catch((err) => console.warn('[downloads] link metadata unavailable', err))
+    }
+    load()
+    if (!downloadsTabOpen) {
+      return () => {
+        cancelled = true
+      }
+    }
+    // Peer counts and newly reported files change while the tab is open.
+    window.addEventListener('focus', load)
+    return () => {
+      cancelled = true
+      window.removeEventListener('focus', load)
+    }
+  }, [summary.threadId, downloadMetaKey, downloadsTabOpen])
+
   const installErrorsByFile = useRef(new Map<string, string>())
   useEffect(() => {
     const next = new Map<string, string>()
@@ -705,7 +739,15 @@ function GameDetailsPage({
       })
   }, [tagCatalog, summary.tags, favoriteTags, hatedTags])
   const gallery = details?.gallery ?? []
-  const downloads = details?.downloads ?? []
+  const postDownloads = details?.downloads
+  const downloads = useMemo(
+    () =>
+      applyDownloadMetadata(postDownloads ?? [], downloadMeta, {
+        p2pEnabled,
+        currentVersion: summary.version || ''
+      }),
+    [postDownloads, downloadMeta, p2pEnabled, summary.version]
+  )
   const downloadCount = useMemo(() => countDownloadMirrors(downloads), [downloads])
   const downloadPicks = useMemo(() => {
     if (!downloads.length) return []
@@ -1260,7 +1302,80 @@ function GameDetailsPage({
     [p2pEnabled, p2pTransfers, p2pSharedHashes, summary.threadId, title, installingFile]
   )
 
-  async function openUrl(url: string, entry?: DownloadEntry, download = false): Promise<void> {
+  async function downloadFromPeers(url: string, contentHash: string): Promise<void> {
+    if (!p2pEnabled) {
+      notifyError('Turn on peer-to-peer in Settings → P2P to download from other app users.')
+      return
+    }
+    const hash = contentHash.toLowerCase()
+    if (files.some((file) => file.hasArchive && file.hash?.trim().toLowerCase() === hash)) {
+      notifyError('This file is already in your library.')
+      return
+    }
+    if (
+      p2pTransfers.some(
+        (item) =>
+          item.contentHash?.toLowerCase() === hash &&
+          !item.id.startsWith('seed:') &&
+          (item.state === 'error' ? item.id.startsWith('add:') : isInFlightP2pState(item.state))
+      )
+    ) {
+      notifyError('This file is already downloading.')
+      return
+    }
+    const pkg = downloadMeta?.packages.find((item) => item.contentHash.toLowerCase() === hash)
+    if (pkg) {
+      const { harmful, broken } = flagCountsOf(pkg)
+      if (harmful > 0 && trustSignal(pkg).level !== 'good') {
+        const bits = [
+          `harmful ×${harmful}`,
+          broken > 0 ? `broken ×${broken}` : null,
+          `${pkg.installCount ?? 0} reported installs`
+        ].filter(Boolean)
+        const proceed = await confirm({
+          title: 'Flagged file',
+          message: `Other app users reported this file as harmful (${bits.join(' · ')}). Download anyway?`,
+          confirmLabel: 'Download',
+          danger: true
+        })
+        if (!proceed) return
+      }
+      const seeders = pkg.activeSeeders ?? pkg.seeders
+      if (seeders != null && seeders <= 0) {
+        const proceed = await confirm({
+          title: 'Nobody is seeding',
+          message: 'No app user is sharing this file right now, so the download may stall. Continue?',
+          confirmLabel: 'Download anyway'
+        })
+        if (!proceed) return
+      }
+    }
+    setStartingUrl(url)
+    try {
+      await window.api.p2p.downloadByHash(hash)
+    } catch (err) {
+      notifyCaught(err, 'Peer-to-peer download failed')
+    } finally {
+      setStartingUrl(null)
+    }
+  }
+
+  async function openUrl(
+    url: string,
+    entry?: DownloadEntry,
+    options?: { download?: boolean; skipConnector?: boolean }
+  ): Promise<void> {
+    if (url.startsWith('p2p:')) {
+      await downloadFromPeers(url, url.slice('p2p:'.length))
+      return
+    }
+    const mirrorUrls = entry
+      ? (entry.mirrors.some((mirror) => mirror.url === url)
+          ? entry.mirrors
+          : (entry.parts.find((part) => part.mirrors.some((mirror) => mirror.url === url))?.mirrors ?? [])
+        ).map((mirror) => mirror.url)
+      : []
+    const sourceLinks = entry ? sourceLinksFor(url, mirrorUrls) : []
     const packageHint = entry ? packageHintFromEntry(entry, version) : undefined
     const entryVersion = (entry?.version || '').trim()
     const requiresVersion =
@@ -1268,7 +1383,8 @@ function GameDetailsPage({
     const contextVersion = entry
       ? entryVersion || (requiresVersion ? version : '')
       : version
-    const oneClick = Boolean(entry) && mirrorIsOneClick({ label: '', url })
+    const skipConnector = Boolean(options?.skipConnector)
+    const oneClick = !skipConnector && Boolean(entry) && mirrorIsOneClick({ label: '', url })
     if (oneClick) setStartingUrl(url)
     try {
       const result = await window.api.shell.open(
@@ -1289,9 +1405,12 @@ function GameDetailsPage({
           timestamp: summary.timestamp,
           updatedAt: summary.updatedAt,
           screens: summary.screens,
-          packageHint
+          packageHint,
+          ...(sourceLinks.length ? { sourceLinks } : {})
         },
-        download ? { download: true } : undefined
+        options?.download || skipConnector
+          ? { download: Boolean(options?.download), skipConnector }
+          : undefined
       )
       if (oneClick && !result?.downloaded) setStartingUrl(null)
     } catch (err) {
@@ -1343,11 +1462,11 @@ function GameDetailsPage({
 
   function openDownloadsTab(): void {
     setTab('downloads')
-    setP2pReloadKey((n) => n + 1)
+    setDownloadMetaKey((n) => n + 1)
   }
 
-  function openDownloadPick(pick: DownloadPick): void {
-    void openUrl(pick.mirror.url, pick.entry)
+  function openDownloadPick(pick: DownloadPick, options?: { skipConnector?: boolean }): void {
+    void openUrl(pick.mirror.url, pick.entry, options)
   }
 
   async function installFile(id: string): Promise<void> {
@@ -1668,7 +1787,7 @@ function GameDetailsPage({
       onOpenThread(target.threadId, target.title)
       return
     }
-    void openUrl(target.href, undefined, target.download)
+    void openUrl(target.href, undefined, { download: target.download })
   }
 
   function copyThreadId(): void {
@@ -2231,7 +2350,7 @@ function GameDetailsPage({
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => {
                   setTab(item.id)
-                  if (item.id === 'downloads') setP2pReloadKey((n) => n + 1)
+                  if (item.id === 'downloads') setDownloadMetaKey((n) => n + 1)
                 }}
           >
             {item.label}
@@ -2362,21 +2481,13 @@ function GameDetailsPage({
                 sections={downloads}
                 providerOrder={downloadProviderOrder}
                 startingUrl={startingUrl}
-                onOpen={(url, entry) => void openUrl(url, entry)}
+                onOpen={(url, entry, options) => void openUrl(url, entry, options)}
               />
             ) : busy ? (
               <InlineLoading label="Loading download links" />
             ) : (
               <p className="muted">No F95 download links were found in the first post.</p>
             )}
-            {p2pEnabled ? (
-              <GameP2pSection
-                key={`p2p-${summary.threadId}-${p2pReloadKey}`}
-                threadId={summary.threadId}
-                gameName={title}
-                onOpenFiles={() => setTab('files')}
-              />
-            ) : null}
           </div>
         ) : null}
 
@@ -2996,32 +3107,43 @@ function HeaderDownloadSplit({
   label: string
   picks: DownloadPick[]
   variant: 'primary' | 'update'
-  onOpen: (pick: DownloadPick) => void
+  onOpen: (pick: DownloadPick, options?: { skipConnector?: boolean }) => void
 }): JSX.Element | null {
   const best = picks[0]
   if (!best) return null
+  const items: MenuItem[] =
+    picks.length < 2 && !picks.some((pick) => mirrorUsesConnector(pick.mirror))
+      ? []
+      : picks.map((pick, index) => {
+          const item: MenuItem = {
+            id: pick.key,
+            label: pick.source,
+            hint:
+              [
+                pick.heading !== best.heading ? pick.heading : '',
+                pick.oneClick ? 'One-click' : ''
+              ]
+                .filter(Boolean)
+                .join(' · ') || undefined,
+            active: index === 0,
+            onClick: () => onOpen(pick)
+          }
+          if (mirrorUsesConnector(pick.mirror)) {
+            item.link = {
+              label: 'Open in browser',
+              title: 'If one-click fails',
+              onClick: () => onOpen(pick, { skipConnector: true })
+            }
+          }
+          return item
+        })
   return (
     <SplitButton
       label={label}
       title={mirrorTitle(best.mirror)}
       variant={variant}
       menuHeader={picks.length > 1 ? `${picks.length} downloads` : undefined}
-      items={
-        picks.length > 1
-          ? picks.map((pick, index) => ({
-              id: pick.key,
-              label: pick.source,
-              hint: [
-                pick.heading !== best.heading ? pick.heading : '',
-                pick.oneClick ? 'One-click' : ''
-              ]
-                .filter(Boolean)
-                .join(' · ') || undefined,
-              active: index === 0,
-              onClick: () => onOpen(pick)
-            }))
-          : []
-      }
+      items={items}
       onClick={() => onOpen(best)}
     />
   )

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, session } from 'electron'
 import { isDirectFileHref } from '@shared/direct-file'
+import { isMaskedDownloadLink } from '@shared/download-providers'
 import type { GameFileContext, ShellOpenResult } from '@shared/types'
 import {
   registerGuestContents,
@@ -15,6 +16,7 @@ import {
   setDownloadContext
 } from './download-context'
 import { resolveConnectorDownload } from './download-connectors'
+import { resolveF95MaskedUrl } from './f95/masked'
 import { isUsableWindow } from './windows'
 
 type GuestInfo = {
@@ -262,6 +264,7 @@ export async function openInAppWindow(
     show?: boolean
     opener?: BrowserWindow | null
     download?: boolean
+    skipConnector?: boolean
   } = {}
 ): Promise<ShellOpenResult> {
   const parsed = parseHttpUrl(url)
@@ -274,10 +277,24 @@ export async function openInAppWindow(
     return { downloaded: true }
   }
 
-  const direct = await resolveConnectorDownload(parsed.href)
-  if (direct) {
-    sessionDownload(direct, options.context, parsed.href)
-    return { downloaded: true }
+  let href = parsed.href
+  if (isMaskedDownloadLink(href)) {
+    try {
+      const unmasked = await resolveF95MaskedUrl(href)
+      if (unmasked) href = unmasked
+    } catch (error) {
+      console.warn('[open-url] could not unmask F95 link', error)
+    }
+  }
+
+  if (!options.skipConnector) {
+    const direct = await resolveConnectorDownload(href, options.context)
+    if (direct === 'cancel') return { downloaded: false }
+    if (direct === 'started') return { downloaded: true }
+    if (direct) {
+      sessionDownload(direct, options.context, href)
+      return { downloaded: true }
+    }
   }
 
   const reuse = options.reuse !== false
@@ -299,7 +316,7 @@ export async function openInAppWindow(
   }
 
   try {
-    await win.loadURL(parsed.href)
+    await win.loadURL(href)
   } catch {
     // A navigation that turned into a download is dismissed by dismissGuestsAfterDownload.
     if (isUsableWindow(win) && !win.isVisible() && !guests.get(win)?.downloadStarted) {

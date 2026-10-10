@@ -215,11 +215,6 @@ export type AppSettings = {
   extraLibraryDirs: string[]
   /** OFF by default. When on, seed all local packages via WebTorrent (main). */
   p2pEnabled: boolean
-  /**
-   * ON by default. When off, skip metadata REST (catalog, share-claim, flags, install reports).
-   * P2P swarm / tracker still work when p2pEnabled.
-   */
-  metadataApiEnabled: boolean
   /** Metadata REST base (no trailing slash). Hardcoded; override via METADATA_BASE_URL. */
   metadataBaseUrl: string
   /** WebSocket tracker (wss:// preferred). Hardcoded; override via TRACKER_WEBRTC_URL. */
@@ -308,6 +303,15 @@ export type DownloadRecord = {
   libraryStatus?: DownloadLibraryStatus
   /** From the F95 download link that started this transfer — used when metadata API has nothing. */
   packageHint?: PackageTagHint
+  /** F95 download link that started this transfer, then its mirrors (same content). */
+  sourceLinks?: string[]
+}
+
+/** Options for opening a download or provider link from the app. */
+export type ShellOpenOptions = {
+  download?: boolean
+  /** Skip host connectors and load the page in the in-app browser. */
+  skipConnector?: boolean
 }
 
 /** Result of opening a download or provider link from the app. */
@@ -333,6 +337,8 @@ export type GameFileContext = {
   screens?: string[]
   /** OS / content kind / version inferred from the clicked download entry. */
   packageHint?: PackageTagHint
+  /** Clicked F95 download link first, then the other mirrors of the same file. */
+  sourceLinks?: string[]
 }
 
 /** Ren'Py overlays applied into an installed game `/game` folder. */
@@ -1198,6 +1204,19 @@ export type DownloadSectionKind =
 export type DownloadMirror = {
   label: string
   url: string
+  /** Set on the peer-to-peer alternative the app adds next to the posted hosts. */
+  p2p?: P2pMirror
+}
+
+/** A known file offered over the swarm as one more mirror of a download entry. */
+export type P2pMirror = {
+  contentHash: string
+  filename: string
+  sizeBytes?: number
+  /** Live seeders from the tracker scrape; null when the scrape was unavailable. */
+  seeders: number | null
+  installCount: number
+  flagCounts: { broken: number; harmful: number }
 }
 
 export type DownloadPart = {
@@ -1216,6 +1235,24 @@ export type DownloadEntry = {
   unofficial: boolean
   mirrors: DownloadMirror[]
   parts: DownloadPart[]
+  /** Files app users got from these links, per the metadata API (added in the renderer). */
+  known?: KnownDownloadFile[]
+  /** Not in the post: a file only other app users share over P2P. */
+  peerShared?: boolean
+}
+
+/** A file behind a download link, with the tags its downloaders voted on. */
+export type KnownDownloadFile = {
+  contentHash: string
+  filename: string
+  sizeBytes?: number
+  os: OsKind[]
+  contentKind: ContentKind | null
+  version: string | null
+  installCount: number
+  /** Clients that reported getting this file from the entry's links. */
+  reports: number
+  flagCounts: { broken: number; harmful: number }
 }
 
 export type DownloadSection = {

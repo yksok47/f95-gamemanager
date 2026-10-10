@@ -1,7 +1,19 @@
-import { existsSync, mkdirSync, statSync, unlink } from 'fs'
+import {
+  closeSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  statSync,
+  truncateSync,
+  unlink
+} from 'fs'
 import { copyFile, rename, unlink as unlinkAsync } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
+import { Transform, type Readable } from 'stream'
+import { pipeline } from 'stream/promises'
 import { session, shell } from 'electron'
+import { normalizePackageFilename } from '@shared/content-address'
 import { normalizePackageInstallTags, type PackageInstallTags } from '@shared/p2p'
 import type {
   DownloadLibraryStatus,
@@ -10,6 +22,7 @@ import type {
   GameFileContext,
   PackageTagHint
 } from '@shared/types'
+import { isDataNodesInterstitialDownload } from '@shared/datanodes'
 import { isGuestContents, shouldBlockDownload } from './adblock'
 import { getDownloadContext } from './download-context'
 import {
@@ -22,18 +35,35 @@ import { addGameFileFromDownload } from './game-files-store'
 import { hashFile } from './hash'
 import { dismissGuestsAfterDownload, releaseGuestsAfterDownload } from './open-url'
 import { flagPackageAs, onLibraryPackageAdded } from './p2p/controller'
-import { signMessageBytes } from './p2p/identity'
-import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
+import { reportLinkFile, reportSignedInstall } from './p2p/metadata-client'
 import {
   getDownloadsDirSync,
-  getMetadataApiEnabledSync,
   getUntrustedDownloadsDirSync
 } from './settings-store'
 import { sendToRenderer } from './windows'
 
+type SpeedSample = { at: number; bytes: number }
+
+/** Controls for a download the app writes itself instead of through Chromium. */
+type StreamTransfer = {
+  pause: () => void
+  resume: () => void
+  cancel: () => void
+}
+
+export type StreamDownloadSource = {
+  filename: string
+  url: string
+  totalBytes: number
+  context?: GameFileContext
+  /** Plaintext from byte `start` to the end of the file. */
+  open: (start: number) => Readable
+}
+
 type TrackedDownload = {
   id: string
   item?: Electron.DownloadItem
+  transfer?: StreamTransfer
   filename: string
   url: string
   savePath: string
@@ -47,12 +77,12 @@ type TrackedDownload = {
   startedAt: number
   updatedAt: number
   finishedAt?: number
-  lastSampleAt: number
-  lastSampleBytes: number
+  speedSamples: SpeedSample[]
   context?: GameFileContext
   hash?: string
   libraryStatus?: DownloadLibraryStatus
   packageHint?: PackageTagHint
+  sourceLinks?: string[]
 }
 
 const tracked = new Map<string, TrackedDownload>()
@@ -142,7 +172,8 @@ function toRecord(entry: TrackedDownload): DownloadRecord {
     gameEngine: entry.context?.engine,
     hash: entry.hash,
     libraryStatus: entry.libraryStatus,
-    packageHint: entry.packageHint || entry.context?.packageHint
+    packageHint: entry.packageHint || entry.context?.packageHint,
+    sourceLinks: entry.sourceLinks || entry.context?.sourceLinks
   }
 }
 
@@ -204,11 +235,11 @@ function recordToTracked(row: DownloadRecord): TrackedDownload {
     startedAt: row.startedAt,
     updatedAt: row.updatedAt,
     finishedAt: row.finishedAt ?? (isFinishedDownloadStatus(row.status) ? row.updatedAt : undefined),
-    lastSampleAt: row.updatedAt,
-    lastSampleBytes: row.receivedBytes,
+    speedSamples: [],
     hash: row.hash,
     libraryStatus: row.libraryStatus,
     packageHint: row.packageHint,
+    sourceLinks: row.sourceLinks,
     context:
       row.gameThreadId != null
         ? {
@@ -218,7 +249,8 @@ function recordToTracked(row: DownloadRecord): TrackedDownload {
             creator: row.gameCreator,
             coverUrl: row.gameCoverUrl,
             engine: row.gameEngine,
-            packageHint: row.packageHint
+            packageHint: row.packageHint,
+            sourceLinks: row.sourceLinks
           }
         : undefined
   }
@@ -256,17 +288,33 @@ function statusFromItem(item: Electron.DownloadItem): DownloadStatus {
   return 'interrupted'
 }
 
+const SPEED_WINDOW_MS = 3000
+const SPEED_SAMPLE_MS = 250
+const SPEED_MIN_SPAN_MS = 500
+
+/**
+ * Average over a few seconds. Hosts that deliver in bursts (MEGA chunks) read as
+ * zero between bursts with a single short sample, so the speed blinked on and off.
+ */
+function sampleSpeed(samples: SpeedSample[], now: number, bytes: number, previous: number): number {
+  const last = samples[samples.length - 1]
+  if (last && bytes < last.bytes) samples.length = 0
+  if (!samples.length || now - samples[samples.length - 1].at >= SPEED_SAMPLE_MS) {
+    samples.push({ at: now, bytes })
+  }
+  while (samples.length > 2 && now - samples[1].at >= SPEED_WINDOW_MS) samples.shift()
+  const first = samples[0]
+  const span = now - first.at
+  if (span < SPEED_MIN_SPAN_MS) return previous
+  return Math.max(0, ((bytes - first.bytes) * 1000) / span)
+}
+
 function syncFromItem(entry: TrackedDownload): void {
   const { item } = entry
   if (!item) return
   const now = Date.now()
   const received = item.getReceivedBytes()
-  if (now - entry.lastSampleAt >= 400) {
-    const elapsed = Math.max(1, now - entry.lastSampleAt)
-    entry.bytesPerSecond = Math.max(0, ((received - entry.lastSampleBytes) * 1000) / elapsed)
-    entry.lastSampleAt = now
-    entry.lastSampleBytes = received
-  }
+  entry.bytesPerSecond = sampleSpeed(entry.speedSamples, now, received, entry.bytesPerSecond)
   entry.filename = item.getFilename() || entry.filename
   entry.url = item.getURL() || entry.url
   entry.savePath = item.getSavePath() || entry.savePath
@@ -379,8 +427,7 @@ export function addCompletedDownload(opts: {
     startedAt: now,
     updatedAt: now,
     finishedAt: now,
-    lastSampleAt: now,
-    lastSampleBytes: size,
+    speedSamples: [],
     hash: opts.hash,
     libraryStatus: opts.hash ? 'indexed' : undefined,
     context:
@@ -399,6 +446,10 @@ export function addCompletedDownload(opts: {
 
 export function cancelDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
+  if (entry?.transfer) {
+    entry.transfer.cancel()
+    return listRecords()
+  }
   if (entry && (entry.status === 'progressing' || entry.status === 'paused')) {
     try {
       entry.item?.cancel()
@@ -411,6 +462,11 @@ export function cancelDownload(id: string): DownloadRecord[] {
 
 export function pauseDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
+  if (entry?.transfer) {
+    entry.transfer.pause()
+    broadcast()
+    return listRecords()
+  }
   if (entry?.item && !entry.item.isPaused() && entry.item.getState() === 'progressing') {
     try {
       entry.item.pause()
@@ -425,6 +481,11 @@ export function pauseDownload(id: string): DownloadRecord[] {
 
 export function resumeDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
+  if (entry?.transfer) {
+    entry.transfer.resume()
+    broadcast()
+    return listRecords()
+  }
   if (entry?.item?.canResume()) {
     try {
       entry.item.resume()
@@ -440,7 +501,9 @@ export function resumeDownload(id: string): DownloadRecord[] {
 export function removeDownload(id: string): DownloadRecord[] {
   const entry = tracked.get(id)
   if (!entry) return listRecords()
-  if (entry.status === 'progressing' || entry.status === 'paused') {
+  if (entry.transfer) {
+    entry.transfer.cancel()
+  } else if (entry.status === 'progressing' || entry.status === 'paused') {
     entry.item?.cancel()
   }
   tracked.delete(id)
@@ -492,19 +555,6 @@ export async function openDownloadsFolder(): Promise<void> {
   mkdirSync(dir, { recursive: true })
   const error = await shell.openPath(dir)
   if (error) throw new Error(error)
-}
-
-async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
-  if (!getMetadataApiEnabledSync()) return
-  const ts = Math.floor(Date.now() / 1000)
-  const msg = buildInstallClaimMessage(contentHash, ts, tags)
-  const { seederPubkey, signature } = await signMessageBytes(msg)
-  await reportPackageInstall(contentHash, {
-    seederPubkey,
-    ts,
-    signature,
-    tags
-  })
 }
 
 /** Hash a finished package and wait for tag approval before library insert. */
@@ -581,7 +631,26 @@ export async function approveDownload(
     console.warn('[p2p] auto-seed after HTTP download approve failed', error)
   })
 
-  void reportInstallTags(hash, normalizedTags).catch((error) => {
+  const sourceLinks = entry.sourceLinks ?? context.sourceLinks
+  void (async () => {
+    // Link first: it creates the package row, so the install tags below never 404.
+    if (sourceLinks?.length) {
+      try {
+        await reportLinkFile({
+          contentHash: hash,
+          f95ThreadId: nextContext.threadId,
+          f95ThreadUrl: nextContext.threadUrl,
+          gameName: nextContext.title,
+          urls: sourceLinks,
+          normalizedName: normalizePackageFilename(trustedPath),
+          sizeBytes: size
+        })
+      } catch (error) {
+        console.warn('[downloads] link report after approve failed', error)
+      }
+    }
+    await reportSignedInstall(hash, normalizedTags)
+  })().catch((error) => {
     console.warn('[downloads] install report after approve failed', error)
   })
 
@@ -628,6 +697,149 @@ export async function flagDownload(
   return records
 }
 
+function settleStream(entry: TrackedDownload, status: DownloadStatus, error?: string): void {
+  const now = Date.now()
+  entry.status = status
+  entry.paused = false
+  entry.canResume = false
+  entry.bytesPerSecond = 0
+  entry.error = error
+  entry.updatedAt = now
+  entry.finishedAt = now
+}
+
+function cancelStream(entry: TrackedDownload): void {
+  entry.transfer = undefined
+  settleStream(entry, 'cancelled')
+  unlink(entry.savePath, () => undefined)
+  broadcast()
+}
+
+/**
+ * Pausing holds the chunk being written, so backpressure stops the source without
+ * dropping its state. A failed transfer keeps the partial file and resumes after it.
+ */
+function runStream(entry: TrackedDownload, source: StreamDownloadSource, start: number): void {
+  const abort = new AbortController()
+  let held: (() => void) | null = null
+  const now = Date.now()
+  entry.status = 'progressing'
+  entry.paused = false
+  entry.canResume = false
+  entry.error = undefined
+  entry.finishedAt = undefined
+  entry.receivedBytes = start
+  entry.bytesPerSecond = 0
+  entry.speedSamples = [{ at: now, bytes: start }]
+  entry.updatedAt = now
+
+  const meter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      const at = Date.now()
+      entry.receivedBytes += chunk.length
+      entry.bytesPerSecond = sampleSpeed(entry.speedSamples, at, entry.receivedBytes, entry.bytesPerSecond)
+      entry.updatedAt = at
+      scheduleBroadcast()
+      if (entry.paused) held = () => callback(null, chunk)
+      else callback(null, chunk)
+    }
+  })
+
+  // MEGA delivers in multi-megabyte chunks; resample between them so a stall reads as slowing down.
+  const ticker = setInterval(() => {
+    if (entry.status !== 'progressing') return
+    entry.bytesPerSecond = sampleSpeed(entry.speedSamples, Date.now(), entry.receivedBytes, entry.bytesPerSecond)
+    scheduleBroadcast()
+  }, 1000)
+
+  entry.transfer = {
+    pause: () => {
+      if (entry.status !== 'progressing') return
+      entry.status = 'paused'
+      entry.paused = true
+      entry.canResume = true
+      entry.bytesPerSecond = 0
+    },
+    resume: () => {
+      if (entry.status !== 'paused') return
+      entry.status = 'progressing'
+      entry.paused = false
+      entry.canResume = false
+      entry.speedSamples = [{ at: Date.now(), bytes: entry.receivedBytes }]
+      const release = held
+      held = null
+      release?.()
+    },
+    cancel: () => abort.abort()
+  }
+  broadcast()
+
+  void (async () => {
+    try {
+      if (start > 0) truncateSync(entry.savePath, start)
+      const out = createWriteStream(entry.savePath, { flags: start > 0 ? 'a' : 'w' })
+      await pipeline(source.open(start), meter, out, { signal: abort.signal })
+    } finally {
+      clearInterval(ticker)
+    }
+  })().then(
+    () => {
+      entry.transfer = undefined
+      settleStream(entry, 'completed')
+      broadcast()
+      void prepareArchiveForReview(entry)
+    },
+    (error: unknown) => {
+      if (abort.signal.aborted) {
+        cancelStream(entry)
+        return
+      }
+      console.warn('[downloads] transfer failed', entry.url, error)
+      settleStream(entry, 'interrupted', error instanceof Error ? error.message : String(error))
+      entry.canResume = true
+      entry.transfer = {
+        pause: () => undefined,
+        resume: () => {
+          const written = fileSize(entry.savePath) ?? 0
+          // A complete file that still failed (integrity check) has to start over.
+          runStream(entry, source, written < entry.totalBytes ? written : 0)
+        },
+        cancel: () => cancelStream(entry)
+      }
+      broadcast()
+    }
+  )
+}
+
+/** Track a download the app streams to disk itself, landing in untrusted quarantine like the rest. */
+export function startStreamDownload(source: StreamDownloadSource): void {
+  const dir = getUntrustedDownloadsDirSync()
+  mkdirSync(dir, { recursive: true })
+  const savePath = uniquePath(dir, source.filename)
+  closeSync(openSync(savePath, 'w'))
+  const now = Date.now()
+  const entry: TrackedDownload = {
+    id: nextId(),
+    filename: basename(savePath),
+    url: source.url,
+    savePath,
+    receivedBytes: 0,
+    totalBytes: source.totalBytes,
+    status: 'progressing',
+    paused: false,
+    canResume: false,
+    bytesPerSecond: 0,
+    startedAt: now,
+    updatedAt: now,
+    speedSamples: [],
+    context: source.context,
+    packageHint: source.context?.packageHint,
+    sourceLinks: source.context?.sourceLinks
+  }
+  tracked.set(entry.id, entry)
+  runStream(entry, source, 0)
+}
+
 export function registerDownloadHandler(): void {
   applyConfiguredDownloadPath()
   void restoreDownloadHistory().catch((error) => {
@@ -636,6 +848,13 @@ export function registerDownloadHandler(): void {
   session.defaultSession.on('will-download', (event, item, webContents) => {
     try {
     const initiator = webContents && !webContents.isDestroyed() ? webContents : null
+    if (
+      isDataNodesInterstitialDownload(item.getURL(), item.getFilename(), item.getMimeType())
+    ) {
+      console.warn('[datanodes] skipped HTML interstitial', item.getURL())
+      event.preventDefault()
+      return
+    }
     if (initiator && isGuestContents(initiator)) {
       if (
         shouldBlockDownload({
@@ -683,10 +902,10 @@ export function registerDownloadHandler(): void {
       bytesPerSecond: 0,
       startedAt: now,
       updatedAt: now,
-      lastSampleAt: now,
-      lastSampleBytes: item.getReceivedBytes(),
+      speedSamples: [{ at: now, bytes: item.getReceivedBytes() }],
       context,
-      packageHint: context?.packageHint
+      packageHint: context?.packageHint,
+      sourceLinks: context?.sourceLinks
     }
     tracked.set(entry.id, entry)
     broadcast()

@@ -169,7 +169,6 @@ function emptySettings(): AppSettings {
     extraArchiveDirs: [],
     extraLibraryDirs: [],
     p2pEnabled: false,
-    metadataApiEnabled: true,
     metadataBaseUrl: hardcodedMetadataUrl(),
     trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: 0,
@@ -202,8 +201,6 @@ function normalizeSettings(value: unknown): AppSettings {
       normalizeDir(raw.libraryDir, defaults.libraryDir)
     ]),
     p2pEnabled: Boolean(raw.p2pEnabled),
-    metadataApiEnabled:
-      typeof raw.metadataApiEnabled === 'boolean' ? raw.metadataApiEnabled : true,
     metadataBaseUrl: hardcodedMetadataUrl(),
     trackerWebRtcUrl: hardcodedTrackerUrl(),
     p2pUploadLimitKBps: normalizeUploadLimitKBps(raw.p2pUploadLimitKBps),
@@ -271,10 +268,6 @@ export function getExtraLibraryDirsSync(): string[] {
 
 export function getMetadataBaseUrlSync(): string {
   return hardcodedMetadataUrl()
-}
-
-export function getMetadataApiEnabledSync(): boolean {
-  return loaded?.metadataApiEnabled ?? true
 }
 
 export function getTrackerWebRtcUrlSync(): string {

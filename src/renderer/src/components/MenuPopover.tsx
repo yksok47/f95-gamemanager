@@ -10,6 +10,8 @@ export type MenuItem = {
   disabled?: boolean
   active?: boolean
   onClick: () => void
+  /** Small in-row link, e.g. a fallback next to the main action. */
+  link?: { label: string; title?: string; onClick: () => void }
 }
 
 type MenuPopoverProps = {
@@ -78,29 +80,53 @@ export function MenuPopover({
     >
       {header ? <div className="card-menu-header">{header}</div> : null}
       {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          role="menuitem"
-          className={item.active ? 'is-active' : undefined}
-          disabled={item.disabled}
-          onClick={() => {
-            item.onClick()
-            onClose()
-          }}
-        >
-          {item.hint ? (
-            <span className="card-menu-item">
-              <span>{item.label}</span>
-              <span className="card-menu-hint">{item.hint}</span>
-            </span>
-          ) : (
-            item.label
-          )}
-        </button>
+        <MenuRow key={item.id} item={item} onClose={onClose} />
       ))}
     </div>,
     document.body
+  )
+}
+
+function MenuRow({ item, onClose }: { item: MenuItem; onClose: () => void }): JSX.Element {
+  const body = item.hint ? (
+    <span className="card-menu-item">
+      <span>{item.label}</span>
+      <span className="card-menu-hint">{item.hint}</span>
+    </span>
+  ) : (
+    item.label
+  )
+  const main = (
+    <button
+      type="button"
+      role="menuitem"
+      className={item.link ? 'card-menu-main' : item.active ? 'is-active' : undefined}
+      disabled={item.disabled}
+      onClick={() => {
+        item.onClick()
+        onClose()
+      }}
+    >
+      {body}
+    </button>
+  )
+  if (!item.link) return main
+  return (
+    <div className={item.active ? 'card-menu-row is-active' : 'card-menu-row'}>
+      {main}
+      <button
+        type="button"
+        className="card-menu-link"
+        title={item.link.title}
+        disabled={item.disabled}
+        onClick={() => {
+          item.link!.onClick()
+          onClose()
+        }}
+      >
+        {item.link.label}
+      </button>
+    </div>
   )
 }
 

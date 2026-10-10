@@ -13,6 +13,7 @@ import { DEFAULT_CATALOG_PAGE_SIZE, DEFAULT_CLOUD_SAVE_KEEP_COUNT } from '@share
 import { DEFAULT_DOWNLOAD_PROVIDER_ORDER } from '@shared/download-providers'
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
+import { FilePickHost } from './components/FilePickDialog'
 import { ErrorNotificationHost, errorMessage, notifyError } from './components/ErrorNotifications'
 import DownloadsDock from './components/DownloadsDock'
 import FollowSyncDock from './components/FollowSyncDock'
@@ -217,7 +218,6 @@ export default function App(): JSX.Element {
     extraArchiveDirs: [],
     extraLibraryDirs: [],
     p2pEnabled: false,
-    metadataApiEnabled: true,
     metadataBaseUrl: P2P_ENV_DEFAULTS.METADATA_BASE_URL,
     trackerWebRtcUrl: P2P_ENV_DEFAULTS.TRACKER_WEBRTC_URL,
     p2pUploadLimitKBps: 0,
@@ -726,6 +726,7 @@ export default function App(): JSX.Element {
     <div className={view !== 'downloads' && activeDownloadCount ? 'app-shell app-shell-dock' : 'app-shell'}>
       <DownloadProgressProvider value={pendingDownloads}>
       <ConfirmHost />
+      <FilePickHost />
       <AppNav
         view={view}
         username={session.username}

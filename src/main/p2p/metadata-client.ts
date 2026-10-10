@@ -13,13 +13,17 @@
  *       response: { items, limit, offset, total }
  *   POST /api/v1/packages/{contentHash}/seeders
  *   POST /api/v1/packages/{contentHash}/flags
+ *   POST /api/v1/packages/{contentHash}/installs
+ *   POST /api/v1/links — file seen behind an F95 download link (+ its mirrors)
+ *   GET  /api/v1/links?f95ThreadId= — files per link for one thread
  * No metadata POST /announce. Popularity = uniqueSeederPubkeyCount.
- * Discovery is per-thread (f95ThreadId) — not global browse, not F95 download-link rows.
+ * Discovery is per-thread (f95ThreadId) — never a global catalog.
  */
 
 import { normalizeInfoHash } from '@shared/content-address'
 import type {
   FlagPackagePayload,
+  LinkFileRef,
   MetadataHealth,
   PackageFlag,
   PackageInstallTags,
@@ -27,7 +31,8 @@ import type {
   PackageListResponse,
   PackageMetadata,
   PackageStats,
-  PackageVersionWeight
+  PackageVersionWeight,
+  ThreadDownloadMetadata
 } from '@shared/p2p'
 import type { ShareClaimPostBody } from './share-claim'
 import { getP2pEnv } from './env'
@@ -35,20 +40,10 @@ import { metadataFetch } from './metadata-tls-fetch'
 import { appendFile } from 'fs/promises'
 import { join } from 'path'
 import { getAppPaths } from '../paths'
-import { getMetadataApiEnabledSync } from '../settings-store'
+import { signMessageBytes } from './identity'
+import { createInstallReportQueue, type InstallReportPayload } from './install-report'
 
 const API_PREFIX = '/api/v1'
-
-export class MetadataApiDisabledError extends Error {
-  constructor() {
-    super('Metadata API is disabled. Enable it in Settings → General.')
-    this.name = 'MetadataApiDisabledError'
-  }
-}
-
-export function isMetadataApiEnabled(): boolean {
-  return getMetadataApiEnabledSync()
-}
 
 type ApiFlags = { broken?: boolean; harmful?: boolean }
 
@@ -221,9 +216,6 @@ async function appendDiscoveryLog(line: string): Promise<void> {
 
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (!getMetadataApiEnabledSync()) {
-    throw new MetadataApiDisabledError()
-  }
   const { metadataBaseUrl } = getP2pEnv()
   const url = joinUrl(metadataBaseUrl, path)
   const init: RequestInit = {
@@ -250,9 +242,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export async function metadataHealth(): Promise<MetadataHealth> {
-  if (!getMetadataApiEnabledSync()) {
-    return { ok: false, message: 'metadata API disabled' }
-  }
   try {
     return await request<MetadataHealth>('GET', '/health')
   } catch (error) {
@@ -412,33 +401,135 @@ export function buildInstallClaimMessage(
   return ['f95-gm:install:v1', `contentHash=${hash}`, `ts=${ts}`].join('\n')
 }
 
+function installReportBody(payload: InstallReportPayload): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    seederPubkey: payload.seederPubkey,
+    ts: payload.ts,
+    signature: payload.signature
+  }
+  if (payload.tags) {
+    body.os = [...new Set(payload.tags.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort(
+      (a, b) => a - b
+    )
+    body.contentKind = Number(payload.tags.contentKind)
+    body.version = String(payload.tags.version || '').trim().replace(/\s+/g, ' ')
+  }
+  return body
+}
+
+const installReports = createInstallReportQueue(async (hash, payload) => {
+  await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/installs`, installReportBody(payload))
+})
+
+/** Sign and post an install/tag claim. Soft-fails; 404s are retried after share-claim. */
+export async function reportSignedInstall(
+  contentHash: string,
+  tags?: PackageInstallTags | null
+): Promise<void> {
+  const hash = contentHash.trim().toLowerCase()
+  if (!hash) return
+  const ts = Math.floor(Date.now() / 1000)
+  const msg = buildInstallClaimMessage(hash, ts, tags)
+  const { seederPubkey, signature } = await signMessageBytes(msg)
+  await reportPackageInstall(hash, { seederPubkey, ts, signature, tags })
+}
+
 /** Best-effort install signal after Approve. Soft-fails if Tracker has no endpoint yet. */
 export async function reportPackageInstall(
   contentHash: string,
-  payload: {
-    seederPubkey: string
-    ts: number
-    signature: string
-    tags?: PackageInstallTags | null
-  }
+  payload: InstallReportPayload
 ): Promise<void> {
   const hash = contentHash.trim().toLowerCase()
   if (!hash) return
   try {
-    const body: Record<string, unknown> = {
-      seederPubkey: payload.seederPubkey,
-      ts: payload.ts,
-      signature: payload.signature
-    }
-    if (payload.tags) {
-      body.os = [...new Set(payload.tags.os.map((n) => Number(n)).filter((n) => Number.isFinite(n)))].sort(
-        (a, b) => a - b
-      )
-      body.contentKind = Number(payload.tags.contentKind)
-      body.version = String(payload.tags.version || '').trim().replace(/\s+/g, ' ')
-    }
-    await request('POST', `${API_PREFIX}/packages/${encodeURIComponent(hash)}/installs`, body)
+    await installReports.report(hash, payload)
   } catch (error) {
     console.warn('[p2p-metadata] install report failed (Tracker may not support it yet)', error)
   }
+}
+
+/** Flush a 404'd install report after POST /packages succeeds for this hash. */
+export async function onPackageRegistered(contentHash: string): Promise<void> {
+  const hash = contentHash.trim().toLowerCase()
+  if (!hash) return
+  try {
+    await installReports.onPackageRegistered(hash)
+  } catch (error) {
+    console.warn('[p2p-metadata] install report after register failed', error)
+  }
+}
+
+export type LinkFileReport = {
+  contentHash: string
+  f95ThreadId: number
+  f95ThreadUrl?: string | null
+  gameName?: string
+  /** The clicked link first, then the other mirrors offered for the same file. */
+  urls: string[]
+  normalizedName: string
+  sizeBytes?: number
+}
+
+/** Build the exact UTF-8 link claim clients sign. */
+export function buildLinkClaimMessage(contentHash: string, f95ThreadId: number, ts: number): string {
+  return [
+    'f95-gm:link:v1',
+    `contentHash=${contentHash.trim().toLowerCase()}`,
+    `f95ThreadId=${f95ThreadId}`,
+    `ts=${ts}`
+  ].join('\n')
+}
+
+/**
+ * Record which file an approved download came from, for that link and all its mirrors.
+ * Creates the package row when missing, so a queued install report can flush right after.
+ */
+export async function reportLinkFile(report: LinkFileReport): Promise<void> {
+  const hash = report.contentHash.trim().toLowerCase()
+  const urls = [...new Set(report.urls.map((url) => url.trim()).filter(Boolean))].slice(0, 16)
+  if (!hash || !urls.length || !Number.isFinite(report.f95ThreadId)) return
+  const ts = Math.floor(Date.now() / 1000)
+  const { seederPubkey, signature } = await signMessageBytes(
+    buildLinkClaimMessage(hash, report.f95ThreadId, ts)
+  )
+  await request('POST', `${API_PREFIX}/links`, {
+    f95ThreadId: String(report.f95ThreadId),
+    f95ThreadUrl: report.f95ThreadUrl ?? '',
+    gameName: report.gameName ?? '',
+    urls,
+    contentHash: hash,
+    normalizedName: report.normalizedName,
+    sizeBytes: typeof report.sizeBytes === 'number' && report.sizeBytes > 0 ? report.sizeBytes : undefined,
+    seederPubkey,
+    ts,
+    signature
+  })
+  await onPackageRegistered(hash)
+}
+
+type ApiThreadLinks = {
+  links?: Array<{ url?: string; files?: Array<{ contentHash?: string; reports?: number; lastSeen?: string }> }>
+  packages?: ApiPackage[]
+}
+
+/** GET /api/v1/links — files reported behind each download link of one thread. */
+export async function listThreadLinks(f95ThreadId: number | string): Promise<ThreadDownloadMetadata> {
+  const thread = String(f95ThreadId ?? '').trim()
+  if (!thread) return { links: [], packages: [] }
+  const raw = await request<ApiThreadLinks>(
+    'GET',
+    `${API_PREFIX}/links?f95ThreadId=${encodeURIComponent(thread)}`
+  )
+  const links = (Array.isArray(raw.links) ? raw.links : []).flatMap((link) => {
+    const url = String(link.url || '').trim()
+    if (!url) return []
+    const files: LinkFileRef[] = (Array.isArray(link.files) ? link.files : []).flatMap((file) => {
+      const contentHash = String(file.contentHash || '').trim().toLowerCase()
+      if (!contentHash) return []
+      return [{ contentHash, reports: Math.max(0, Number(file.reports) || 0) }]
+    })
+    return files.length ? [{ url, files }] : []
+  })
+  const packages = (Array.isArray(raw.packages) ? raw.packages : []).map((pkg) => toPackageMetadata(pkg))
+  return { links, packages }
 }

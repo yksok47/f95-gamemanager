@@ -30,16 +30,14 @@ import {
   scoreImportTitle
 } from './library-import-parse'
 import { onLibraryPackageAdded } from './p2p/controller'
-import { signMessageBytes } from './p2p/identity'
-import { buildInstallClaimMessage, reportPackageInstall } from './p2p/metadata-client'
+import { reportSignedInstall } from './p2p/metadata-client'
 import { getAppPaths } from './paths'
 import { folderSearchQueries } from './renpy/save-folder-match'
 import {
   getDownloadsDirSync,
   getExtraArchiveDirsSync,
   getExtraLibraryDirsSync,
-  getLibraryDirSync,
-  getMetadataApiEnabledSync
+  getLibraryDirSync
 } from './settings-store'
 import { listSubscriptions } from './subscriptions-store'
 import { listDirents, pathExists } from './win-path'
@@ -507,19 +505,6 @@ function contextFromGuess(
   }
 }
 
-async function reportInstallTags(contentHash: string, tags: PackageInstallTags): Promise<void> {
-  if (!getMetadataApiEnabledSync() || !contentHash) return
-  const ts = Math.floor(Date.now() / 1000)
-  const msg = buildInstallClaimMessage(contentHash, ts, tags)
-  const { seederPubkey, signature } = await signMessageBytes(msg)
-  await reportPackageInstall(contentHash, {
-    seederPubkey,
-    ts,
-    signature,
-    tags
-  })
-}
-
 export async function dismissPendingImport(filePath: string): Promise<void> {
   const store = await readImportStore()
   const key = pathKey(filePath)
@@ -566,7 +551,7 @@ export async function approvePendingImport(
     }).catch((error) => {
       console.warn('[library] auto-seed after import failed', error)
     })
-    void reportInstallTags(hash, normalized).catch((error) => {
+    void reportSignedInstall(hash, normalized).catch((error) => {
       console.warn('[library] install report after import failed', error)
     })
   }

@@ -17,6 +17,7 @@ import {
   type P2pIdentityPublic,
   type P2pTransferProgress,
   type P2pTransferState,
+  type ThreadDownloadMetadata,
 } from "@shared/p2p";
 import { addCompletedDownload } from "../downloads";
 import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
@@ -27,15 +28,17 @@ import { metadataFetch } from "./metadata-tls-fetch";
 import { installNativeWebRtc } from "./webrtc";
 import {
   flagPackage,
-  reportPackageInstall,
-  buildInstallClaimMessage,
+  reportSignedInstall,
   findPackagesByName,
   getPackage,
   getPackageStats,
   listPackages,
+  listThreadLinks,
   metadataHealth,
+  onPackageRegistered,
   registerPackage,
 } from "./metadata-client";
+import { findGameFileByHash } from "../game-files-store";
 import { enrichPackagesWithLiveSwarm } from "./tracker-swarm";
 import { loadP2pDownloadSession } from "./download-session-store";
 import {
@@ -127,7 +130,6 @@ async function trackerAnnounceHealth(): Promise<{
 
 export async function p2pStatus(): Promise<{
   enabled: boolean;
-  metadataApiEnabled: boolean;
   identity: P2pIdentityPublic | null;
   env: ReturnType<typeof getP2pEnv>;
   announceList: string[];
@@ -138,19 +140,15 @@ export async function p2pStatus(): Promise<{
 }> {
   const settings = await getSettings();
   const enabled = Boolean(settings.p2pEnabled);
-  const metadataEnabled = settings.metadataApiEnabled !== false;
   const webrtc = await installNativeWebRtc();
   const [metadata, tracker] = await Promise.all([
-    metadataEnabled
-      ? metadataHealth()
-      : Promise.resolve({ ok: false, message: "metadata API disabled" }),
+    metadataHealth(),
     enabled
       ? trackerAnnounceHealth()
       : Promise.resolve({ ok: false, message: "p2p disabled" }),
   ]);
   return {
     enabled,
-    metadataApiEnabled: metadataEnabled,
     identity: enabled ? await getP2pIdentity() : null,
     env: getP2pEnv(),
     announceList: getAnnounceList(),
@@ -174,6 +172,17 @@ export async function p2pAdd(
     return p2pAddMagnet(magnetOrPath, { contentHash });
   }
   return p2pSeedPath(magnetOrPath, { contentHash });
+}
+
+async function reportLibraryInstallTags(contentHash: string): Promise<void> {
+  try {
+    const file = await findGameFileByHash(contentHash);
+    const tags = file?.packageTags;
+    if (!tags) return;
+    await reportSignedInstall(contentHash, normalizePackageInstallTags(tags));
+  } catch (error) {
+    console.warn("[p2p] library install report after register failed", error);
+  }
 }
 
 export async function p2pSeed(
@@ -243,27 +252,26 @@ export async function p2pSeed(
   // Map write can land after the last torrent progress tick (idle seeders emit nothing).
   touchP2pProgress();
   // Public-path: no LAN/Tailscale listenAddrs — peers meet via tracker WAN + WebRTC STUN.
-  const settings = await getSettings();
-  if (settings.metadataApiEnabled !== false) {
-    try {
-      const claim = await signShareClaim(
-        {
-          contentHash,
-          infoHash,
-          normalizedName,
-        },
-        {
-          gameName: meta?.gameName,
-          gameVersion: meta?.gameVersion,
-          f95ThreadId: meta?.f95ThreadId,
-          f95ThreadUrl: meta?.f95ThreadUrl,
-          sizeBytes: st.size,
-        },
-      );
-      await registerPackage(claim);
-    } catch (error) {
-      console.warn("[p2p] share-claim register failed", error);
-    }
+  try {
+    const claim = await signShareClaim(
+      {
+        contentHash,
+        infoHash,
+        normalizedName,
+      },
+      {
+        gameName: meta?.gameName,
+        gameVersion: meta?.gameVersion,
+        f95ThreadId: meta?.f95ThreadId,
+        f95ThreadUrl: meta?.f95ThreadUrl,
+        sizeBytes: st.size,
+      },
+    );
+    await registerPackage(claim);
+    await onPackageRegistered(contentHash);
+    await reportLibraryInstallTags(contentHash);
+  } catch (error) {
+    console.warn("[p2p] share-claim register failed", error);
   }
   return { ...progress, infoHash, contentHash, normalizedName };
 }
@@ -528,12 +536,6 @@ export async function flagPackageAs(
   note?: string,
 ): Promise<PackageMetadata> {
   // Metadata-only — does not require torrenting to be enabled.
-  const settings = await getSettings();
-  if (settings.metadataApiEnabled === false) {
-    throw new Error(
-      "Metadata API is disabled. Enable it in Settings → General to flag packages.",
-    );
-  }
   const identity = await getP2pIdentity();
   const ts = Math.floor(Date.now() / 1000);
   const message = [
@@ -551,14 +553,10 @@ export async function flagPackageAs(
   });
 }
 
-/** Per-thread metadata discovery for the dedicated P2P UI (not F95 download rows). */
+/** Per-thread metadata package discovery. */
 export async function listPackagesForDiscovery(
   query: PackageListQuery,
 ): Promise<PackageListResponse> {
-  const settings = await getSettings();
-  if (settings.metadataApiEnabled === false) {
-    return { items: [], versions: [], limit: 50, offset: 0, total: 0 };
-  }
   const page = await listPackages({
     limit: 50,
     offset: 0,
@@ -586,6 +584,43 @@ export async function listPackagesForDiscovery(
   return { ...page, items };
 }
 
+/**
+ * Downloads-tab metadata for one thread: which files sit behind each F95 link, plus
+ * every known package for the thread (linked or peer-shared only) with live peer counts.
+ */
+export async function threadDownloadMetadata(
+  f95ThreadId: number,
+): Promise<ThreadDownloadMetadata> {
+  const [linked, listed] = await Promise.all([
+    listThreadLinks(f95ThreadId).catch((error) => {
+      console.warn("[p2p] thread links lookup failed", error);
+      return { links: [], packages: [] } as ThreadDownloadMetadata;
+    }),
+    listPackages({
+      f95ThreadId,
+      sort: "popularity",
+      includeFlagged: true,
+      limit: 200,
+      offset: 0,
+    })
+      .then((page) => page.items)
+      .catch((error) => {
+        console.warn("[p2p] thread packages lookup failed", error);
+        return [] as PackageMetadata[];
+      }),
+  ]);
+  const byHash = new Map<string, PackageMetadata>();
+  for (const pkg of [...listed, ...linked.packages]) {
+    const hash = pkg.contentHash.toLowerCase();
+    if (!byHash.has(hash)) byHash.set(hash, pkg);
+  }
+  const settings = await getSettings();
+  const packages = settings.p2pEnabled
+    ? await enrichPackagesWithLiveSwarm([...byHash.values()])
+    : [...byHash.values()];
+  return { links: linked.links, packages };
+}
+
 function buildMagnet(infoHash: string, displayName?: string): string {
   const normalized = normalizeInfoHash(infoHash);
   if (!normalized) throw new Error("Invalid infoHash (need 40-char hex)");
@@ -606,12 +641,6 @@ export async function p2pDownloadByContentHash(
   contentHash: string,
 ): Promise<P2pTransferProgress> {
   await requireEnabled();
-  const settings = await getSettings();
-  if (settings.metadataApiEnabled === false) {
-    throw new Error(
-      "Metadata API is disabled. Enable it in Settings → General to download from the catalog.",
-    );
-  }
   const hash = contentHash.trim().toLowerCase();
   // Allow re-download after library remove / prior finalize.
   clearFinalizedContentHash(hash);
@@ -736,19 +765,9 @@ export async function approveQuarantinedDownload(
     console.warn("[p2p] could not add approved file to Downloads list", error);
   }
   if (contentHash) {
-    try {
-      const ts = Math.floor(Date.now() / 1000);
-      const msg = buildInstallClaimMessage(contentHash, ts, normalizedTags);
-      const { seederPubkey, signature } = await signMessageBytes(msg);
-      await reportPackageInstall(contentHash, {
-        seederPubkey,
-        ts,
-        signature,
-        tags: normalizedTags,
-      });
-    } catch (error) {
+    void reportSignedInstall(contentHash, normalizedTags).catch((error) => {
       console.warn("[p2p] install report after approve failed", error);
-    }
+    });
   }
 }
 
@@ -772,14 +791,6 @@ export async function flagQuarantinedDownload(
   const contentHash = row?.contentHash?.trim().toLowerCase();
   await p2pRejectQuarantine(id);
   if (!contentHash) return;
-  const settings = await getSettings();
-  if (settings.metadataApiEnabled === false) {
-    console.warn(
-      "[p2p] skipped harmful flag — metadata API disabled",
-      contentHash,
-    );
-    return;
-  }
   await flagPackageAs(contentHash, "harmful", note);
 }
 

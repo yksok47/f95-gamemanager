@@ -261,6 +261,27 @@ export type PackageListResponse = {
   total: number
 }
 
+/** One file seen behind a download link, with how many clients reported it. */
+export type LinkFileRef = {
+  contentHash: string
+  reports: number
+}
+
+/** A normalized F95 download link (see `downloadLinkKey`) and the files behind it. */
+export type ThreadLinkFiles = {
+  url: string
+  files: LinkFileRef[]
+}
+
+/**
+ * Metadata for one thread's Downloads tab: files per link, and every known package
+ * (linked or peer-shared only), so links can be categorized and offered over P2P.
+ */
+export type ThreadDownloadMetadata = {
+  links: ThreadLinkFiles[]
+  packages: PackageMetadata[]
+}
+
 /**
  * Env keys (production Oracle defaults; override only via process.env):
  *   TRACKER_WEBRTC_URL=wss://130.61.67.157:6969

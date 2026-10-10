@@ -14,12 +14,14 @@ const PROVIDER_HOSTS = new Map<string, readonly string[]>(
 type DownloadProvidersEditorProps = {
   order: DownloadProviderId[]
   disabled?: boolean
+  p2pEnabled?: boolean
   onChange: (next: DownloadProviderId[]) => void
 }
 
 export default function DownloadProvidersEditor({
   order,
   disabled = false,
+  p2pEnabled = false,
   onChange
 }: DownloadProvidersEditorProps): JSX.Element {
   // Local copy so a reorder shows immediately instead of snapping back until the save lands.
@@ -90,9 +92,22 @@ export default function DownloadProvidersEditor({
               <span className="provider-rank">{index + 1}</span>
               <span className="provider-name">
                 {label}
-                <span className="provider-hosts">{PROVIDER_HOSTS.get(id)?.join(', ')}</span>
+                <span className="provider-hosts">
+                  {id === 'p2p'
+                    ? p2pEnabled
+                      ? 'Files other app users verified for that link'
+                      : 'Turn on peer-to-peer in Settings → P2P to use it'
+                    : PROVIDER_HOSTS.get(id)?.join(', ')}
+                </span>
               </span>
-              {isConnectedProvider(id) ? (
+              {id === 'p2p' ? (
+                <span
+                  className="download-tag download-tag-accent"
+                  title="Downloads in the app over the swarm; copies nobody seeds or reported harmful always rank last"
+                >
+                  Swarm
+                </span>
+              ) : isConnectedProvider(id) ? (
                 <span
                   className="download-tag download-tag-accent"
                   title="Has a download connector — starts the file in the app without opening the host site"

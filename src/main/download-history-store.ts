@@ -31,6 +31,12 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+function asStringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const items = value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+  return items.length ? items : undefined
+}
+
 function asPackageHint(value: unknown): PackageTagHint | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<PackageTagHint>
@@ -84,7 +90,8 @@ export function normalizeDownloadHistory(value: unknown): DownloadHistoryStore {
       gameEngine: asString(e.gameEngine),
       hash: asString(e.hash),
       libraryStatus,
-      packageHint: asPackageHint(e.packageHint)
+      packageHint: asPackageHint(e.packageHint),
+      sourceLinks: asStringList(e.sourceLinks)
     })
   }
   return { version: 1, items }

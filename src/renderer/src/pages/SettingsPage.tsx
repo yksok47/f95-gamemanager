@@ -233,17 +233,6 @@ export default function SettingsPage({
                 </div>
               </div>
             </div>
-
-            <Switch
-              checked={settings.metadataApiEnabled !== false}
-              disabled={saving}
-              onChange={(checked) => void persist({ metadataApiEnabled: checked })}
-              label="Enable metadata API"
-            />
-            <p className="muted download-meta">
-              Catalog discovery, share-claims, and package flags. Off by choice still leaves P2P
-              torrenting available when enabled separately.
-            </p>
           </div>
         ) : null}
 
@@ -348,9 +337,12 @@ export default function SettingsPage({
               When a post offers several mirrors, Download and Update use the highest provider on
               this list. The arrow next to the button picks a different host. Providers with a
               connector (One-click) start the file in the app instead of opening their site.
+              Peer-to-peer appears as one more mirror when other app users have shared the exact
+              file behind a link; move it up to prefer the swarm over file hosts.
             </p>
             <DownloadProvidersEditor
               order={settings.downloadProviderOrder}
+              p2pEnabled={settings.p2pEnabled}
               onChange={(next) => void persist({ downloadProviderOrder: next })}
             />
           </div>

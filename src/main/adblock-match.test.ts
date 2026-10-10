@@ -38,6 +38,7 @@ describe('isLikelyFileCdn', () => {
   test('accepts object storage hosts', () => {
     expect(isLikelyFileCdn('files.s3.amazonaws.com')).toBe(true)
     expect(isLikelyFileCdn('pub.r2.dev')).toBe(true)
+    expect(isLikelyFileCdn('a-delivery46.mxcontent.net')).toBe(true)
   })
 })
 
