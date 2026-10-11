@@ -130,7 +130,7 @@ export function summarizeLibrary(
   return result
 }
 
-/** Installed Ren'Py game versions that can receive this patch, uncensor, or mod overlay. */
+/** Installed Ren'Py game versions that can receive this patch, uncensor, mod, or walkthrough overlay. */
 export function listUncensorPatchTargets(
   files: GameLibraryFile[],
   patch: GameLibraryFile
@@ -177,6 +177,7 @@ export function overlayListLabel(kind: RenpyOverlayKind | 'mixed' | null): strin
   if (kind === 'mod') return 'Mod'
   if (kind === 'uncensor') return 'Uncensor'
   if (kind === 'patch') return 'Patch'
+  if (kind === 'walkthrough') return 'Walkthrough'
   return 'Applied'
 }
 
@@ -184,6 +185,7 @@ export function overlayRemoveNoun(kind: RenpyOverlayKind | 'mixed' | null): stri
   if (kind === 'mod') return 'mod'
   if (kind === 'uncensor') return 'uncensor'
   if (kind === 'patch') return 'patch'
+  if (kind === 'walkthrough') return 'walkthrough'
   return 'overlay'
 }
 

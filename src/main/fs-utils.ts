@@ -32,9 +32,16 @@ export function isRenpyOverlayFilePath(filePath: string): boolean {
   return isRenpyScriptPath(filePath) || isRenpyArchiveAssetPath(filePath)
 }
 
+/** Loose walkthrough documents that open in the system viewer instead of installing. */
+export function isWalkthroughDocumentPath(filePath: string): boolean {
+  const base = overlayBaseName(filePath)
+  if (!base || isRenpyOverlayFilePath(base)) return false
+  return /\.(pdf|txt|docx?|rtf|odt|md|markdown|html?|epub)$/i.test(base)
+}
+
 /** Packages that should hash and wait for tag approval before library insert. */
 export function isReviewablePackagePath(filePath: string): boolean {
-  return isArchivePath(filePath) || isRenpyOverlayFilePath(filePath)
+  return isArchivePath(filePath) || isRenpyOverlayFilePath(filePath) || isWalkthroughDocumentPath(filePath)
 }
 
 export function archiveKind(filePath: string): 'zip' | '7z' | 'rar' | null {

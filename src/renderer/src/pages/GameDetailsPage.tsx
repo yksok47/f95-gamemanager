@@ -1516,6 +1516,14 @@ function GameDetailsPage({
     }
   }
 
+  async function openWalkthrough(fileId: string): Promise<void> {
+    try {
+      await window.api.library.openWalkthrough(fileId)
+    } catch (err) {
+      notifyCaught(err, 'Could not open that walkthrough.')
+    }
+  }
+
   async function uninstallUncensorPatch(gameFileId: string, patch: InstalledPatchRef): Promise<void> {
     const noun = renpyOverlayLabel(patch.kind || installedOverlayKind(patch, files))
     try {
@@ -1742,7 +1750,9 @@ function GameDetailsPage({
     if (file.hasArchive) {
       items.push({
         id: 'show-archive',
-        label: 'Show archive',
+        label: /\.(zip|7z|rar)$/i.test(file.filename || file.archivePath)
+          ? 'Show archive'
+          : 'Show file',
         onClick: () => void window.api.library.showArchive(file.id)
       })
     }
@@ -2504,6 +2514,8 @@ function GameDetailsPage({
                       const overlayKind = renpyOverlayKind(file.packageTags)
                       const canInstallOverlay =
                         overlayKind != null && file.hasArchive && file.uncensorInstallable === true
+                      const canOpenWalkthrough =
+                        file.hasArchive && file.documentOpenable === true
                       const overlayTargets = canInstallOverlay
                         ? listUncensorPatchTargets(files, file)
                         : []
@@ -2645,6 +2657,16 @@ function GameDetailsPage({
                                   : file.isInstalled
                                     ? 'Reinstall'
                                     : 'Install'}
+                              </button>
+                            ) : null}
+                            {canOpenWalkthrough ? (
+                              <button
+                                className="primary-btn"
+                                type="button"
+                                disabled={libraryFileBusy(file)}
+                                onClick={() => void openWalkthrough(file.id)}
+                              >
+                                Open
                               </button>
                             ) : null}
                             {canInstallOverlay ? (

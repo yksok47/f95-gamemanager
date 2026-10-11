@@ -252,6 +252,21 @@ function gameRelPath(relativePath: string): string {
   return relativePath.split(/[/\\]/).filter(Boolean).join(sep)
 }
 
+function normGameRel(relativePath: string): string {
+  return relativePath.split(/[/\\]/).filter(Boolean).join('/').toLowerCase()
+}
+
+/**
+ * Ren'Py compiles `foo.rpy` to `foo.rpyc` (and `foo.rpym` to `foo.rpymc`) when the game
+ * runs. Those compiled files are not in the install manifest unless the overlay shipped them.
+ */
+export function compiledCompanionRel(relativePath: string): string | null {
+  const rel = gameRelPath(relativePath)
+  if (/\.rpym$/i.test(rel)) return rel.replace(/\.rpym$/i, '.rpymc')
+  if (/\.rpy$/i.test(rel)) return rel.replace(/\.rpy$/i, '.rpyc')
+  return null
+}
+
 async function readManifest(uninstallRoot: string): Promise<UncensorUninstallManifest | null> {
   const file = join(uninstallRoot, MANIFEST_NAME)
   if (!pathExists(file)) return null
@@ -334,6 +349,16 @@ export async function removeUncensorPatchFromGameDir(
 
   for (const relative of manifest.remove) {
     const dest = join(targetGameDir, gameRelPath(relative))
+    if (!pathExists(dest)) continue
+    await rm(toFsPath(dest), { force: true })
+  }
+
+  const restored = new Set(manifest.restore.map(normGameRel))
+  const companionSources = [...manifest.remove, ...manifest.restore]
+  for (const relative of companionSources) {
+    const companion = compiledCompanionRel(relative)
+    if (!companion || restored.has(normGameRel(companion))) continue
+    const dest = join(targetGameDir, companion)
     if (!pathExists(dest)) continue
     await rm(toFsPath(dest), { force: true })
   }

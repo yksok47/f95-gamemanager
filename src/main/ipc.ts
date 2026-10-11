@@ -66,6 +66,7 @@ import {
   listGameFiles,
   gameDiskUsage,
   metadataFromSubscription,
+  openWalkthroughDocument,
   playGameFile,
   playLatestGameFile,
   relocateGameInstall,
@@ -1334,6 +1335,14 @@ export function registerIpc(): void {
   ipcMain.handle('library:showArchive', async (_event, id: string) => {
     try {
       await showGameArchive(String(id))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('library:openWalkthrough', async (_event, id: string) => {
+    try {
+      await openWalkthroughDocument(String(id))
     } catch (error) {
       throw toIpcError(error)
     }

@@ -342,10 +342,10 @@ export type GameFileContext = {
 }
 
 /** Ren'Py overlays applied into an installed game `/game` folder. */
-export type RenpyOverlayKind = 'patch' | 'uncensor' | 'mod'
+export type RenpyOverlayKind = 'patch' | 'uncensor' | 'mod' | 'walkthrough'
 
 export function isRenpyOverlayKind(kind: unknown): kind is RenpyOverlayKind {
-  return kind === 'patch' || kind === 'uncensor' || kind === 'mod'
+  return kind === 'patch' || kind === 'uncensor' || kind === 'mod' || kind === 'walkthrough'
 }
 
 export type InstalledPatchRef = {
@@ -395,15 +395,20 @@ export type GameLibraryFile = {
   /** Folder name under %APPDATA%/RenPy (or absolute path), or null when saves live in game/saves. */
   renpySaveDirectory?: string | null
   /**
-   * Ren'Py overlays (patch / uncensor / mod) applied into this installed game version.
+   * Ren'Py overlays (patch / uncensor / mod / walkthrough) applied into this installed game version.
    * Cleared when the game is uninstalled.
    */
   installedPatches?: InstalledPatchRef[]
   /**
-   * Whether this Ren'Py overlay (patch, uncensor, or mod) has a supported .rpy/.rpyc or
-   * game-folder layout. Undefined until probed; false hides Install.
+   * Whether this Ren'Py overlay (patch, uncensor, mod, or walkthrough) has a supported
+   * .rpy/.rpyc/.rpa or game-folder layout. Undefined until probed; false hides Install.
    */
   uncensorInstallable?: boolean
+  /**
+   * Whether this walkthrough is a viewable document (pdf/txt/doc) or an archive that
+   * contains one. Undefined until probed; false hides Open.
+   */
+  documentOpenable?: boolean
   screens?: string[]
   /** OS / content kind / version chosen when the file was approved, or later edited. */
   packageTags?: PackageTagHint
@@ -1104,11 +1109,16 @@ export const LIBRARY_FILE_SECTION_ORDER: ContentKind[] = [
 /**
  * Full game packages are installable as standalone extracts. Untagged legacy
  * library rows stay installable. Other kinds stay in the library; Ren'Py
- * patch, uncensor, and mod packages can be applied onto an installed game instead.
+ * patch, uncensor, mod, and walkthrough packages can be applied onto an installed
+ * game instead when their contents look like an overlay.
  */
 export function isInstallableLibraryPackage(tags?: PackageTagHint | null): boolean {
   if (!tags || !Number.isFinite(tags.contentKind)) return true
   return tags.contentKind === CONTENT_KIND_IDS.game
+}
+
+export function isWalkthroughPackage(tags?: PackageTagHint | null): boolean {
+  return Boolean(tags && tags.contentKind === CONTENT_KIND_IDS.walkthrough)
 }
 
 export function renpyOverlayKind(tags?: PackageTagHint | null): RenpyOverlayKind | null {
@@ -1116,6 +1126,7 @@ export function renpyOverlayKind(tags?: PackageTagHint | null): RenpyOverlayKind
   if (tags.contentKind === CONTENT_KIND_IDS.patch) return 'patch'
   if (tags.contentKind === CONTENT_KIND_IDS.uncensor) return 'uncensor'
   if (tags.contentKind === CONTENT_KIND_IDS.mod) return 'mod'
+  if (tags.contentKind === CONTENT_KIND_IDS.walkthrough) return 'walkthrough'
   return null
 }
 
@@ -1134,7 +1145,12 @@ export function isRenpyModPackage(tags?: PackageTagHint | null): boolean {
   return renpyOverlayKind(tags) === 'mod'
 }
 
-/** Ren'Py patch, uncensor, or mod overlays that can be applied into an installed game `/game` folder. */
+/** Ren'Py walkthrough overlays that can be applied into an installed game `/game` folder. */
+export function isRenpyWalkthroughPackage(tags?: PackageTagHint | null): boolean {
+  return renpyOverlayKind(tags) === 'walkthrough'
+}
+
+/** Ren'Py patch, uncensor, mod, or walkthrough overlays that can be applied into an installed game `/game` folder. */
 export function isRenpyOverlayPackage(tags?: PackageTagHint | null): boolean {
   return renpyOverlayKind(tags) != null
 }
@@ -1143,6 +1159,7 @@ export function renpyOverlayLabel(kind?: RenpyOverlayKind | null): string {
   if (kind === 'mod') return 'mod'
   if (kind === 'uncensor') return 'uncensor patch'
   if (kind === 'patch') return 'patch'
+  if (kind === 'walkthrough') return 'walkthrough'
   return 'overlay'
 }
 

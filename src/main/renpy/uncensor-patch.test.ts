@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { path7za } from '7zip-bin'
 import { afterEach, describe, expect, test } from 'vitest'
 import {
+  compiledCompanionRel,
   entriesSuggestUncensorInstall,
   extraScriptsOutsideGame,
   findPatchGameDirs,
@@ -110,6 +111,18 @@ describe('planUncensorPatch', () => {
   })
 })
 
+describe('compiledCompanionRel', () => {
+  test('maps source scripts to the files Ren\'Py compiles', () => {
+    expect(compiledCompanionRel('uncensor.rpy')?.toLowerCase()).toBe('uncensor.rpyc')
+    expect(compiledCompanionRel('tl/english/mod.rpy')?.replace(/\\/g, '/').toLowerCase()).toBe(
+      'tl/english/mod.rpyc'
+    )
+    expect(compiledCompanionRel('lib.rpym')?.toLowerCase()).toBe('lib.rpymc')
+    expect(compiledCompanionRel('unlock.rpyc')).toBeNull()
+    expect(compiledCompanionRel('archive.rpa')).toBeNull()
+  })
+})
+
 describe('entriesSuggestUncensorInstall', () => {
   test('accepts game folder layouts and script files', () => {
     expect(entriesSuggestUncensorInstall(['wrapper/game/uncensor.rpy'])).toBe(true)
@@ -173,6 +186,98 @@ describe('apply and remove uncensor patch', () => {
 
     await removeUncensorPatchFromGameDir(gameDir, { hash: 'abc123hash' })
     expect(existsSync(join(gameDir, 'uncensor.rpy'))).toBe(false)
+  })
+
+  test('uninstall also removes compiled .rpyc companions of added .rpy files', async () => {
+    const root = tempDir()
+    const gameDir = join(root, 'game')
+    const tmpParent = join(root, 'tmp')
+    mkdirSync(gameDir, { recursive: true })
+    mkdirSync(tmpParent, { recursive: true })
+
+    const patchFile = join(root, 'uncensor.rpy')
+    writeFileSync(patchFile, 'patched\n')
+    await applyUncensorPatchToGameDir(patchFile, gameDir, tmpParent, {
+      patchId: 'gf-rpyc',
+      hash: 'rpychash',
+      filename: 'uncensor.rpy'
+    })
+
+    writeFileSync(join(gameDir, 'uncensor.rpyc'), 'compiled-after-launch')
+    await removeUncensorPatchFromGameDir(gameDir, { hash: 'rpychash' })
+    expect(existsSync(join(gameDir, 'uncensor.rpy'))).toBe(false)
+    expect(existsSync(join(gameDir, 'uncensor.rpyc'))).toBe(false)
+  })
+
+  test('uninstall still succeeds when a companion .rpyc was never compiled', async () => {
+    const root = tempDir()
+    const gameDir = join(root, 'game')
+    const tmpParent = join(root, 'tmp')
+    mkdirSync(gameDir, { recursive: true })
+    mkdirSync(tmpParent, { recursive: true })
+
+    const patchFile = join(root, 'uncensor.rpy')
+    writeFileSync(patchFile, 'patched\n')
+    await applyUncensorPatchToGameDir(patchFile, gameDir, tmpParent, {
+      patchId: 'gf-norpyc',
+      hash: 'norpychash',
+      filename: 'uncensor.rpy'
+    })
+
+    await removeUncensorPatchFromGameDir(gameDir, { hash: 'norpychash' })
+    expect(existsSync(join(gameDir, 'uncensor.rpy'))).toBe(false)
+    expect(existsSync(join(gameDir, 'uncensor.rpyc'))).toBe(false)
+  })
+
+  test('uninstall drops a stale .rpyc after restoring an overwritten .rpy', async () => {
+    const root = tempDir()
+    const gameDir = join(root, 'game')
+    const tmpParent = join(root, 'tmp')
+    mkdirSync(gameDir, { recursive: true })
+    mkdirSync(tmpParent, { recursive: true })
+    writeFileSync(join(gameDir, 'script.rpy'), 'original\n')
+
+    const overwrite = join(root, 'script.rpy')
+    writeFileSync(overwrite, 'from-patch\n')
+    await applyUncensorPatchToGameDir(overwrite, gameDir, tmpParent, {
+      patchId: 'gf-restore-rpyc',
+      hash: 'restorerpyc',
+      filename: 'script.rpy'
+    })
+    writeFileSync(join(gameDir, 'script.rpyc'), 'compiled-from-patch')
+
+    await removeUncensorPatchFromGameDir(gameDir, { hash: 'restorerpyc' })
+    expect(readFileSync(join(gameDir, 'script.rpy'), 'utf8')).toBe('original\n')
+    expect(existsSync(join(gameDir, 'script.rpyc'))).toBe(false)
+  })
+
+  test('uninstall keeps a restored companion .rpyc that the overlay overwrote', async () => {
+    const root = tempDir()
+    const gameDir = join(root, 'game')
+    const tmpParent = join(root, 'tmp')
+    mkdirSync(gameDir, { recursive: true })
+    mkdirSync(tmpParent, { recursive: true })
+    writeFileSync(join(gameDir, 'script.rpy'), 'original-rpy\n')
+    writeFileSync(join(gameDir, 'script.rpyc'), 'original-rpyc')
+
+    const zipPath = join(root, 'both.zip')
+    writeZip(
+      zipPath,
+      [
+        { name: 'script.rpy', data: 'patched-rpy\n' },
+        { name: 'script.rpyc', data: 'patched-rpyc' }
+      ],
+      root
+    )
+    await applyUncensorPatchToGameDir(zipPath, gameDir, tmpParent, {
+      patchId: 'gf-both',
+      hash: 'bothhash',
+      filename: 'both.zip'
+    })
+
+    await removeUncensorPatchFromGameDir(gameDir, { hash: 'bothhash' })
+    expect(readFileSync(join(gameDir, 'script.rpy'), 'utf8')).toBe('original-rpy\n')
+    expect(readFileSync(join(gameDir, 'script.rpyc'), 'utf8')).toBe('original-rpyc')
   })
 
   test('copies .rpy/.rpyc from a zip into the game directory', async () => {

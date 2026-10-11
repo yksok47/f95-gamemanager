@@ -67,7 +67,7 @@ const KIND_DESCRIPTIONS: Record<ContentKind, string> = {
   uncensor: 'Restores or removes censored content.',
   mod: 'Community modification or overhaul.',
   translation: 'Language pack or translation.',
-  walkthrough: 'Guide, walkthrough, or tip sheet.',
+  walkthrough: 'Guide, walkthrough, tip sheet, or in-game walkthrough mod.',
   cheat: 'Cheats, trainers, or debug helpers.',
   crack: 'DRM bypass or crack files.',
   save: 'Save games or save folders.',

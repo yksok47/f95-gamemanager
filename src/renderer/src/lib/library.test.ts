@@ -372,7 +372,7 @@ describe('listUncensorPatchTargets', () => {
   const uncensorTags = { os: [0], contentKind: CONTENT_KIND_IDS.uncensor, version: '' }
   const modTags = { os: [0], contentKind: CONTENT_KIND_IDS.mod, version: '' }
 
-  test('lists installed Ren\'Py games for patch, uncensor, and mod overlays', () => {
+  test('lists installed Ren\'Py games for patch, uncensor, mod, and walkthrough overlays', () => {
     const installed = libraryFile({
       id: 'game',
       threadId: 1,
@@ -402,6 +402,13 @@ describe('listUncensorPatchTargets', () => {
       packageTags: modTags,
       hash: 'mod-hash'
     })
+    const walkthrough = libraryFile({
+      id: 'guide',
+      threadId: 1,
+      hasArchive: true,
+      packageTags: { os: [0], contentKind: CONTENT_KIND_IDS.walkthrough, version: '' },
+      hash: 'guide-hash'
+    })
     expect(listUncensorPatchTargets([installed, patch], patch).map((file) => file.id)).toEqual([
       'game'
     ])
@@ -409,6 +416,9 @@ describe('listUncensorPatchTargets', () => {
       'game'
     ])
     expect(listUncensorPatchTargets([installed, mod], mod).map((file) => file.id)).toEqual(['game'])
+    expect(
+      listUncensorPatchTargets([installed, walkthrough], walkthrough).map((file) => file.id)
+    ).toEqual(['game'])
   })
 
   test('ignores non-overlay kinds and already-applied overlays', () => {
@@ -422,11 +432,11 @@ describe('listUncensorPatchTargets', () => {
         { patchId: 'mod', hash: 'mod-hash', filename: 'cool-mod.zip', installedAt: 1, kind: 'mod' }
       ]
     })
-    const walkthrough = libraryFile({
-      id: 'guide',
+    const extra = libraryFile({
+      id: 'bonus',
       threadId: 1,
       hasArchive: true,
-      packageTags: { os: [0], contentKind: CONTENT_KIND_IDS.walkthrough, version: '' }
+      packageTags: { os: [0], contentKind: CONTENT_KIND_IDS.extra, version: '' }
     })
     const appliedMod = libraryFile({
       id: 'mod',
@@ -435,7 +445,7 @@ describe('listUncensorPatchTargets', () => {
       packageTags: modTags,
       hash: 'mod-hash'
     })
-    expect(listUncensorPatchTargets([installed, walkthrough], walkthrough)).toEqual([])
+    expect(listUncensorPatchTargets([installed, extra], extra)).toEqual([])
     expect(listUncensorPatchTargets([installed, appliedMod], appliedMod)).toEqual([])
   })
 
@@ -443,9 +453,11 @@ describe('listUncensorPatchTargets', () => {
     expect(overlayListLabel('mod')).toBe('Mod')
     expect(overlayListLabel('uncensor')).toBe('Uncensor')
     expect(overlayListLabel('patch')).toBe('Patch')
+    expect(overlayListLabel('walkthrough')).toBe('Walkthrough')
     expect(overlayListLabel('mixed')).toBe('Applied')
     expect(overlayRemoveNoun('mod')).toBe('mod')
     expect(overlayRemoveNoun('patch')).toBe('patch')
+    expect(overlayRemoveNoun('walkthrough')).toBe('walkthrough')
     expect(overlayRemoveNoun('mixed')).toBe('overlay')
     expect(
       summarizeInstalledOverlayKind(

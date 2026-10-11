@@ -465,6 +465,7 @@ const api = {
     ): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:uninstallUncensorPatch', gameFileId, patchRef),
     showArchive: (id: string): Promise<void> => ipcRenderer.invoke('library:showArchive', id),
+    openWalkthrough: (id: string): Promise<void> => ipcRenderer.invoke('library:openWalkthrough', id),
     showInstall: (id: string): Promise<void> => ipcRenderer.invoke('library:showInstall', id),
     relocateInstall: (id: string): Promise<GameLibraryFile> =>
       ipcRenderer.invoke('library:relocateInstall', id),

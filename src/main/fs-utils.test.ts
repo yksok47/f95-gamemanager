@@ -13,6 +13,8 @@ describe('isReviewablePackagePath', () => {
     expect(isReviewablePackagePath('mods/unlock.rpyc')).toBe(true)
     expect(isReviewablePackagePath('modwtasahibito.rpa')).toBe(true)
     expect(isReviewablePackagePath('game/archive.rpu')).toBe(true)
+    expect(isReviewablePackagePath('Walkthrough.pdf')).toBe(true)
+    expect(isReviewablePackagePath('guide.txt')).toBe(true)
   })
 
   test('treats packed Ren\'Py archives as overlay files', () => {
@@ -23,9 +25,9 @@ describe('isReviewablePackagePath', () => {
   })
 
   test('leaves other finished files out of approval', () => {
-    expect(isReviewablePackagePath('notes.txt')).toBe(false)
+    expect(isReviewablePackagePath('notes.txt')).toBe(true)
     expect(isReviewablePackagePath('cover.jpg')).toBe(false)
     expect(isReviewablePackagePath('setup.exe')).toBe(false)
-    expect(isReviewablePackagePath('patch.rpyc.txt')).toBe(false)
+    expect(isReviewablePackagePath('patch.rpyc.txt')).toBe(true)
   })
 })

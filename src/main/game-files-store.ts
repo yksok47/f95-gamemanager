@@ -13,13 +13,14 @@ import {
   isInstallableLibraryPackage,
   isRenpyOverlayKind,
   isRenpyOverlayPackage,
+  isWalkthroughPackage,
   renpyOverlayKind,
   renpyOverlayLabel
 } from '@shared/types'
 import { folderBytes, mapLimit } from './disk-usage'
-import { extractArchive } from './extract'
+import { extractArchive, listArchiveEntries } from './extract'
 import { isSamePath } from './extra-library-dirs'
-import { isArchivePath } from './fs-utils'
+import { isArchivePath, isWalkthroughDocumentPath } from './fs-utils'
 import {
   expectedInstallPath,
   installLayoutMatches,
@@ -41,7 +42,11 @@ import { startPlaySession, getPlaySession, hasPlaySessionUnder, stopPlaySession 
 import { listProcessExecutables, killProcessesUnder, pathIsInside } from './processes'
 import { ensureRenpyOptionsForLibraryFile } from './renpy/options-prefs'
 import { gameDirFromRoot } from './renpy/scan'
-import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, isRenpyOverlayFilePath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
+import { applyUncensorPatchToGameDir, getUncensorUninstallSlot, entriesSuggestUncensorInstall, isRenpyOverlayFilePath, isUncensorPatchInstallable, removeUncensorPatchFromGameDir } from './renpy/uncensor-patch'
+import {
+  entriesSuggestWalkthroughDocument,
+  extractWalkthroughDocuments
+} from './walkthrough-document'
 import { syncRpgMakerSaves } from './rpgmaker/saves'
 import { rebaseSaveFolderPaths } from './save-folders-store'
 import {
@@ -67,11 +72,13 @@ import { removeTorrentMapEntry } from './p2p/torrent-map-store'
 
 /** Bump when overlay layout detection changes so cached false flags are re-probed. */
 const OVERLAY_PROBE = 2
+/** Bump when walkthrough document detection changes so cached false flags are re-probed. */
+const DOCUMENT_PROBE = 1
 
 type StoredGameFile = Omit<
   GameLibraryFile,
   'hasArchive' | 'isInstalled' | 'installPercent' | 'uninstalling' | 'playing'
-> & { installError?: string; overlayProbe?: number }
+> & { installError?: string; overlayProbe?: number; documentProbe?: number }
 
 const installing = new Map<string, { kind?: 'install' | 'uninstall'; percent: number; error?: string }>()
 let loaded: StoredGameFile[] | null = null
@@ -373,7 +380,7 @@ function nextId(): string {
 function present(file: StoredGameFile): GameLibraryFile {
   const job = installing.get(file.id)
   const installPath = file.installPath
-  const { overlayProbe: _overlayProbe, ...stored } = file
+  const { overlayProbe: _overlayProbe, documentProbe: _documentProbe, ...stored } = file
   return {
     ...stored,
     engine: file.engine || '',
@@ -401,6 +408,7 @@ function present(file: StoredGameFile): GameLibraryFile {
     renpySaveDirectory: file.renpySaveDirectory,
     installedPatches: Array.isArray(file.installedPatches) ? file.installedPatches : undefined,
     uncensorInstallable: file.uncensorInstallable,
+    documentOpenable: file.documentOpenable,
     screens: uniqueScreenUrls(file.screens),
     packageTags: asPackageTagHint(file.packageTags)
   }
@@ -541,34 +549,88 @@ export async function listGameFiles(threadId?: number): Promise<GameLibraryFile[
   return visible.map(present).sort((a, b) => b.downloadedAt - a.downloadedAt)
 }
 
+function clearOverlayFlags(file: StoredGameFile): boolean {
+  if (file.uncensorInstallable === undefined && file.overlayProbe === undefined) return false
+  delete file.uncensorInstallable
+  delete file.overlayProbe
+  return true
+}
+
+function clearDocumentFlags(file: StoredGameFile): boolean {
+  if (file.documentOpenable === undefined && file.documentProbe === undefined) return false
+  delete file.documentOpenable
+  delete file.documentProbe
+  return true
+}
+
+async function probePackageFlags(file: StoredGameFile): Promise<boolean> {
+  const overlay = isRenpyOverlayPackage(file.packageTags)
+  const walkthrough = isWalkthroughPackage(file.packageTags)
+  let changed = false
+  if (!overlay) changed = clearOverlayFlags(file) || changed
+  if (!walkthrough) changed = clearDocumentFlags(file) || changed
+  if (!overlay && !walkthrough) return changed
+
+  if (!file.archivePath || !pathExists(file.archivePath)) {
+    if (overlay && file.uncensorInstallable !== false) {
+      file.uncensorInstallable = false
+      changed = true
+    }
+    if (walkthrough && file.documentOpenable !== false) {
+      file.documentOpenable = false
+      changed = true
+    }
+    return changed
+  }
+
+  const overlayFresh =
+    !overlay || (typeof file.uncensorInstallable === 'boolean' && file.overlayProbe === OVERLAY_PROBE)
+  const documentFresh =
+    !walkthrough ||
+    (typeof file.documentOpenable === 'boolean' && file.documentProbe === DOCUMENT_PROBE)
+  if (overlayFresh && documentFresh) return changed
+
+  const sourcePath = file.archivePath
+  if (isArchivePath(sourcePath)) {
+    let entries: string[] | null = null
+    const needList = (!overlayFresh && overlay) || (!documentFresh && walkthrough)
+    if (needList) {
+      try {
+        entries = await listArchiveEntries(sourcePath)
+      } catch {
+        entries = []
+      }
+    }
+    if (!overlayFresh && overlay) {
+      file.uncensorInstallable = entriesSuggestUncensorInstall(entries || [])
+      file.overlayProbe = OVERLAY_PROBE
+      changed = true
+    }
+    if (!documentFresh && walkthrough) {
+      file.documentOpenable = entriesSuggestWalkthroughDocument(entries || [])
+      file.documentProbe = DOCUMENT_PROBE
+      changed = true
+    }
+    return changed
+  }
+
+  if (!overlayFresh && overlay) {
+    file.uncensorInstallable = isRenpyOverlayFilePath(sourcePath)
+    file.overlayProbe = OVERLAY_PROBE
+    changed = true
+  }
+  if (!documentFresh && walkthrough) {
+    file.documentOpenable = isWalkthroughDocumentPath(sourcePath)
+    file.documentProbe = DOCUMENT_PROBE
+    changed = true
+  }
+  return changed
+}
+
 async function hydrateOverlayInstallableFlags(files: StoredGameFile[]): Promise<boolean> {
   let changed = false
   for (const file of files) {
-    if (!isRenpyOverlayPackage(file.packageTags)) {
-      if (file.uncensorInstallable !== undefined || file.overlayProbe !== undefined) {
-        delete file.uncensorInstallable
-        delete file.overlayProbe
-        changed = true
-      }
-      continue
-    }
-    if (!file.archivePath || !pathExists(file.archivePath)) {
-      if (file.uncensorInstallable !== false) {
-        file.uncensorInstallable = false
-        changed = true
-      }
-      continue
-    }
-    if (typeof file.uncensorInstallable === 'boolean' && file.overlayProbe === OVERLAY_PROBE) {
-      continue
-    }
-    try {
-      file.uncensorInstallable = await isUncensorPatchInstallable(file.archivePath)
-    } catch {
-      file.uncensorInstallable = false
-    }
-    file.overlayProbe = OVERLAY_PROBE
-    changed = true
+    if (await probePackageFlags(file)) changed = true
   }
   return changed
 }
@@ -615,6 +677,8 @@ export async function addGameFileFromDownload(
     existing.engine = normalizeEngine(context.engine) || existing.engine || ''
     existing.uncensorInstallable = undefined
     existing.overlayProbe = undefined
+    existing.documentOpenable = undefined
+    existing.documentProbe = undefined
     applyMetaToFile(existing, meta)
     applyMetaToThread(files, meta)
     await writeStore(files)
@@ -945,7 +1009,7 @@ export function listUncensorPatchTargets(
 }
 
 /**
- * Best-effort apply a Ren'Py patch, uncensor, or mod overlay into an installed game's `/game` folder.
+ * Best-effort apply a Ren'Py patch, uncensor, mod, or walkthrough overlay into an installed game's `/game` folder.
  * Records the overlay on the target game; cleared when that game is uninstalled.
  */
 export async function installUncensorPatch(
@@ -957,7 +1021,9 @@ export async function installUncensorPatch(
   const noun = renpyOverlayLabel(renpyOverlayKind(patch?.packageTags))
   if (!patch) throw new Error(`That ${noun} is not in the library.`)
   if (!isRenpyOverlayPackage(patch.packageTags)) {
-    throw new Error('Only Ren\'Py patches, uncensor patches, and mods can be installed this way.')
+    throw new Error(
+      'Only Ren\'Py patches, uncensor patches, mods, and walkthroughs can be installed this way.'
+    )
   }
   if (!patchSourceReady(patch)) {
     throw new Error(`The ${noun} file is missing from disk.`)
@@ -1111,6 +1177,59 @@ export async function showGameArchive(id: string): Promise<void> {
   }
   await pauseTorrentsForArchive(file.archivePath, file.hash)
   shell.showItemInFolder(file.archivePath)
+}
+
+/** Open a walkthrough document with the system viewer, extracting from an archive when needed. */
+export async function openWalkthroughDocument(id: string): Promise<void> {
+  const files = await readStore()
+  const file = files.find((item) => item.id === id)
+  if (!file) throw new Error('That file is not in the library.')
+  if (!isWalkthroughPackage(file.packageTags)) {
+    throw new Error('Only walkthroughs can be opened this way.')
+  }
+  const sourcePath = file.archivePath
+  if (!sourcePath || !pathExists(sourcePath)) {
+    throw new Error('That walkthrough is missing from disk.')
+  }
+
+  const pausedTorrentIds = await pauseTorrentsForArchive(sourcePath, file.hash, { silent: true })
+  try {
+    if (isWalkthroughDocumentPath(sourcePath) && !isArchivePath(sourcePath)) {
+      const error = await shell.openPath(sourcePath)
+      if (error) throw new Error(error)
+      file.documentOpenable = true
+      file.documentProbe = DOCUMENT_PROBE
+      await writeStore(files)
+      broadcast()
+      return
+    }
+    if (!isArchivePath(sourcePath)) {
+      throw new Error('That walkthrough is not a document or an archive of documents.')
+    }
+    const dest = join(getLibraryDirSync(), '.tmp-walkthroughs', file.id)
+    await rm(toFsPath(dest), { recursive: true, force: true })
+    const docs = await extractWalkthroughDocuments(sourcePath, dest)
+    if (!docs.length) {
+      file.documentOpenable = false
+      file.documentProbe = DOCUMENT_PROBE
+      await writeStore(files)
+      broadcast()
+      throw new Error('No document was found in that walkthrough.')
+    }
+    file.documentOpenable = true
+    file.documentProbe = DOCUMENT_PROBE
+    await writeStore(files)
+    broadcast()
+    for (const doc of docs) {
+      const error = await shell.openPath(doc)
+      if (error) throw new Error(error)
+    }
+  } catch (error) {
+    if (error instanceof Error) throw error
+    throw new Error('Could not open that walkthrough.')
+  } finally {
+    await resumeTorrentsByIds(pausedTorrentIds)
+  }
 }
 
 export async function showGameInstall(id: string): Promise<void> {
@@ -1358,14 +1477,9 @@ export async function updateGameFileTags(
   file.version = normalized.version
   file.uncensorInstallable = undefined
   file.overlayProbe = undefined
-  if (isRenpyOverlayPackage(file.packageTags) && file.archivePath && pathExists(file.archivePath)) {
-    try {
-      file.uncensorInstallable = await isUncensorPatchInstallable(file.archivePath)
-    } catch {
-      file.uncensorInstallable = false
-    }
-    file.overlayProbe = OVERLAY_PROBE
-  }
+  file.documentOpenable = undefined
+  file.documentProbe = undefined
+  await probePackageFlags(file)
   await writeStore(files)
   broadcast()
   void reportSignedInstall(file.hash, normalized).catch((error) => {
