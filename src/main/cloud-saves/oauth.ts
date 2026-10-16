@@ -5,12 +5,14 @@ import { dirname } from 'path'
 import { shell } from 'electron'
 import type { CloudSaveAccount } from '@shared/types'
 import { getAppPaths } from '../paths'
+import { isSealedSecret, sealSecret, unsealSecret } from '../secret-vault'
 import { sendToRenderer } from '../windows'
 import { loadGoogleClient } from './credentials'
 import { setCloudSavePhase, setCloudSignInUrl } from './status'
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata'
 const LOGIN_TIMEOUT_MS = 5 * 60_000
+const TOKEN_KEY_NAME = 'F95GameManager.GoogleDrive'
 
 type StoredToken = {
   accessToken: string
@@ -30,6 +32,7 @@ type TokenResponse = {
 }
 
 let memory: StoredToken | null | undefined
+let loading: Promise<StoredToken | null> | null = null
 let loginInFlight: Promise<CloudSaveAccount> | null = null
 
 function tokenFile(): string {
@@ -51,25 +54,53 @@ function asToken(value: unknown): StoredToken | null {
   }
 }
 
+async function loadToken(): Promise<StoredToken | null> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(tokenFile(), 'utf8'))
+  } catch {
+    return null
+  }
+  const sealed = (parsed as { sealed?: unknown } | null)?.sealed
+  if (isSealedSecret(sealed)) {
+    try {
+      return asToken(JSON.parse(await unsealSecret(sealed)))
+    } catch (error) {
+      console.warn('[cloud-saves] Could not unseal the Google Drive token', error)
+      return null
+    }
+  }
+  const legacy = asToken(parsed)
+  if (legacy) await writeToken(legacy)
+  return legacy
+}
+
 async function readToken(): Promise<StoredToken | null> {
   if (memory !== undefined) return memory
-  try {
-    memory = asToken(JSON.parse(await readFile(tokenFile(), 'utf8')))
-  } catch {
-    memory = null
+  if (!loading) {
+    loading = loadToken()
+      .then((token) => {
+        if (memory === undefined) memory = token
+        return memory ?? null
+      })
+      .finally(() => {
+        loading = null
+      })
   }
-  return memory
+  return loading
 }
 
 async function writeToken(token: StoredToken | null): Promise<void> {
   memory = token
   const file = tokenFile()
-  if (!token) {
+  const sealed = token ? await sealSecret(TOKEN_KEY_NAME, JSON.stringify(token)) : null
+  if (!sealed) {
+    if (token) console.warn('[cloud-saves] No secure storage available; Google Drive sign-in lasts until the app closes')
     await rm(file, { force: true })
     return
   }
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, JSON.stringify(token, null, 2), 'utf8')
+  await writeFile(file, JSON.stringify({ version: 2, sealed }, null, 2), 'utf8')
 }
 
 export function presentCloudAccount(token: StoredToken | null): CloudSaveAccount {
