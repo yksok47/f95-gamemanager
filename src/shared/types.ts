@@ -240,14 +240,37 @@ export type AppSettings = {
   downloadProviderOrder: DownloadProviderId[]
 }
 
-/** In-memory F95zone HTML/API request (not persisted; discarded when the app exits). */
-export type F95RequestLogEntry = {
+export type RequestLogService = 'f95zone' | 'metadata' | 'tracker'
+
+export type RequestLogEntry = {
   id: number
   at: number
+  service: RequestLogService
   method: string
   url: string
   ok: boolean
   status?: number
+  durationMs?: number
+  error?: string
+}
+
+export type RequestLogHeader = {
+  name: string
+  value: string
+}
+
+export type RequestLogBody = {
+  text: string
+  size: number
+  truncated: boolean
+}
+
+export type RequestLogDetail = RequestLogEntry & {
+  note?: string
+  requestHeaders: RequestLogHeader[]
+  requestBody: RequestLogBody | null
+  responseHeaders: RequestLogHeader[]
+  responseBody: RequestLogBody | null
 }
 
 export type DownloadStatus = 'progressing' | 'paused' | 'completed' | 'cancelled' | 'interrupted'

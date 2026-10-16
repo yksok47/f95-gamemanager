@@ -8,7 +8,7 @@ import {
 import { F95Error } from './errors'
 import { encodeMultipartForm, type MultipartFile } from './multipart'
 import { coalesceInflight, f95InflightGetKey } from './inflight'
-import { recordF95Request } from './request-log'
+import { recordRequest } from '../request-log'
 import { pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
 
 const HOST = 'https://f95zone.to'
@@ -25,7 +25,7 @@ const RATE_LIMIT_MARKERS = [
 
 export { F95Error }
 
-const inFlightGets = new Map<string, Promise<{ response: Response; body: string }>>()
+const inFlightGets = new Map<string, Promise<FetchResult>>()
 
 export function f95Url(path: string): string {
   if (path.startsWith('http')) return path
@@ -44,17 +44,61 @@ function requestMethod(init: RequestInit): string {
   return String(init.method || 'GET').toUpperCase()
 }
 
-function logF95Attempt(
+type Transport = 'session' | 'browser'
+
+type FetchResult = { response: Response; body: string }
+
+type AttemptOutcome = { ok: boolean; status?: number; error?: unknown; result?: FetchResult }
+
+const TRANSPORT_NOTES: Record<Transport, string> = {
+  session:
+    "Sent from the app's browser session. It adds the F95zone cookies and standard browser headers, which aren't listed here.",
+  browser:
+    "Sent from the hidden F95zone browser window. It adds the F95zone cookies and its own browser headers, which aren't listed here."
+}
+
+function sessionRequestHeaders(init: RequestInit): Headers {
+  const headers = new Headers(init.headers)
+  headers.set('User-Agent', electronUserAgent())
+  headers.set('Accept-Language', 'en-US,en;q=0.9')
+  if (!headers.has('Accept')) {
+    headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
+  }
+  return headers
+}
+
+function browserRequestHeaders(init: RequestInit): Headers {
+  const headers = new Headers(init.headers)
+  headers.delete('User-Agent')
+  return headers
+}
+
+function attemptLogger(
   url: string,
   method: string,
-  outcome: { ok: boolean; status?: number }
-): void {
-  recordF95Request({
-    url,
-    method,
-    ok: outcome.ok,
-    status: outcome.status
-  })
+  init: RequestInit,
+  transport: Transport,
+  requestHeaders: Headers = transport === 'browser'
+    ? browserRequestHeaders(init)
+    : sessionRequestHeaders(init)
+): (outcome: AttemptOutcome) => void {
+  const startedAt = Date.now()
+  return (outcome) => {
+    recordRequest({
+      service: 'f95zone',
+      method,
+      url,
+      ok: outcome.ok,
+      status: outcome.status ?? outcome.result?.response.status,
+      startedAt,
+      error: outcome.error,
+      note: TRANSPORT_NOTES[transport],
+      requestHeaders,
+      requestBody: init.body,
+      responseHeaders: outcome.result?.response.headers,
+      responseBody: outcome.result?.body
+    })
+  }
 }
 
 function detectTransportError(status: number, body: string): void {
@@ -76,13 +120,8 @@ async function sessionFetch(
   url: string,
   init: RequestInit,
   timeoutMs: number
-): Promise<{ response: Response; body: string }> {
-  const headers = new Headers(init.headers)
-  headers.set('User-Agent', electronUserAgent())
-  headers.set('Accept-Language', 'en-US,en;q=0.9')
-  if (!headers.has('Accept')) {
-    headers.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
-  }
+): Promise<FetchResult> {
+  const headers = sessionRequestHeaders(init)
 
   let response: Response
   try {
@@ -108,11 +147,12 @@ async function browserFetchAsResponse(
   url: string,
   init: RequestInit,
   timeoutMs: number
-): Promise<{ response: Response; body: string }> {
+): Promise<FetchResult> {
   const result = await f95BrowserFetch(url, init, { timeoutMs })
   const response = new Response(result.body, {
     status: result.status,
-    statusText: result.ok ? 'OK' : 'Error'
+    statusText: result.ok ? 'OK' : 'Error',
+    headers: result.headers
   })
   return { response, body: result.body }
 }
@@ -121,7 +161,7 @@ export async function f95Fetch(
   path: string,
   init: RequestInit = {},
   options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean } = {}
-): Promise<{ response: Response; body: string }> {
+): Promise<FetchResult> {
   const url = f95Url(path)
   const method = requestMethod(init)
   const key = f95InflightGetKey(method, url)
@@ -133,25 +173,27 @@ async function f95FetchOnce(
   path: string,
   init: RequestInit,
   options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean }
-): Promise<{ response: Response; body: string }> {
+): Promise<FetchResult> {
   const url = f95Url(path)
   const method = requestMethod(init)
   const timeoutMs = options.timeoutMs ?? 20000
   const useBrowser = Boolean(options.preferBrowser || hasF95Browser())
 
-  let result: { response: Response; body: string }
+  let log = attemptLogger(url, method, init, useBrowser ? 'browser' : 'session')
+  let result: FetchResult
   try {
     result = useBrowser
       ? await browserFetchAsResponse(url, init, timeoutMs)
       : await sessionFetch(url, init, timeoutMs)
   } catch (error) {
-    logF95Attempt(url, method, { ok: false })
+    log({ ok: false, error })
     if (error instanceof F95Error) throw error
     if (useBrowser) {
+      log = attemptLogger(url, method, init, 'session')
       try {
         result = await sessionFetch(url, init, timeoutMs)
       } catch (fallbackError) {
-        logF95Attempt(url, method, { ok: false })
+        log({ ok: false, error: fallbackError })
         if (fallbackError instanceof F95Error) throw fallbackError
         throw new F95Error(
           fallbackError instanceof Error
@@ -171,7 +213,7 @@ async function f95FetchOnce(
   try {
     detectTransportError(result.response.status, result.body)
   } catch (error) {
-    logF95Attempt(url, method, { ok: false, status: result.response.status })
+    log({ ok: false, error, result })
     if (error instanceof F95Error && error.code === 'blocked' && !options.skipChallenge) {
       console.info('[f95] bot-check detected — opening challenge window', url)
       const cleared = await resolveBotCheckInWindow(url)
@@ -185,7 +227,7 @@ async function f95FetchOnce(
     }
     throw error
   }
-  logF95Attempt(url, method, { ok: result.response.ok, status: result.response.status })
+  log({ ok: result.response.ok, result })
   return result
 }
 
@@ -197,7 +239,7 @@ export async function f95PostForm(
   path: string,
   form: { fields: Record<string, string>; file?: MultipartFile },
   options: { referer: string; timeoutMs?: number } = { referer: HOST }
-): Promise<{ response: Response; body: string }> {
+): Promise<FetchResult> {
   const url = f95Url(path)
   const timeoutMs = options.timeoutMs ?? 120000
   const encoded = encodeMultipartForm(form.fields, form.file)
@@ -213,6 +255,11 @@ export async function f95PostForm(
   const payload = new Uint8Array(encoded.body.byteLength)
   payload.set(encoded.body)
 
+  const logged = new FormData()
+  for (const [name, value] of Object.entries(form.fields)) logged.append(name, value)
+  if (form.file) logged.append(form.file.fieldName, new Blob([payload]), form.file.filename)
+  const log = attemptLogger(url, 'POST', { method: 'POST', body: logged }, 'session', headers)
+
   let response: Response
   try {
     response = await session.defaultSession.fetch(url, {
@@ -222,7 +269,7 @@ export async function f95PostForm(
       signal: AbortSignal.timeout(timeoutMs)
     })
   } catch (error) {
-    logF95Attempt(url, 'POST', { ok: false })
+    log({ ok: false, error })
     throw new F95Error(
       error instanceof Error ? error.message : 'Network request to F95zone failed.',
       'network'
@@ -235,9 +282,9 @@ export async function f95PostForm(
   try {
     detectTransportError(response.status, body)
   } catch (error) {
-    logF95Attempt(url, 'POST', { ok: false, status: response.status })
+    log({ ok: false, error, result: { response, body } })
     throw error
   }
-  logF95Attempt(url, 'POST', { ok: response.ok, status: response.status })
+  log({ ok: response.ok, result: { response, body } })
   return { response, body }
 }

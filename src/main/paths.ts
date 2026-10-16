@@ -27,7 +27,7 @@ export function getAppPaths(): {
   libraryImportsFile: string
   renpyOptionsFile: string
   rosterFile: string
-  f95RequestLogFile: string
+  requestLogFile: string
   downloadsDir: string
   libraryDir: string
   imageCacheDir: string
@@ -54,7 +54,7 @@ export function getAppPaths(): {
     libraryImportsFile: join(userData, 'library-imports.json'),
     renpyOptionsFile: join(userData, 'renpy-options.json'),
     rosterFile: join(userData, 'roster.json'),
-    f95RequestLogFile: join(userData, 'f95-request-log.json'),
+    requestLogFile: join(userData, 'request-log.json'),
     downloadsDir: join(userData, 'downloads'),
     libraryDir: join(userData, 'library'),
     imageCacheDir: join(userData, 'image-cache')

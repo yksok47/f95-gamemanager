@@ -34,10 +34,11 @@ import {
 import { resolveConnectorFileChoice } from './connector-pick'
 import { F95Error } from './f95/http'
 import {
-  clearF95RequestLog,
-  listF95RequestLog,
-  onF95RequestLogChange
-} from './f95/request-log'
+  clearRequestLog,
+  getRequestLogDetail,
+  listRequestLog,
+  onRequestLogChange
+} from './request-log'
 import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importThreadLinks, importWatchedThreads } from './f95/import'
@@ -283,7 +284,7 @@ function windowFromEvent(event: Electron.IpcMainInvokeEvent): BrowserWindow | nu
 }
 
 export function registerIpc(): void {
-  onF95RequestLogChange((items) => sendToRenderer('f95-requests:changed', items))
+  onRequestLogChange((items) => sendToRenderer('request-log:changed', items))
 
   app.on('browser-window-created', (_event, win) => {
     const send = (): void => {
@@ -892,9 +893,11 @@ export function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('f95Requests:list', () => listF95RequestLog())
+  ipcMain.handle('requestLog:list', () => listRequestLog())
 
-  ipcMain.handle('f95Requests:clear', () => clearF95RequestLog())
+  ipcMain.handle('requestLog:detail', (_event, id: number) => getRequestLogDetail(Number(id)))
+
+  ipcMain.handle('requestLog:clear', () => clearRequestLog())
 
   ipcMain.handle('cloudSaves:account', async () => {
     try {

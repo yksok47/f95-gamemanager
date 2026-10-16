@@ -4,6 +4,8 @@
  */
 
 import https from 'node:https'
+import { recordRequest } from '../request-log'
+import { getP2pEnv } from './env'
 import { getP2pHttpsAgent } from './p2p-tls'
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {
@@ -25,7 +27,55 @@ function headersToRecord(headers?: HeadersInit): Record<string, string> {
  * Drop-in for fetch() used by the metadata client and tracker /stats health.
  * Pins our private CA for https:// URLs.
  */
-export function metadataFetch(url: string, init: RequestInit = {}): Promise<Response> {
+export async function metadataFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const startedAt = Date.now()
+  const method = (init.method || 'GET').toUpperCase()
+  const service = requestService(url)
+  let res: Response
+  try {
+    res = await pinnedFetch(url, init)
+  } catch (error) {
+    recordRequest({
+      service,
+      method,
+      url,
+      ok: false,
+      startedAt,
+      error,
+      requestHeaders: init.headers,
+      requestBody: init.body
+    })
+    throw error
+  }
+  const responseBody = await res
+    .clone()
+    .text()
+    .catch(() => null)
+  recordRequest({
+    service,
+    method,
+    url,
+    ok: res.ok,
+    status: res.status,
+    startedAt,
+    requestHeaders: init.headers,
+    requestBody: init.body,
+    responseHeaders: res.headers,
+    responseBody
+  })
+  return res
+}
+
+function requestService(url: string): 'metadata' | 'tracker' {
+  try {
+    const base = getP2pEnv().metadataBaseUrl
+    return base && new URL(url).origin === new URL(base).origin ? 'metadata' : 'tracker'
+  } catch {
+    return 'metadata'
+  }
+}
+
+function pinnedFetch(url: string, init: RequestInit): Promise<Response> {
   let parsed: URL
   try {
     parsed = new URL(url)

@@ -86,6 +86,8 @@ The app has no account system and no telemetry. These are the services it talks 
 | **P2P tracker and STUN** (Google, Cloudflare) | Only with P2P on | To find peers and set up direct WebRTC connections. File data goes directly between users, never through a server. |
 | **Google Drive** | Only if you sign in under **Settings → Cloud** | Stores save backups and synced user data in the app's private Drive folder (`drive.appdata` scope). The app can't see the rest of your Drive. |
 
+You don't have to take this on trust: **Settings → Request log** lists every request sent to F95zone and the metadata service, with the full headers and bodies of both the request and the response. Passwords, form tokens and cookies are hidden there.
+
 Sensitive local data is encrypted at rest:
 
 - The **Google Drive tokens** are encrypted with a key held in the computer's **TPM** on Windows. The token file is useless if it's copied to another machine. If no TPM is available, the app falls back to the OS keychain (DPAPI, macOS Keychain or the Linux Secret Service). If none of these exist, the sign-in is kept in memory only and never written to disk.

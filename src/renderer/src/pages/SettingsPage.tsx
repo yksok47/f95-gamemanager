@@ -8,8 +8,7 @@ import type {
   CloudSaveSyncStatus,
   CloudUserDataSyncStatus,
   FavoriteTag,
-  HatedTag,
-  F95RequestLogEntry
+  HatedTag
 } from '@shared/types'
 import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
@@ -18,6 +17,7 @@ import DownloadProvidersEditor from '../components/DownloadProvidersEditor'
 import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
+import RequestLogPanel from '../components/RequestLogPanel'
 import AppAboutPanel from '../components/AppAboutPanel'
 import AppUpdatePanel from '../components/AppUpdatePanel'
 import { confirm } from '../components/ConfirmDialog'
@@ -450,69 +450,8 @@ export default function SettingsPage({
           </div>
         ) : null}
 
-        {tab === 'requests' ? <F95RequestLogPanel /> : null}
+        {tab === 'requests' ? <RequestLogPanel /> : null}
       </section>
-    </div>
-  )
-}
-
-function F95RequestLogPanel(): JSX.Element {
-  const [entries, setEntries] = useState<F95RequestLogEntry[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    void window.api.f95Requests.list().then((next) => {
-      if (!cancelled) setEntries(next)
-    })
-    const stop = window.api.f95Requests.onChange((next) => {
-      if (!cancelled) setEntries(next)
-    })
-    return () => {
-      cancelled = true
-      stop()
-    }
-  }, [])
-
-  return (
-    <div className="settings-tab-body">
-      <p className="muted settings-lead">
-        HTML pages and API calls to F95zone while this app is running. Images and other static
-        files are omitted. The log is written to app data and cleared when the app starts.
-      </p>
-      <div className="ignored-toolbar">
-        <span className="muted">
-          {entries.length
-            ? `${entries.length} ${entries.length === 1 ? 'request' : 'requests'}`
-            : 'No requests yet.'}
-        </span>
-        <button
-          className="ghost-btn"
-          type="button"
-          disabled={!entries.length}
-          onClick={() => void window.api.f95Requests.clear()}
-        >
-          Clear
-        </button>
-      </div>
-      {entries.length ? (
-        <ul className="f95-request-log">
-          {entries.map((entry) => (
-            <li key={entry.id} className="f95-request-log-row">
-              <span className="f95-request-log-time">
-                {formatDateTime(entry.at, { milliseconds: true })}
-              </span>
-              <span className="f95-request-log-method">{entry.method}</span>
-              <span className="f95-request-log-url" title={entry.url}>
-                {entry.url}
-              </span>
-              <span className={entry.ok ? 'address-status-ok' : 'address-status-down'}>
-                {entry.ok ? 'OK' : 'Failed'}
-                {entry.status != null ? ` ${entry.status}` : ''}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
     </div>
   )
 }

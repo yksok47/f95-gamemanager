@@ -52,7 +52,8 @@ import type {
   FollowSyncStatus,
   UnRenAction,
   VersionPlayStatus,
-  F95RequestLogEntry
+  RequestLogDetail,
+  RequestLogEntry
 } from '@shared/types'
 import type {
   PackageFlagKind,
@@ -262,14 +263,15 @@ const api = {
       }
     }
   },
-  f95Requests: {
-    list: (): Promise<F95RequestLogEntry[]> => ipcRenderer.invoke('f95Requests:list'),
-    clear: (): Promise<F95RequestLogEntry[]> => ipcRenderer.invoke('f95Requests:clear'),
-    onChange: (listener: (entries: F95RequestLogEntry[]) => void): (() => void) => {
-      const wrapped = (_event: unknown, entries: F95RequestLogEntry[]): void => listener(entries)
-      ipcRenderer.on('f95-requests:changed', wrapped)
+  requestLog: {
+    list: (): Promise<RequestLogEntry[]> => ipcRenderer.invoke('requestLog:list'),
+    detail: (id: number): Promise<RequestLogDetail | null> => ipcRenderer.invoke('requestLog:detail', id),
+    clear: (): Promise<RequestLogEntry[]> => ipcRenderer.invoke('requestLog:clear'),
+    onChange: (listener: (entries: RequestLogEntry[]) => void): (() => void) => {
+      const wrapped = (_event: unknown, entries: RequestLogEntry[]): void => listener(entries)
+      ipcRenderer.on('request-log:changed', wrapped)
       return () => {
-        ipcRenderer.removeListener('f95-requests:changed', wrapped)
+        ipcRenderer.removeListener('request-log:changed', wrapped)
       }
     }
   },

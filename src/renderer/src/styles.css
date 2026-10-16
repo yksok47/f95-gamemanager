@@ -7201,54 +7201,205 @@ body.is-save-dragging * {
   background: var(--bg-raised);
 }
 
-.f95-request-log {
+.request-log {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 6px;
-  max-height: min(60vh, 640px);
+  max-height: min(70vh, 820px);
   overflow: auto;
 }
 
-.f95-request-log-row {
-  display: grid;
-  grid-template-columns: minmax(14.5rem, auto) 4.5rem minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
-  padding: 8px 10px;
+.request-log-item {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
   font-size: 0.82rem;
 }
 
-.f95-request-log-time {
+.request-log-item-open {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.request-log-row {
+  display: grid;
+  grid-template-columns: minmax(14.5rem, auto) 5.5rem 4.5rem minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.request-log-row:hover {
+  background: color-mix(in srgb, var(--border) 35%, transparent);
+}
+
+.request-log-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.request-log-time {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.f95-request-log-method {
+.request-log-service {
+  justify-self: start;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.request-log-service-f95zone {
+  color: #ff9db8;
+  background: color-mix(in srgb, #ff7eb3 16%, transparent);
+}
+
+.request-log-service-metadata,
+.request-log-service-tracker {
+  color: #8fc8ff;
+  background: color-mix(in srgb, #7eb6ff 16%, transparent);
+}
+
+.request-log-method,
+.request-log-mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.request-log-method {
   font-weight: 650;
 }
 
-.f95-request-log-url {
+.request-log-url {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   word-break: break-all;
 }
 
+.request-log-detail {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 4px 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.request-log-summary-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 10px 0 0;
+}
+
+.request-log-summary-grid dt {
+  color: var(--muted);
+}
+
+.request-log-summary-grid dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.request-log-note {
+  margin: 0;
+}
+
+.request-log-section {
+  display: grid;
+  gap: 6px;
+}
+
+.request-log-section h3 {
+  margin: 4px 0 0;
+  font-size: 0.92rem;
+}
+
+.request-log-section h4 {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.request-log-headers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.request-log-header {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.request-log-header dt {
+  color: var(--muted);
+}
+
+.request-log-header dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.request-log-empty {
+  margin: 0;
+}
+
+.request-log-body {
+  display: grid;
+  gap: 6px;
+}
+
+.request-log-body-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.request-log-pre {
+  margin: 0;
+  max-height: 340px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 720px) {
-  .f95-request-log-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+  .request-log-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
-  .f95-request-log-method {
+  .request-log-time {
     grid-column: 1;
   }
 
-  .f95-request-log-url {
+  .request-log-url {
     grid-column: 1 / -1;
   }
 }

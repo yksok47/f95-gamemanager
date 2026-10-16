@@ -166,6 +166,7 @@ type BrowserFetchResult = {
   status: number
   ok: boolean
   url: string
+  headers: [string, string][]
   body: string
 }
 
@@ -223,6 +224,7 @@ export async function f95BrowserFetch(
           status: res.status,
           ok: res.ok,
           url: res.url,
+          headers: Array.from(res.headers.entries()),
           body: text
         }
       } finally {
