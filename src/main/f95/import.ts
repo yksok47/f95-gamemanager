@@ -2,6 +2,7 @@ import { load } from 'cheerio'
 import type { AnyNode } from 'domhandler'
 import type { Cheerio } from 'cheerio'
 import type { ImportResult, Subscription, SubscriptionSource } from '@shared/types'
+import { parseThreadLinks, titleFromThreadSlug } from '@shared/thread-links'
 import { addSubscriptions, enrichIncompleteSubscriptions } from '../subscriptions-store'
 import { f95Fetch } from './http'
 import { parseGameTitle, PREFIX_NODE_SELECTOR, extractThreadId, sleep, threadUrl } from './parse'
@@ -77,10 +78,7 @@ async function paginate(
   return uniqueThreads(all)
 }
 
-function toSubscriptions(
-  threads: ScrapedThread[],
-  source: Exclude<SubscriptionSource, 'manual'>
-): Subscription[] {
+function toSubscriptions(threads: ScrapedThread[], source: SubscriptionSource): Subscription[] {
   const now = Date.now()
   return threads.map((thread) => {
     const parsed = parseGameTitle(thread.title)
@@ -145,4 +143,14 @@ export async function importBookmarks(): Promise<ImportResult> {
     )
   }
   return importThreads('bookmark', threads)
+}
+
+export async function importThreadLinks(text: string): Promise<ImportResult> {
+  const threads = parseThreadLinks(String(text ?? '')).map((link) => ({
+    threadId: link.threadId,
+    title: titleFromThreadSlug(link.slug, link.threadId)
+  }))
+  const { added, alreadyFollowed } = await addSubscriptions(toSubscriptions(threads, 'manual'))
+  if (added) void enrichIncompleteSubscriptions().catch(() => undefined)
+  return { source: 'links', found: threads.length, added, alreadyFollowed }
 }

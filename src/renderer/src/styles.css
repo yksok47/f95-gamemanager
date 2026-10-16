@@ -7561,6 +7561,40 @@ body.is-save-dragging * {
   width: min(520px, 100%);
 }
 
+.import-links-dialog {
+  width: min(560px, 100%);
+}
+
+.import-links-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 180px;
+  max-height: 50vh;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  resize: vertical;
+  white-space: pre;
+}
+
+.import-links-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.import-links-count {
+  margin-right: auto;
+  align-self: center;
+  font-size: 0.9rem;
+}
+
 .app-file-pick-list {
   display: flex;
   flex-direction: column;

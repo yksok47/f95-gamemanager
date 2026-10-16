@@ -8,7 +8,7 @@ import { listRoster, replaceRoster } from '../roster-store'
 import { getSettings, saveSettings } from '../settings-store'
 import { listSubscriptions, replaceSubscriptions } from '../subscriptions-store'
 import { hasCloudSaveSession } from '../cloud-saves/oauth'
-import { mergeUserData, needsApply, needsUpload } from './merge'
+import { keepLocalCatalogFields, mergeUserData, needsApply, needsUpload } from './merge'
 import {
   beginApplyingCloudUserData,
   endApplyingCloudUserData,
@@ -133,7 +133,9 @@ async function applyPayload(payload: UserDataPayload): Promise<void> {
   beginApplyingCloudUserData()
   try {
     await writeApplyJournal(payload)
-    await replaceSubscriptions(payload.subscriptions.map(toSubscription))
+    await replaceSubscriptions(
+      keepLocalCatalogFields(payload.subscriptions.map(toSubscription), await listSubscriptions())
+    )
     await replaceRoster(payload.roster.map(toRosterGame))
     await replaceGameNotes(payload.notes)
     const settings = await saveSettings(payload.settings)

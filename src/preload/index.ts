@@ -100,6 +100,8 @@ const api = {
       ipcRenderer.invoke('subscriptions:remove', threadId),
     importWatched: (): Promise<ImportResult> => ipcRenderer.invoke('subscriptions:importWatched'),
     importBookmarks: (): Promise<ImportResult> => ipcRenderer.invoke('subscriptions:importBookmarks'),
+    importLinks: (text: string): Promise<ImportResult> =>
+      ipcRenderer.invoke('subscriptions:importLinks', text),
     refresh: (threadId: number): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:refresh', threadId),
     setArchived: (threadId: number, archived: boolean): Promise<Subscription[]> =>

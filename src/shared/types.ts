@@ -885,7 +885,7 @@ export type RosterGame = {
 }
 
 export type ImportResult = {
-  source: Exclude<SubscriptionSource, 'manual'>
+  source: Exclude<SubscriptionSource, 'manual'> | 'links'
   found: number
   added: number
   alreadyFollowed: number

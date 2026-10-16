@@ -40,7 +40,7 @@ import {
 } from './f95/request-log'
 import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
-import { importBookmarks, importWatchedThreads } from './f95/import'
+import { importBookmarks, importThreadLinks, importWatchedThreads } from './f95/import'
 import { lookupCatalogGame } from './f95/lookup'
 import { fetchThreadDetails, fetchThreadReviews, invalidateThreadDetailsCache } from './f95/thread'
 import {
@@ -173,6 +173,7 @@ import { clearDriveCaches } from './cloud-saves/drive'
 import { checkForAppUpdate, downloadAndInstallAppUpdate, getAppUpdateStatus } from './app-update'
 import {
   applyCatalogGames,
+  enrichIncompleteSubscriptions,
   getLastSeenCatalogUpdate,
   isSubscribed,
   listSubscriptions,
@@ -441,6 +442,14 @@ export function registerIpc(): void {
     }
   })
 
+  ipcMain.handle('subscriptions:importLinks', async (_event, text: string) => {
+    try {
+      return await importThreadLinks(String(text ?? ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
   ipcMain.handle('subscriptions:refresh', async (_event, threadId: number) => {
     try {
       const next = await refreshSubscription(threadId)
@@ -535,6 +544,7 @@ export function registerIpc(): void {
 
   ipcMain.handle('subscriptions:startSync', async () => {
     try {
+      void enrichIncompleteSubscriptions().catch(() => undefined)
       return await startFollowSync()
     } catch (error) {
       throw toIpcError(error)

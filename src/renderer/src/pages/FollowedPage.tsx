@@ -18,6 +18,7 @@ import { FilterToolbarSplit, LocalAdvancedFilters } from '../components/Advanced
 import GameCard from '../components/GameCard'
 import GameDateGroups from '../components/GameDateGroups'
 import GroupByUpdateDateButton from '../components/GroupByUpdateDateButton'
+import ImportLinksDialog from '../components/ImportLinksDialog'
 import LazyMount from '../components/LazyMount'
 import { MenuPopover } from '../components/MenuPopover'
 import SelectMenu from '../components/SelectMenu'
@@ -121,7 +122,12 @@ export type FollowedPageProps = {
 }
 
 function formatImport(result: ImportResult): string {
-  const label = result.source === 'watched' ? 'watched threads' : 'bookmarks'
+  const label =
+    result.source === 'watched'
+      ? 'watched threads'
+      : result.source === 'links'
+        ? 'thread links'
+        : 'bookmarks'
   return `Imported ${result.added} ${label} (${result.alreadyFollowed} already followed, ${result.found} found).`
 }
 
@@ -148,8 +154,9 @@ export default function FollowedPage({
   const sessions = usePlaySessions()
   const advanced = useAdvancedFilters(favoriteTags, hatedTags)
   const prefixCatalog = advanced.filters.prefixes
-  const [busy, setBusy] = useState<'watched' | 'bookmarks' | null>(null)
+  const [busy, setBusy] = useState<'watched' | 'bookmarks' | 'links' | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [linksOpen, setLinksOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<FollowedSort>('date')
@@ -178,15 +185,18 @@ export default function FollowedPage({
     if (sync?.lastError) notifyError(sync.lastError)
   }, [sync?.lastError])
 
-  async function runImport(kind: 'watched' | 'bookmarks'): Promise<void> {
+  async function runImport(kind: 'watched' | 'bookmarks' | 'links', links = ''): Promise<void> {
     setImportOpen(false)
+    setLinksOpen(false)
     setBusy(kind)
     setMessage(null)
     try {
       const result =
         kind === 'watched'
           ? await window.api.subscriptions.importWatched()
-          : await window.api.subscriptions.importBookmarks()
+          : kind === 'links'
+            ? await window.api.subscriptions.importLinks(links)
+            : await window.api.subscriptions.importBookmarks()
       await onImported()
       setMessage(formatImport(result))
     } catch (err) {
@@ -448,7 +458,7 @@ export default function FollowedPage({
                 aria-haspopup="menu"
                 aria-expanded={importOpen}
                 aria-label={busy ? 'Importing' : 'Import'}
-                title={busy ? 'Importing…' : 'Import watched threads or bookmarks'}
+                title={busy ? 'Importing…' : 'Import watched threads, bookmarks or thread links'}
                 disabled={busy !== null}
                 onClick={() => setImportOpen((open) => !open)}
               >
@@ -467,9 +477,23 @@ export default function FollowedPage({
                       id: 'bookmarks',
                       label: 'Bookmarks',
                       onClick: () => void runImport('bookmarks')
+                    },
+                    {
+                      id: 'links',
+                      label: 'Thread links…',
+                      onClick: () => {
+                        setImportOpen(false)
+                        setLinksOpen(true)
+                      }
                     }
                   ]}
                   onClose={() => setImportOpen(false)}
+                />
+              ) : null}
+              {linksOpen ? (
+                <ImportLinksDialog
+                  onImport={(text) => void runImport('links', text)}
+                  onClose={() => setLinksOpen(false)}
                 />
               ) : null}
             </div>
@@ -502,7 +526,7 @@ export default function FollowedPage({
         <div className="empty-state">
           {updatesOnly
             ? 'Follow games to see available updates here.'
-            : 'Nothing followed yet. Use Follow on a catalog card, or import watched threads and bookmarks from your F95zone account.'}
+            : 'Nothing followed yet. Use Follow on a catalog card, or import watched threads, bookmarks or a list of thread links.'}
         </div>
       ) : visible.length === 0 ? (
         <div className="empty-state">

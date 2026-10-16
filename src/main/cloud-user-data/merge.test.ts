@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { emptyQuickFilterSnapshot } from '@shared/quick-filters'
-import { mergeUserData, needsApply, needsUpload } from './merge'
+import { keepLocalCatalogFields, mergeUserData, needsApply, needsUpload } from './merge'
 import {
   emptyPayload,
   emptySyncedSettings,
@@ -253,5 +253,40 @@ describe('envelope checksum', () => {
 
   test('rejects truncated JSON', () => {
     expect(parseEnvelope('{"checksum":"abc"')).toBeNull()
+  })
+})
+
+describe('keepLocalCatalogFields', () => {
+  test('keeps metadata fetched locally while a sync was in flight', () => {
+    const placeholder = sub({ threadId: 7, title: 'The Better Deal 1 0a', creator: '', rarity: 'rare' })
+    const enriched = sub({
+      threadId: 7,
+      title: 'The Better Deal',
+      creator: 'Ze-gam-eZ',
+      coverUrl: 'https://preview.f95zone.to/cover.jpg',
+      tags: [1, 2],
+      prefixes: [3],
+      timestamp: 500,
+      checkedAt: 900
+    })
+    const [result] = keepLocalCatalogFields([placeholder], [enriched])
+    expect(result.title).toBe('The Better Deal')
+    expect(result.creator).toBe('Ze-gam-eZ')
+    expect(result.coverUrl).toBe('https://preview.f95zone.to/cover.jpg')
+    expect(result.tags).toEqual([1, 2])
+    expect(result.prefixes).toEqual([3])
+    expect(result.timestamp).toBe(500)
+    expect(result.checkedAt).toBe(900)
+    expect(result.rarity).toBe('rare')
+  })
+
+  test('takes newer remote catalog data and leaves unknown games alone', () => {
+    const remote = sub({ threadId: 1, title: 'New Title', version: '2.0', timestamp: 900 })
+    const local = sub({ threadId: 1, title: 'Old Title', version: '1.0', timestamp: 100 })
+    const other = sub({ threadId: 2 })
+    const result = keepLocalCatalogFields([remote, other], [local])
+    expect(result[0].title).toBe('New Title')
+    expect(result[0].version).toBe('2.0')
+    expect(result[1]).toBe(other)
   })
 })

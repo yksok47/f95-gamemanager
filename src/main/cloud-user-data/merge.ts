@@ -1,3 +1,4 @@
+import type { Subscription } from '@shared/types'
 import { mergeVersionPlayStats } from '@shared/updates'
 import {
   contentFingerprint,
@@ -209,4 +210,19 @@ export function needsApply(local: UserDataPayload, merged: UserDataPayload): boo
 export function needsUpload(remote: UserDataPayload | null, merged: UserDataPayload): boolean {
   if (!remote) return true
   return contentFingerprint(remote) !== contentFingerprint(merged)
+}
+
+export function keepLocalCatalogFields(incoming: Subscription[], local: Subscription[]): Subscription[] {
+  const byId = new Map(local.map((game) => [game.threadId, game]))
+  return incoming.map((game) => {
+    const current = byId.get(game.threadId)
+    if (!current) return game
+    const catalog = mergeCatalogFields(game, current)
+    return {
+      ...game,
+      ...catalog,
+      engine: catalog.engine || game.engine || '',
+      checkedAt: Math.max(game.checkedAt || 0, current.checkedAt || 0)
+    }
+  })
 }

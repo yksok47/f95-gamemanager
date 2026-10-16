@@ -393,13 +393,19 @@ export async function enrichIncompleteSubscriptions(): Promise<Subscription[]> {
 }
 
 async function runEnrichment(): Promise<Subscription[]> {
-  const games = await readStore()
-  let changed = false
+  const attempted = new Set<number>()
 
-  for (const game of games) {
-    if (!needsDetails(game)) continue
-    const details = await lookupGame(game.threadId, game.title, game.creator)
+  for (;;) {
+    const next = (await readStore()).find(
+      (game) => !attempted.has(game.threadId) && needsDetails(game)
+    )
+    if (!next) break
+    attempted.add(next.threadId)
+    const details = await lookupGame(next.threadId, next.title, next.creator)
     if (!details) continue
+    const games = await readStore()
+    const game = games.find((item) => item.threadId === next.threadId)
+    if (!game) continue
     const version = preferNewerVersion(game.version, details.version)
     const timestamp = Math.max(game.timestamp || 0, catalogTimestamp(details.timestamp) || 0)
     Object.assign(game, {
@@ -420,12 +426,10 @@ async function runEnrichment(): Promise<Subscription[]> {
         ? uniqueScreenUrls(details.screens)
         : game.screens
     })
-    changed = true
     await writeStore(games)
     await sleep(400)
   }
 
-  if (changed) await writeStore(games)
   return listSubscriptions()
 }
 
