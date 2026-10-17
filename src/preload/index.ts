@@ -28,6 +28,7 @@ import type {
   LibraryImportCandidate,
   LibraryImportScanResult,
   SaveFolderPeekShot,
+  TestEnvStatus,
   F95CheckerImportResult,
   ImportResult,
   LoginPayload,
@@ -265,6 +266,12 @@ const api = {
         ipcRenderer.removeListener('settings:changed', wrapped)
       }
     }
+  },
+  testEnv: {
+    status: (): Promise<TestEnvStatus> => ipcRenderer.invoke('testEnv:status'),
+    create: (): Promise<string> => ipcRenderer.invoke('testEnv:create'),
+    switchTo: (id: string | null): Promise<void> => ipcRenderer.invoke('testEnv:switch', id),
+    remove: (id: string): Promise<void> => ipcRenderer.invoke('testEnv:delete', id)
   },
   requestLog: {
     list: (): Promise<RequestLogEntry[]> => ipcRenderer.invoke('requestLog:list'),

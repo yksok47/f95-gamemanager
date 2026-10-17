@@ -9762,3 +9762,34 @@ body.is-save-dragging * {
     margin: 0 8px 8px 56px;
   }
 }
+
+.test-env-row {
+  align-items: center;
+}
+
+.test-env-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, monospace;
+}
+
+.test-env-badge,
+.test-env-nav-badge {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: color-mix(in srgb, #e08a3c 18%, transparent);
+  color: #f3c89a;
+  border: 1px solid color-mix(in srgb, #e08a3c 65%, var(--border));
+}
+
+.test-env-nav-badge {
+  flex: 0 0 auto;
+  cursor: pointer;
+}

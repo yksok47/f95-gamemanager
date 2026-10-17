@@ -36,6 +36,9 @@ import { flushRequestLog, initRequestLog } from "./request-log";
 import { getAppPaths } from "./paths";
 import { appIcon } from "./app-icon";
 import { startRendererServer } from "./renderer-server";
+import { applyTestEnvBeforeReady } from "./test-env";
+
+applyTestEnvBeforeReady();
 
 protocol.registerSchemesAsPrivileged([SAVE_THUMB_SCHEME, F95_IMG_SCHEME, HTML_GAME_SCHEME_PRIVILEGES]);
 

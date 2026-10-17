@@ -52,8 +52,13 @@ export default function AppNav({
 }: AppNavProps): JSX.Element {
   const [accountOpen, setAccountOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const [testEnvId, setTestEnvId] = useState<string | null>(null)
   const avatarRef = useRef<HTMLButtonElement>(null)
   const name = displayName(username, userId)
+
+  useEffect(() => {
+    void window.api.testEnv.status().then((status) => setTestEnvId(status.active)).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     void window.api.window.isFullScreen().then(setFullscreen)
@@ -64,6 +69,16 @@ export default function AppNav({
     <header className="top-bar">
       <div className="app-nav-links">
         <img className="app-nav-icon" src={appIcon} alt="" width={28} height={28} />
+        {testEnvId ? (
+          <button
+            className="test-env-nav-badge"
+            type="button"
+            title={`Test env ${testEnvId}`}
+            onClick={() => onViewChange('settings')}
+          >
+            Test env
+          </button>
+        ) : null}
         <button
           className={view === 'roster' ? 'nav-btn nav-btn-active' : 'nav-btn'}
           type="button"

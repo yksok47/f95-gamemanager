@@ -194,6 +194,7 @@ import {
 } from './subscriptions-store'
 import { getFollowSyncStatus, startFollowSync, stopFollowSync, checkStaleFollowed, cancelFollowSyncRun } from './follow-sync'
 import { openInAppWindow } from './open-url'
+import { createTestEnv, deleteTestEnv, getTestEnvStatus, switchTestEnv } from './test-env'
 import type { PackageFlagKind, PackageInstallTags, PackageListQuery } from '@shared/p2p'
 import {
   flagPackageAs,
@@ -912,6 +913,32 @@ export function registerIpc(): void {
       const dir = getAppPaths().userData
       const error = await shell.openPath(dir)
       if (error) throw new Error(error)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('testEnv:status', () => getTestEnvStatus())
+
+  ipcMain.handle('testEnv:create', async () => {
+    try {
+      return await createTestEnv()
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('testEnv:switch', async (_event, id: string | null) => {
+    try {
+      await switchTestEnv(typeof id === 'string' ? id : null)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('testEnv:delete', async (_event, id: string) => {
+    try {
+      await deleteTestEnv(String(id))
     } catch (error) {
       throw toIpcError(error)
     }

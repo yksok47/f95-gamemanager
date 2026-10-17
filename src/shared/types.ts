@@ -1494,3 +1494,15 @@ export type ThreadDetails = {
   /** True when this account has ignored the thread on F95zone. */
   ignored: boolean
 }
+
+export type TestEnvInfo = {
+  id: string
+  createdAt: number
+}
+
+export type TestEnvStatus = {
+  available: boolean
+  active: string | null
+  restartsItself: boolean
+  envs: TestEnvInfo[]
+}

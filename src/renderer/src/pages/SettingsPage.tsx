@@ -8,7 +8,8 @@ import type {
   CloudSaveSyncStatus,
   CloudUserDataSyncStatus,
   FavoriteTag,
-  HatedTag
+  HatedTag,
+  TestEnvStatus
 } from '@shared/types'
 import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
@@ -18,6 +19,7 @@ import HatedTagsEditor from '../components/HatedTagsEditor'
 import IgnoredThreadsPanel from '../components/IgnoredThreadsPanel'
 import RankedTagsEditor from '../components/RankedTagsEditor'
 import RequestLogPanel from '../components/RequestLogPanel'
+import TestEnvPanel from '../components/TestEnvPanel'
 import AppAboutPanel from '../components/AppAboutPanel'
 import AppUpdatePanel from '../components/AppUpdatePanel'
 import { confirm } from '../components/ConfirmDialog'
@@ -37,6 +39,7 @@ type SettingsTab =
   | 'ignored'
   | 'about'
   | 'requests'
+  | 'testEnv'
 
 type SettingsPageProps = {
   settings: AppSettings
@@ -63,10 +66,12 @@ export default function SettingsPage({
   const [uploadLimitDraft, setUploadLimitDraft] = useState(String(settings.p2pUploadLimitKBps || ''))
   const [catalogPageSizeDraft, setCatalogPageSizeDraft] = useState(settings.catalogPageSize)
   const [aboutReady, setAboutReady] = useState(false)
+  const [testEnv, setTestEnv] = useState<TestEnvStatus | null>(null)
   const appUpdate = useAppUpdate()
 
   useEffect(() => {
     void window.api.settings.userDataPath().then(setUserDataPath).catch(() => undefined)
+    void window.api.testEnv.status().then(setTestEnv).catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -147,7 +152,8 @@ export default function SettingsPage({
     { id: 'hated', label: 'Hated tags' },
     { id: 'ignored', label: 'Ignored' },
     { id: 'about', label: 'About' },
-    { id: 'requests', label: 'Request log' }
+    { id: 'requests', label: 'Request log' },
+    ...(testEnv?.available ? [{ id: 'testEnv' as const, label: 'Test envs' }] : [])
   ]
 
   return (
@@ -473,6 +479,7 @@ export default function SettingsPage({
         ) : null}
 
         {tab === 'requests' ? <RequestLogPanel /> : null}
+        {tab === 'testEnv' && testEnv ? <TestEnvPanel status={testEnv} /> : null}
       </section>
     </div>
   )
