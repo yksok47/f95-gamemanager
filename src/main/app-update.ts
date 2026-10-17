@@ -120,6 +120,7 @@ function pathIsProgramFiles(dir: string): boolean {
 
 function appRootForKind(kind: AppInstallKind): string {
   if (kind === 'appimage' && process.env.APPIMAGE) return process.env.APPIMAGE
+  if (kind === 'portableExe' && process.env.PORTABLE_EXECUTABLE_FILE) return process.env.PORTABLE_EXECUTABLE_FILE
   if (kind === 'mac') {
     return resolve(process.execPath, '..', '..', '..')
   }
@@ -446,8 +447,8 @@ async function pendingPreparedApply(kind: AppInstallKind): Promise<PreparedApply
       elevate: pathIsProgramFiles(dst)
     }
   }
-  if (kind === 'appimage') {
-    const dst = process.env.APPIMAGE || appRootForKind(kind)
+  if (kind === 'appimage' || kind === 'portableExe') {
+    const dst = appRootForKind(kind)
     const next = `${dst}.new`
     if (!pathExists(next)) return null
     return {
@@ -655,8 +656,8 @@ async function preparePayload(kind: AppInstallKind, archivePath: string, tempRoo
     }
   }
 
-  if (kind === 'appimage') {
-    const dst = process.env.APPIMAGE || root
+  if (kind === 'appimage' || kind === 'portableExe') {
+    const dst = root
     const next = `${dst}.new`
     await copyOrRename(archivePath, next)
     await chmod(next, 0o755).catch(() => undefined)

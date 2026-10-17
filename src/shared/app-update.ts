@@ -5,7 +5,7 @@ export const APP_UPDATE_GITHUB_REPO = 'f95-gamemanager'
 export const APP_UPDATE_GITHUB_URL = `https://github.com/${APP_UPDATE_GITHUB_OWNER}/${APP_UPDATE_GITHUB_REPO}`
 export const APP_EXECUTABLE_NAME = 'F95GameManager'
 
-export type AppInstallKind = 'dev' | 'nsis' | 'appimage' | 'mac' | 'portable'
+export type AppInstallKind = 'dev' | 'nsis' | 'appimage' | 'mac' | 'portable' | 'portableExe'
 
 export type AppUpdatePhase =
   | 'idle'
@@ -72,6 +72,7 @@ export function appInstallLabel(kind: AppInstallKind): string {
   if (kind === 'appimage') return 'AppImage'
   if (kind === 'mac') return 'App bundle'
   if (kind === 'portable') return 'Portable'
+  if (kind === 'portableExe') return 'Portable exe'
   return 'Development'
 }
 
@@ -84,7 +85,7 @@ export function detectAppInstallKind(input: {
   if (!input.packaged) return 'dev'
   const env = input.env ?? {}
   if (input.platform === 'linux' && env.APPIMAGE) return 'appimage'
-  if (env.PORTABLE_EXECUTABLE_FILE) return 'portable'
+  if (input.platform === 'win32' && env.PORTABLE_EXECUTABLE_FILE) return 'portableExe'
   if (input.platform === 'win32') return input.hasUninstaller ? 'nsis' : 'portable'
   if (input.platform === 'darwin') return 'mac'
   return 'portable'
@@ -128,6 +129,11 @@ function scoreAsset(name: string, query: AppUpdateAssetQuery): number {
       if (!lower.endsWith('.exe')) return -1
       if (!lower.includes('setup')) return -1
       if (lower.includes('unpacked') || lower.includes('portable')) return -1
+      return 100
+    }
+    if (query.kind === 'portableExe') {
+      if (!lower.endsWith('.exe')) return -1
+      if (!lower.includes('portable') || lower.includes('setup')) return -1
       return 100
     }
     if (!lower.endsWith('.zip')) return -1

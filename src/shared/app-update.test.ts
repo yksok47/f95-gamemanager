@@ -22,6 +22,11 @@ const assets = [
   { name: 'f95-gamemanager-1.2.3-mac-x64.dmg', browser_download_url: 'https://example/dmg', size: 7 }
 ]
 
+const withPortableExe = [
+  ...assets,
+  { name: 'f95-gamemanager-1.2.3-portable.exe', browser_download_url: 'https://example/portable', size: 8 }
+]
+
 describe('normalizeAppVersion', () => {
   test('strips a leading v', () => {
     expect(normalizeAppVersion('v1.2.3')).toBe('1.2.3')
@@ -49,6 +54,13 @@ describe('detectAppInstallKind', () => {
     expect(detectAppInstallKind({ packaged: true, platform: 'win32', hasUninstaller: false })).toBe(
       'portable'
     )
+    expect(
+      detectAppInstallKind({
+        packaged: true,
+        platform: 'win32',
+        env: { PORTABLE_EXECUTABLE_FILE: 'C:\\Apps\\f95-gamemanager-1.2.3-portable.exe' }
+      })
+    ).toBe('portableExe')
   })
 
   test('detects Linux AppImage from env', () => {
@@ -74,6 +86,19 @@ describe('selectReleaseAsset', () => {
     expect(
       selectReleaseAsset(assets, { platform: 'win32', arch: 'x64', kind: 'portable' })?.name
     ).toBe('f95-gamemanager-1.2.3-win-unpacked.zip')
+    expect(
+      selectReleaseAsset(withPortableExe, { platform: 'win32', arch: 'x64', kind: 'portable' })?.name
+    ).toBe('f95-gamemanager-1.2.3-win-unpacked.zip')
+    expect(
+      selectReleaseAsset(withPortableExe, { platform: 'win32', arch: 'x64', kind: 'nsis' })?.name
+    ).toBe('f95-gamemanager-1.2.3-setup.exe')
+  })
+
+  test('picks the portable exe for single-file portable installs', () => {
+    expect(
+      selectReleaseAsset(withPortableExe, { platform: 'win32', arch: 'x64', kind: 'portableExe' })?.name
+    ).toBe('f95-gamemanager-1.2.3-portable.exe')
+    expect(selectReleaseAsset(assets, { platform: 'win32', arch: 'x64', kind: 'portableExe' })).toBeNull()
   })
 
   test('picks AppImage vs unpacked zip on Linux', () => {

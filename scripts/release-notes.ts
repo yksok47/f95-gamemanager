@@ -1,7 +1,8 @@
-import { readdirSync, statSync, writeFileSync } from 'fs'
+import { existsSync, readdirSync, statSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { changelogEntry, readChangelog } from './changelog'
 
-const [releaseDir = 'release', outFile = 'release-notes.md'] = process.argv.slice(2)
+const [releaseDir = 'release', outFile = 'release-notes.md', changelogFile = 'CHANGELOG.md'] = process.argv.slice(2)
 const repo = process.env.GITHUB_REPOSITORY ?? 'owner/repo'
 const tag = process.env.GITHUB_REF_NAME ?? 'v0.0.0'
 
@@ -59,7 +60,11 @@ const linux = table([
 const checksums = find('SHA512SUMS')
 const others = files.filter((f) => !used.has(f)).sort()
 
+const changes = existsSync(changelogFile) ? changelogEntry(readChangelog(changelogFile), tag) : undefined
+if (!changes) console.warn(`No changelog section for ${tag}`)
+
 const sections = [
+  ...(changes?.body ? ["## ✨ What's new", '', changes.body, ''] : []),
   '## 📥 Downloads',
   '',
   'Not sure which file you need? Pick your operating system below. **Installer** sets the app up on your system; **Portable** runs from any folder without installing.',
