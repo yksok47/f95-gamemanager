@@ -40,7 +40,8 @@ function table(rows: Row[]): string {
 
 const windows = table([
   ['Installer', 'Recommended. Installs the app with Start Menu and desktop shortcuts.', find('-setup.exe')],
-  ['Portable', 'No installation. Unzip anywhere and run `win-unpacked\\F95GameManager.exe`.', find('-win-unpacked.zip')]
+  ['Portable (.exe)', 'Single file, no installation. Just run it. Starts a little slower because it unpacks itself on each launch.', find('-portable.exe')],
+  ['Portable (.zip)', 'No installation. Unzip anywhere and run `win-unpacked\\F95GameManager.exe`.', find('-win-unpacked.zip')]
 ])
 
 const mac = table([
@@ -52,7 +53,7 @@ const mac = table([
 
 const linux = table([
   ['AppImage', 'Recommended. Single file, runs on most distributions.', find('.AppImage')],
-  ['Portable', 'Unzip anywhere and run `linux-unpacked/F95GameManager`.', find('-linux-unpacked.zip')]
+  ['Portable (.zip)', 'Unzip anywhere and run `linux-unpacked/F95GameManager`.', find('-linux-unpacked.zip')]
 ])
 
 const checksums = find('SHA512SUMS')

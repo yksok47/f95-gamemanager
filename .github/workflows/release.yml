@@ -47,7 +47,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build Windows installer and unpacked app
+      - name: Build Windows installer, portable exe and unpacked app
         run: bun run build:win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

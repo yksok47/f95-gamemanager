@@ -50,6 +50,9 @@ win:
     - target: nsis
       arch:
         - x64
+    - target: portable
+      arch:
+        - x64
     - target: dir
       arch:
         - x64
@@ -62,6 +65,8 @@ nsis:
   installerHeaderIcon: build/icon.ico
   createDesktopShortcut: always
   createStartMenuShortcut: true
+portable:
+  artifactName: ${name}-${version}-portable.${ext}
 linux:
   icon: resources/icon.png
   category: Game
