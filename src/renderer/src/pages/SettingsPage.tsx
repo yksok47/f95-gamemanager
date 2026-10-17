@@ -345,6 +345,28 @@ export default function SettingsPage({
               p2pEnabled={settings.p2pEnabled}
               onChange={(next) => void persist({ downloadProviderOrder: next })}
             />
+
+            <h2 className="settings-heading">After download</h2>
+            <Switch
+              checked={Boolean(settings.autoApproveDownloads)}
+              onChange={(checked) => void persist({ autoApproveDownloads: checked })}
+              label="Approve automatically"
+            />
+            <p className="muted download-meta">
+              Finished downloads skip the untrusted folder and are approved with the content type,
+              OS, and version the catalog or the download link already knows. Files without
+              complete tags still wait for review.
+            </p>
+            <Switch
+              checked={Boolean(settings.autoInstallDownloads)}
+              onChange={(checked) => void persist({ autoInstallDownloads: checked })}
+              label="Install after approval"
+            />
+            <p className="muted download-meta">
+              Approved games are extracted right away and replace the older installed version.
+              Ren&apos;Py patches, uncensors, mods, and walkthroughs are applied to the newest
+              installed version.
+            </p>
           </div>
         ) : null}
 

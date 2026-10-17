@@ -9,6 +9,7 @@ import {
 } from "@shared/content-address";
 import {
   normalizePackageInstallTags,
+  type PackageConsensus,
   type PackageFlagKind,
   type PackageInstallTags,
   type PackageListQuery,
@@ -19,8 +20,14 @@ import {
   type P2pTransferState,
   type ThreadDownloadMetadata,
 } from "@shared/p2p";
+import { knownInstallTags } from "../auto-approve";
+import { startAutoInstall } from "../auto-install";
 import { addCompletedDownload } from "../downloads";
-import { getUntrustedDownloadsDirSync, getSettings } from "../settings-store";
+import {
+  getAutoApproveDownloadsSync,
+  getUntrustedDownloadsDirSync,
+  getSettings,
+} from "../settings-store";
 import { hashFile } from "../hash";
 import { getP2pIdentity, signShareClaim, signMessageBytes } from "./identity";
 import { getAnnounceList, getP2pEnv, getTrackerStatsUrl } from "./env";
@@ -50,6 +57,7 @@ import {
   hasLiveTorrent,
   listP2pProgress,
   onP2pProgress,
+  onP2pQuarantined,
   p2pAddMagnet,
   p2pApproveQuarantine,
   p2pPause,
@@ -488,6 +496,7 @@ export async function onP2pEnabledChanged(enabled: boolean): Promise<void> {
     return;
   }
   await getP2pIdentity();
+  onP2pQuarantined(handleQuarantined);
   // Resume mid-download / quarantine first, then keep known shares announcing.
   void (async () => {
     try {
@@ -769,6 +778,25 @@ export async function approveQuarantinedDownload(
       console.warn("[p2p] install report after approve failed", error);
     });
   }
+  startAutoInstall(approved.f95ThreadId, approved.contentHash);
+}
+
+async function autoApproveQuarantined(
+  id: string,
+  consensus: PackageConsensus | null,
+): Promise<void> {
+  const contentHash = listP2pProgress().find((t) => t.id === id)?.contentHash;
+  if (!contentHash) return;
+  const tags = await knownInstallTags(contentHash, consensus);
+  if (!tags) return;
+  await approveQuarantinedDownload(id, tags);
+}
+
+function handleQuarantined(id: string, consensus: PackageConsensus | null): void {
+  if (!getAutoApproveDownloadsSync()) return;
+  void autoApproveQuarantined(id, consensus).catch((error) => {
+    console.warn("[p2p] auto-approve failed", error);
+  });
 }
 
 export async function rejectQuarantinedDownload(id: string): Promise<void> {

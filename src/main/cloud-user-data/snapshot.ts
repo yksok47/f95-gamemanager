@@ -246,6 +246,8 @@ function normalizeSettings(value: unknown): SyncedSettings {
     trackerWebRtcUrl: '',
     cloudSavesEnabled: false,
     cloudUserDataEnabled: false,
+    autoApproveDownloads: false,
+    autoInstallDownloads: false,
     quickFilters: [],
     ...raw
   } as AppSettings)

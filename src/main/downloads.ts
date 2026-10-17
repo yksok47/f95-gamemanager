@@ -24,6 +24,8 @@ import type {
 } from '@shared/types'
 import { isDataNodesInterstitialDownload } from '@shared/datanodes'
 import { isGuestContents, shouldBlockDownload } from './adblock'
+import { knownInstallTags } from './auto-approve'
+import { startAutoInstall } from './auto-install'
 import { getDownloadContext } from './download-context'
 import {
   isFinishedDownloadStatus,
@@ -37,7 +39,9 @@ import { dismissGuestsAfterDownload, releaseGuestsAfterDownload } from './open-u
 import { flagPackageAs, onLibraryPackageAdded } from './p2p/controller'
 import { reportLinkFile, reportSignedInstall } from './p2p/metadata-client'
 import {
+  getAutoApproveDownloadsSync,
   getDownloadsDirSync,
+  getIncomingDownloadsDirSync,
   getUntrustedDownloadsDirSync
 } from './settings-store'
 import { sendToRenderer } from './windows'
@@ -335,8 +339,7 @@ function nextId(): string {
 }
 
 export function applyConfiguredDownloadPath(): void {
-  // Match P2P: land in untrusted quarantine until Approve moves the file.
-  const dir = getUntrustedDownloadsDirSync()
+  const dir = getIncomingDownloadsDirSync()
   try {
     mkdirSync(dir, { recursive: true })
     session.defaultSession.setDownloadPath(dir)
@@ -577,6 +580,21 @@ async function prepareArchiveForReview(entry: TrackedDownload): Promise<void> {
     entry.libraryStatus = 'error'
   }
   broadcast()
+  if (entry.libraryStatus === 'pendingReview' && getAutoApproveDownloadsSync()) {
+    await autoApproveDownload(entry)
+  }
+}
+
+async function autoApproveDownload(entry: TrackedDownload): Promise<void> {
+  if (!entry.hash) return
+  try {
+    const tags = await knownInstallTags(entry.hash, entry.packageHint, entry.context?.packageHint)
+    if (!tags) return
+    if (tracked.get(entry.id) !== entry || entry.libraryStatus !== 'pendingReview') return
+    await approveDownload(entry.id, tags)
+  } catch (error) {
+    console.warn('[downloads] auto-approve failed', error)
+  }
 }
 
 export async function approveDownload(
@@ -653,6 +671,8 @@ export async function approveDownload(
   })().catch((error) => {
     console.warn('[downloads] install report after approve failed', error)
   })
+
+  startAutoInstall(nextContext.threadId, hash)
 
   return listRecords()
 }
@@ -811,9 +831,9 @@ function runStream(entry: TrackedDownload, source: StreamDownloadSource, start: 
   )
 }
 
-/** Track a download the app streams to disk itself, landing in untrusted quarantine like the rest. */
+/** Track a download the app streams to disk itself, landing in the incoming folder like the rest. */
 export function startStreamDownload(source: StreamDownloadSource): void {
-  const dir = getUntrustedDownloadsDirSync()
+  const dir = getIncomingDownloadsDirSync()
   mkdirSync(dir, { recursive: true })
   const savePath = uniquePath(dir, source.filename)
   closeSync(openSync(savePath, 'w'))
@@ -871,11 +891,11 @@ export function registerDownloadHandler(): void {
       }
     }
 
-    const dir = getUntrustedDownloadsDirSync()
+    const dir = getIncomingDownloadsDirSync()
     try {
       mkdirSync(dir, { recursive: true })
     } catch (error) {
-      console.warn('Could not create untrusted downloads folder', error)
+      console.warn('Could not create downloads folder', error)
     }
     const filename = item.getFilename() || 'download'
     try {

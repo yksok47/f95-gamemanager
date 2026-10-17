@@ -238,6 +238,8 @@ export type AppSettings = {
   quickFilters: QuickFilter[]
   /** File hosts best-first; the Download button uses the highest one a post offers. */
   downloadProviderOrder: DownloadProviderId[]
+  autoApproveDownloads: boolean
+  autoInstallDownloads: boolean
 }
 
 export type RequestLogService = 'f95zone' | 'metadata' | 'tracker'
@@ -912,6 +914,22 @@ export type ImportResult = {
   found: number
   added: number
   alreadyFollowed: number
+}
+
+export type F95CheckerImportResult = {
+  found: number
+  added: number
+  merged: number
+  skippedCustom: number
+  notes: number
+  rated: number
+  installs: number
+  missingInstalls: number
+  libraryDirs: number
+  archiveDirs: number
+  favoriteTags: number
+  hatedTags: number
+  skippedTagHighlights: number
 }
 
 export type GameSummary = {

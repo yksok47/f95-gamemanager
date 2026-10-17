@@ -227,7 +227,9 @@ export default function App(): JSX.Element {
     cloudSaveIncludeAutoQuick: true,
     cloudUserDataEnabled: false,
     quickFilters: [],
-    downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER]
+    downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER],
+    autoApproveDownloads: false,
+    autoInstallDownloads: false
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [pinnedGames, setPinnedGames] = useState<TaskbarPin[]>(() => loadTaskbarPins())

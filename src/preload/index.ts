@@ -28,6 +28,7 @@ import type {
   LibraryImportCandidate,
   LibraryImportScanResult,
   SaveFolderPeekShot,
+  F95CheckerImportResult,
   ImportResult,
   LoginPayload,
   PlaySessionStatus,
@@ -103,6 +104,8 @@ const api = {
     importBookmarks: (): Promise<ImportResult> => ipcRenderer.invoke('subscriptions:importBookmarks'),
     importLinks: (text: string): Promise<ImportResult> =>
       ipcRenderer.invoke('subscriptions:importLinks', text),
+    importF95Checker: (): Promise<F95CheckerImportResult | null> =>
+      ipcRenderer.invoke('subscriptions:importF95Checker'),
     refresh: (threadId: number): Promise<Subscription[]> =>
       ipcRenderer.invoke('subscriptions:refresh', threadId),
     setArchived: (threadId: number, archived: boolean): Promise<Subscription[]> =>

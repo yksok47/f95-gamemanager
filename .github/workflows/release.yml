@@ -196,6 +196,16 @@ jobs:
     needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -204,7 +214,7 @@ jobs:
       - name: Flatten artifacts
         run: |
           mkdir -p release
-          find artifacts -type f -exec cp -n {} release/ \;
+          find artifacts -type f ! -name 'builder-debug.yml' -exec cp -n {} release/ \;
           ls -la release
 
       - name: Write SHA-512 checksums
@@ -214,11 +224,17 @@ jobs:
           mv ../SHA512SUMS .
           cat SHA512SUMS
 
+      - name: Write release notes
+        run: |
+          bun scripts/release-notes.ts release release-notes.md
+          cat release-notes.md
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
+          body_path: release-notes.md
           generate_release_notes: true
           files: release/*
         env:

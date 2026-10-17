@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
+  F95CheckerImportResult,
   FavoriteTag,
   HatedTag,
   ImportResult,
@@ -131,6 +132,30 @@ function formatImport(result: ImportResult): string {
   return `Imported ${result.added} ${label} (${result.alreadyFollowed} already followed, ${result.found} found).`
 }
 
+function plural(count: number, singular: string, many = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : many}`
+}
+
+function formatF95CheckerImport(result: F95CheckerImportResult): string {
+  const parts = [`${plural(result.added, 'new game')} followed`]
+  if (result.merged) parts.push(`${plural(result.merged, 'followed game')} updated`)
+  if (result.notes) parts.push(plural(result.notes, 'note'))
+  if (result.rated) parts.push(plural(result.rated, 'rating'))
+  if (result.installs) parts.push(`${plural(result.installs, 'install')} added to the library`)
+  if (result.missingInstalls) parts.push(`${plural(result.missingInstalls, 'install')} not found on disk`)
+  if (result.libraryDirs || result.archiveDirs) {
+    parts.push(`${plural(result.libraryDirs + result.archiveDirs, 'folder')} added to library scanning`)
+  }
+  if (result.favoriteTags || result.hatedTags) {
+    parts.push(`${plural(result.favoriteTags, 'favorite tag')}, ${plural(result.hatedTags, 'hated tag')}`)
+  }
+  if (result.skippedTagHighlights) {
+    parts.push(`${plural(result.skippedTagHighlights, 'tag highlight')} skipped (log in to F95zone and import again)`)
+  }
+  if (result.skippedCustom) parts.push(`${plural(result.skippedCustom, 'custom game')} skipped`)
+  return `F95Checker import: ${parts.join(', ')} (${result.found} found).`
+}
+
 /** Filters only change the shown count. The total stays the full list. */
 function formatShownTotal(shown: number, total: number, singular: string, plural = singular): string {
   const label = total === 1 ? singular : plural
@@ -154,7 +179,7 @@ export default function FollowedPage({
   const sessions = usePlaySessions()
   const advanced = useAdvancedFilters(favoriteTags, hatedTags)
   const prefixCatalog = advanced.filters.prefixes
-  const [busy, setBusy] = useState<'watched' | 'bookmarks' | 'links' | null>(null)
+  const [busy, setBusy] = useState<'watched' | 'bookmarks' | 'links' | 'f95checker' | null>(null)
   const [importOpen, setImportOpen] = useState(false)
   const [linksOpen, setLinksOpen] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -185,12 +210,22 @@ export default function FollowedPage({
     if (sync?.lastError) notifyError(sync.lastError)
   }, [sync?.lastError])
 
-  async function runImport(kind: 'watched' | 'bookmarks' | 'links', links = ''): Promise<void> {
+  async function runImport(
+    kind: 'watched' | 'bookmarks' | 'links' | 'f95checker',
+    links = ''
+  ): Promise<void> {
     setImportOpen(false)
     setLinksOpen(false)
     setBusy(kind)
     setMessage(null)
     try {
+      if (kind === 'f95checker') {
+        const imported = await window.api.subscriptions.importF95Checker()
+        if (!imported) return
+        await onImported()
+        setMessage(formatF95CheckerImport(imported))
+        return
+      }
       const result =
         kind === 'watched'
           ? await window.api.subscriptions.importWatched()
@@ -458,7 +493,7 @@ export default function FollowedPage({
                 aria-haspopup="menu"
                 aria-expanded={importOpen}
                 aria-label={busy ? 'Importing' : 'Import'}
-                title={busy ? 'Importing…' : 'Import watched threads, bookmarks or thread links'}
+                title={busy ? 'Importing…' : 'Import watched threads, bookmarks, thread links or F95Checker'}
                 disabled={busy !== null}
                 onClick={() => setImportOpen((open) => !open)}
               >
@@ -485,6 +520,11 @@ export default function FollowedPage({
                         setImportOpen(false)
                         setLinksOpen(true)
                       }
+                    },
+                    {
+                      id: 'f95checker',
+                      label: 'F95Checker',
+                      onClick: () => void runImport('f95checker')
                     }
                   ]}
                   onClose={() => setImportOpen(false)}

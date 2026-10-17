@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { basename } from 'path'
 import type {
@@ -42,6 +43,7 @@ import {
 import { getAuthSession, login, logout } from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importThreadLinks, importWatchedThreads } from './f95/import'
+import { defaultF95CheckerDbPath, importF95Checker } from './f95checker-import'
 import { lookupCatalogGame } from './f95/lookup'
 import { fetchThreadDetails, fetchThreadReviews, invalidateThreadDetailsCache } from './f95/thread'
 import {
@@ -446,6 +448,28 @@ export function registerIpc(): void {
   ipcMain.handle('subscriptions:importLinks', async (_event, text: string) => {
     try {
       return await importThreadLinks(String(text ?? ''))
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('subscriptions:importF95Checker', async (event) => {
+    try {
+      let dbPath = defaultF95CheckerDbPath()
+      if (!existsSync(dbPath)) {
+        const parent = BrowserWindow.fromWebContents(event.sender)
+        const options = {
+          title: 'Select the F95Checker database (db.sqlite3)',
+          properties: ['openFile' as const],
+          filters: [{ name: 'F95Checker database', extensions: ['sqlite3', 'sqlite', 'db'] }]
+        }
+        const picked = parent
+          ? await dialog.showOpenDialog(parent, options)
+          : await dialog.showOpenDialog(options)
+        if (picked.canceled || !picked.filePaths.length) return null
+        dbPath = picked.filePaths[0]
+      }
+      return await importF95Checker(dbPath)
     } catch (error) {
       throw toIpcError(error)
     }

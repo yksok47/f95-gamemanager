@@ -13,6 +13,7 @@ import {
   isRelativeDate,
   latestKnownVersion,
   mergeVersionNames,
+  mergeVersionPlayStats,
   preferNewerVersion,
   normalizeVersionPlayStats,
   removeVersionAlias,
@@ -382,6 +383,50 @@ export async function addSubscriptions(entries: Subscription[]): Promise<{
   await Promise.all(addedIds.map((id) => touchSubscription(id)))
   if (added) notifyUserDataChanged('data')
   return { added, alreadyFollowed }
+}
+
+export async function mergeImportedSubscriptions(entries: Subscription[]): Promise<{
+  added: number
+  merged: number
+}> {
+  const games = await readStore()
+  const byId = new Map(games.map((game) => [game.threadId, game]))
+  let added = 0
+  let merged = 0
+  const touched: number[] = []
+
+  for (const entry of entries) {
+    const existing = byId.get(entry.threadId)
+    if (!existing) {
+      const game = { ...emptyDetails(), ...entry }
+      games.push(game)
+      byId.set(game.threadId, game)
+      added += 1
+      touched.push(game.threadId)
+      continue
+    }
+    const before = JSON.stringify(existing)
+    if (existing.rarity === 'regular' && entry.rarity !== 'regular') existing.rarity = entry.rarity
+    existing.archived = existing.archived || entry.archived
+    if (entry.addedAt && (!existing.addedAt || entry.addedAt < existing.addedAt)) {
+      existing.addedAt = entry.addedAt
+    }
+    if (entry.lastPlayedVersion && (!existing.lastPlayedVersion || entry.lastPlayedAt > existing.lastPlayedAt)) {
+      existing.lastPlayedVersion = entry.lastPlayedVersion
+    }
+    existing.lastPlayedAt = Math.max(existing.lastPlayedAt || 0, entry.lastPlayedAt || 0)
+    existing.playedVersions = mergeVersionPlayStats(existing.playedVersions, entry.playedVersions)
+    existing.version = preferNewerVersion(existing.version, entry.version)
+    if (JSON.stringify(existing) !== before) {
+      merged += 1
+      touched.push(existing.threadId)
+    }
+  }
+
+  await writeStore(games)
+  await Promise.all(touched.map((id) => touchSubscription(id)))
+  if (touched.length) notifyUserDataChanged('data')
+  return { added, merged }
 }
 
 export async function enrichIncompleteSubscriptions(): Promise<Subscription[]> {

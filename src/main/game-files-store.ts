@@ -734,6 +734,7 @@ export async function addImportedLibraryFile(opts: {
   hash: string
   size: number
   context: GameFileContext
+  executablePath?: string
 }): Promise<GameLibraryFile> {
   if (opts.kind === 'archive') {
     return addGameFileFromDownload(opts.context, opts.path, opts.hash, opts.size)
@@ -766,7 +767,7 @@ export async function addImportedLibraryFile(opts: {
     normalizeEngine(opts.context.engine) ||
     detectEngineFromInstall(opts.path) ||
     normalizeEngine(meta.engine)
-  const executablePath = detectExecutable(opts.path, engine)
+  const executablePath = opts.executablePath || detectExecutable(opts.path, engine)
 
   if (existing) {
     existing.installPath = opts.path

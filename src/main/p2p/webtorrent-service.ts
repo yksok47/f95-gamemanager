@@ -127,6 +127,7 @@ type TrackMeta = {
 }
 
 const listeners = new Set<(items: P2pTransferProgress[]) => void>()
+let quarantineListener: ((id: string, consensus: PackageConsensus | null) => void) | null = null
 const metaById = new Map<string, TrackMeta>()
 const detachWaiters = new Map<string, Promise<void>>()
 const refreshById = new Map<string, () => void>()
@@ -350,6 +351,13 @@ async function enterQuarantine(
     console.warn('[p2p] persist after quarantine failed', err)
   })
   console.info('[p2p] download quarantined pending review', filePath)
+  quarantineListener?.(id, stored?.consensus ?? null)
+}
+
+export function onP2pQuarantined(
+  listener: ((id: string, consensus: PackageConsensus | null) => void) | null
+): void {
+  quarantineListener = listener
 }
 
 async function waitForDetach(id: string): Promise<void> {

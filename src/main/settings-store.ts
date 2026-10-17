@@ -179,6 +179,8 @@ function emptySettings(): AppSettings {
     cloudUserDataEnabled: false,
     quickFilters: [],
     downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER],
+    autoApproveDownloads: false,
+    autoInstallDownloads: false,
     ...defaultFolders()
   }
 }
@@ -211,7 +213,9 @@ function normalizeSettings(value: unknown): AppSettings {
       typeof raw.cloudSaveIncludeAutoQuick === 'boolean' ? raw.cloudSaveIncludeAutoQuick : true,
     cloudUserDataEnabled: Boolean(raw.cloudUserDataEnabled),
     quickFilters: parseQuickFilters(raw.quickFilters),
-    downloadProviderOrder: normalizeDownloadProviderOrder(raw.downloadProviderOrder)
+    downloadProviderOrder: normalizeDownloadProviderOrder(raw.downloadProviderOrder),
+    autoApproveDownloads: Boolean(raw.autoApproveDownloads),
+    autoInstallDownloads: Boolean(raw.autoInstallDownloads)
   }
 }
 
@@ -252,6 +256,18 @@ export function getDownloadsDirSync(): string {
 /** Quarantine folder for downloads awaiting Approve / Reject / Flag (HTTP + P2P). */
 export function getUntrustedDownloadsDirSync(): string {
   return join(getDownloadsDirSync(), 'untrusted')
+}
+
+export function getAutoApproveDownloadsSync(): boolean {
+  return Boolean(loaded?.autoApproveDownloads)
+}
+
+export function getAutoInstallDownloadsSync(): boolean {
+  return Boolean(loaded?.autoInstallDownloads)
+}
+
+export function getIncomingDownloadsDirSync(): string {
+  return getAutoApproveDownloadsSync() ? getDownloadsDirSync() : getUntrustedDownloadsDirSync()
 }
 
 export function getLibraryDirSync(): string {
