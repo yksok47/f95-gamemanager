@@ -2,6 +2,14 @@
 
 To publish a release, add a section for the new version at the top of this file (`## 1.12.0 - YYYY-MM-DD`) and push it to `master`. The release workflow tags the version, builds every platform, and uses the section as the release notes.
 
+## 1.12.1 - 2026-10-25
+
+- Fixed download links behind F95zone's new download check: the check opens in its own window, and once you pass it the download continues with the right host
+- Run games in Sandboxie (Windows, Settings → Games): pick the Sandboxie folder and the sandbox to start installed games in
+- Version history on the game page: past versions with release dates from F95zone, how often new versions come out, and a guess for the next update
+- Hidden text in posts no longer shows up in game descriptions and posts
+- Images from F95zone's CDN are cached more reliably
+
 ## 1.12.0 - 2026-10-17
 
 - Import games from links: paste a list of thread links to follow them all at once
