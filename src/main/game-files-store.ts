@@ -53,7 +53,8 @@ import {
   getDownloadsDirSync,
   getExtraArchiveDirsSync,
   getExtraLibraryDirsSync,
-  getLibraryDirSync
+  getLibraryDirSync,
+  getSandboxieLaunchSync
 } from './settings-store'
 import { maxLikeCount, maxViewCount, pickLikeCount, pickViewCount, saneLikeCount, saneViewCount } from '@shared/counts'
 import { uniqueScreenUrls } from './f95/catalog'
@@ -1327,7 +1328,7 @@ export async function playGameFile(
   } else {
     if (getPlaySession(file.id)) return present(file)
     await syncRpgMakerForFile(file, 'merge')
-    const launched = await launchExecutable(exe)
+    const launched = await launchExecutable(exe, getSandboxieLaunchSync())
     startPlaySession({
       fileId: file.id,
       threadId: file.threadId,

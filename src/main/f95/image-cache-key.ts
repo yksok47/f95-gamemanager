@@ -11,6 +11,7 @@ const CDN_HOSTS = new Set([
 
 /** Renderer retry nonce — not part of the remote image identity. */
 const RETRY_PARAM = '_gm_retry'
+const SIGNING_PARAMS = ['h', 'e', 'u']
 
 export function isF95CdnImageUrl(url: string): boolean {
   try {
@@ -26,6 +27,9 @@ export function normalizeImageCacheUrl(url: string): string {
     const parsed = new URL(url)
     parsed.hash = ''
     parsed.searchParams.delete(RETRY_PARAM)
+    if (CDN_HOSTS.has(parsed.hostname.toLowerCase())) {
+      for (const name of SIGNING_PARAMS) parsed.searchParams.delete(name)
+    }
     return parsed.href
   } catch {
     return url

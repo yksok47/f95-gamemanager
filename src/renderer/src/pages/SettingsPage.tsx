@@ -11,7 +11,13 @@ import type {
   HatedTag,
   TestEnvStatus
 } from '@shared/types'
-import { CATALOG_PAGE_SIZES, CLOUD_SAVE_KEEP_COUNTS } from '@shared/types'
+import {
+  CATALOG_PAGE_SIZES,
+  CLOUD_SAVE_KEEP_COUNTS,
+  DEFAULT_SANDBOXIE_DIR,
+  normalizeSandboxieBox,
+  osKindFromNavigator
+} from '@shared/types'
 import { TAGS_PER_TIER_LIMIT, TAG_QUERY_LIMIT } from '@shared/types'
 import { formatDateTime } from '@shared/updates'
 import DownloadProvidersEditor from '../components/DownloadProvidersEditor'
@@ -28,8 +34,13 @@ import Switch from '../components/Switch'
 import { formatBytes } from '../lib/downloads'
 import { useAppUpdate } from '../lib/app-update'
 
+const IS_WINDOWS =
+  typeof navigator !== 'undefined' &&
+  osKindFromNavigator(navigator.platform, navigator.userAgent) === 'win'
+
 type SettingsTab =
   | 'general'
+  | 'games'
   | 'directories'
   | 'downloads'
   | 'p2p'
@@ -144,6 +155,7 @@ export default function SettingsPage({
 
   const tabs: Array<{ id: SettingsTab; label: string }> = [
     { id: 'general', label: 'General' },
+    ...(IS_WINDOWS ? [{ id: 'games' as const, label: 'Games' }] : []),
     { id: 'directories', label: 'Directories' },
     { id: 'downloads', label: 'Downloads' },
     { id: 'p2p', label: 'P2P' },
@@ -240,6 +252,10 @@ export default function SettingsPage({
               </div>
             </div>
           </div>
+        ) : null}
+
+        {tab === 'games' ? (
+          <SandboxiePanel settings={settings} saving={saving} persist={persist} />
         ) : null}
 
         {tab === 'directories' ? (
@@ -481,6 +497,84 @@ export default function SettingsPage({
         {tab === 'requests' ? <RequestLogPanel /> : null}
         {tab === 'testEnv' && testEnv ? <TestEnvPanel status={testEnv} /> : null}
       </section>
+    </div>
+  )
+}
+
+function SandboxiePanel({
+  settings,
+  saving,
+  persist
+}: {
+  settings: AppSettings
+  saving: boolean
+  persist: (next: Partial<AppSettings>) => Promise<void>
+}): JSX.Element {
+  const [boxDraft, setBoxDraft] = useState(settings.sandboxieBox)
+
+  useEffect(() => {
+    setBoxDraft(settings.sandboxieBox)
+  }, [settings.sandboxieBox])
+
+  async function chooseDir(): Promise<void> {
+    const folder = await window.api.settings.pickFolder(settings.sandboxieDir)
+    if (!folder || folder === settings.sandboxieDir) return
+    await persist({ sandboxieDir: folder })
+  }
+
+  return (
+    <div className="settings-tab-body">
+      <h2 className="settings-heading">Sandboxie</h2>
+      <p className="muted settings-lead">
+        Run installed games inside a Sandboxie sandbox instead of starting them directly. Files the
+        game writes, including saves, land in the sandbox, so cloud saves and RPG Maker backups only
+        see them after you recover them from Sandboxie. HTML games still open in the app.
+      </p>
+      <Switch
+        checked={Boolean(settings.sandboxieEnabled)}
+        disabled={saving}
+        onChange={(checked) => void persist({ sandboxieEnabled: checked })}
+        label="Run games in Sandboxie"
+      />
+      <div className="folder-field">
+        <span className="filter-label">Sandboxie folder</span>
+        <p className="muted download-meta">The folder that contains Start.exe.</p>
+        <div className="folder-path-row">
+          <input className="folder-path" value={settings.sandboxieDir} readOnly />
+          <button className="ghost-btn" type="button" disabled={saving} onClick={() => void chooseDir()}>
+            Browse
+          </button>
+          <button
+            className="ghost-btn"
+            type="button"
+            disabled={saving || settings.sandboxieDir === DEFAULT_SANDBOXIE_DIR}
+            onClick={() => void persist({ sandboxieDir: DEFAULT_SANDBOXIE_DIR })}
+          >
+            Default
+          </button>
+        </div>
+      </div>
+      <div className="folder-field">
+        <span className="filter-label">Sandbox name</span>
+        <p className="muted download-meta">
+          Letters, digits, and underscores, as shown in Sandboxie. Leave empty for DefaultBox.
+        </p>
+        <div className="folder-path-row">
+          <input
+            className="folder-path"
+            value={boxDraft}
+            disabled={saving}
+            placeholder="DefaultBox"
+            spellCheck={false}
+            onChange={(event) => setBoxDraft(event.target.value)}
+            onBlur={() => {
+              const next = normalizeSandboxieBox(boxDraft)
+              setBoxDraft(next)
+              if (next !== settings.sandboxieBox) void persist({ sandboxieBox: next })
+            }}
+          />
+        </div>
+      </div>
     </div>
   )
 }

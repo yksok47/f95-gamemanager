@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   DEFAULT_DOWNLOAD_PROVIDER_ORDER,
+  isF95DownloadGate,
   mirrorIsOneClick,
   mirrorProvider,
   mirrorTarget,
@@ -188,5 +189,31 @@ describe('normalizeDownloadProviderOrder', () => {
 
   test('defaults when nothing is saved', () => {
     expect(normalizeDownloadProviderOrder(undefined)).toEqual(DEFAULT_DOWNLOAD_PROVIDER_ORDER)
+  })
+})
+
+describe('F95 download check links', () => {
+  const gate = 'https://f95zone.to/dl/19588522/?u=1&k=480038187281&r=1792926166&t=WnLtBn7pEJWeMXQZ'
+
+  test('recognizes /dl/ links only', () => {
+    expect(isF95DownloadGate(gate)).toBe(true)
+    expect(isF95DownloadGate('https://f95zone.to/dl/19588522')).toBe(true)
+    expect(isF95DownloadGate('https://f95zone.to/threads/1/')).toBe(false)
+    expect(isF95DownloadGate('https://example.com/dl/1/')).toBe(false)
+  })
+
+  test('classifies by the host read from the post', () => {
+    expect(mirrorTarget({ label: 'BZZHR', url: gate, host: 'bzzhr.to' })).toEqual({
+      kind: 'provider',
+      provider: 'buzzheavier'
+    })
+    expect(mirrorTarget({ label: 'MEGA', url: gate })).toEqual({ kind: 'provider', provider: 'mega' })
+    expect(mirrorTarget({ label: 'Mirror', url: gate, host: 'nopy.to' })).toEqual({ kind: 'web', host: 'nopy.to' })
+  })
+
+  test('still uses a connector after the check, but is never one-click', () => {
+    const mirror = { label: 'GOFILE', url: gate, host: 'gofile.io' }
+    expect(mirrorUsesConnector(mirror)).toBe(true)
+    expect(mirrorIsOneClick(mirror)).toBe(false)
   })
 })

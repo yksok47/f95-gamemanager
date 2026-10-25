@@ -12,9 +12,10 @@ import {
   reviewsPageFromDocument
 } from './parser/reviews/reviewsParser'
 import { parseThreadPageDocument } from './parser/threadPage/threadPageParser'
+import { parseVersionHistoryDocument } from './parser/versionHistory/versionHistoryParser'
 
 const HOST = 'https://f95zone.to'
-const CACHE_VERSION = 29
+const CACHE_VERSION = 30
 const DETAILS_TTL_MS = 10 * 60 * 1000
 
 const detailsCache = new Map<string, { at: number; value: ThreadDetails }>()
@@ -121,6 +122,7 @@ async function loadThreadDetails(threadId: number): Promise<ThreadDetails> {
     descriptionHtml: post.descriptionHtml,
     notes: post.notes,
     changelog: post.changelog,
+    versionHistory: parseVersionHistoryDocument($),
     gallery: post.gallery.filter(
       (url) => url !== cover && !isThumbnailUrl(url) && !isBannerUrl(url)
     ),

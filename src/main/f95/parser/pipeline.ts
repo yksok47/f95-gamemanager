@@ -17,6 +17,7 @@
  *   reviews     (separate root: /br-reviews pages; pagination only at runtime)
  *   posts       (same full-page HTML as firstPost; discussion posts, not the OP)
  *   postSearch  (separate root: /search/{id}/ results for a thread query)
+ *   versionHistory (same full-page HTML as firstPost; Versions strip above the OP)
  */
 export type ParserName =
   | 'firstPost'
@@ -33,6 +34,7 @@ export type ParserName =
   | 'reviews'
   | 'posts'
   | 'postSearch'
+  | 'versionHistory'
 
 export type ParserSpec = {
   name: ParserName
@@ -133,6 +135,13 @@ export const PARSERS: Record<ParserName, ParserSpec> = {
     inputFile: 'input.html',
     outputFile: 'output.json',
     source: null
+  },
+  versionHistory: {
+    name: 'versionHistory',
+    inputFile: 'input.html',
+    outputFile: 'output.json',
+    source: null,
+    inputFrom: 'firstPost'
   }
 }
 
@@ -151,5 +160,6 @@ export const PARSER_ORDER: ParserName[] = [
   'notes',
   'reviews',
   'posts',
-  'postSearch'
+  'postSearch',
+  'versionHistory'
 ]

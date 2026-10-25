@@ -5,7 +5,11 @@ import {
   canonicalVersionName,
   ensureKnownVersion,
   calendarDaysAgo,
+  formatCadence,
   formatCatalogWatermark,
+  formatNextUpdate,
+  forecastNextUpdate,
+  releaseCadenceDays,
   formatDateTime,
   gameUpdateState,
   groupByUpdateDate,
@@ -454,3 +458,42 @@ describe('formatCatalogWatermark', () => {
   })
 })
 
+describe('update forecast', () => {
+  const day = 24 * 60 * 60 * 1000
+  const base = new Date(2026, 7, 12, 14, 0).getTime()
+
+  test('median gap of known release dates', () => {
+    expect(releaseCadenceDays([base, base + 39 * day, base + 74 * day])).toBe(37)
+    expect(releaseCadenceDays([base, base + day])).toBeNull()
+    expect(releaseCadenceDays([base, base + 3 * 60 * 60 * 1000, base + 9 * day])).toBeNull()
+    expect(releaseCadenceDays([base, base + 3 * 60 * 60 * 1000, base + 9 * day, base + 18 * day])).toBe(9)
+    expect(releaseCadenceDays([0, base])).toBeNull()
+  })
+
+  test('prefers the site cadence and projects from the newest release', () => {
+    const last = base + 74 * day
+    const forecast = forecastNextUpdate({ cadenceDays: 30, releasedAt: [base, last] }, last + day)
+    expect(forecast).toEqual({ cadenceDays: 30, lastReleasedAt: last, nextAt: last + 30 * day, overdueDays: 0 })
+    expect(formatNextUpdate(forecast, last + day)).toContain('in 29 days')
+  })
+
+  test('falls back to release gaps and reports late updates', () => {
+    const forecast = forecastNextUpdate({ releasedAt: [base, base + 10 * day, base + 20 * day] }, base + 35 * day)
+    expect(forecast?.cadenceDays).toBe(10)
+    expect(forecast?.overdueDays).toBe(5)
+    expect(formatNextUpdate(forecast, base + 35 * day)).toContain('5 days late')
+  })
+
+  test('needs a release date and a cadence', () => {
+    expect(forecastNextUpdate({ cadenceDays: 20, releasedAt: [] })).toBeNull()
+    expect(forecastNextUpdate({ releasedAt: [base, base + day] })).toBeNull()
+  })
+
+  test('formats cadence', () => {
+    expect(formatCadence(1)).toBe('every day')
+    expect(formatCadence(7)).toBe('every week')
+    expect(formatCadence(14)).toBe('every 2 weeks')
+    expect(formatCadence(37)).toBe('every 37 days')
+    expect(formatCadence(null)).toBe('')
+  })
+})

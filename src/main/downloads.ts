@@ -38,6 +38,7 @@ import { hashFile } from './hash'
 import { dismissGuestsAfterDownload, releaseGuestsAfterDownload } from './open-url'
 import { flagPackageAs, onLibraryPackageAdded } from './p2p/controller'
 import { reportLinkFile, reportSignedInstall } from './p2p/metadata-client'
+import { publicSourceLinks } from './f95/download-gate'
 import {
   getAutoApproveDownloadsSync,
   getDownloadsDirSync,
@@ -649,7 +650,7 @@ export async function approveDownload(
     console.warn('[p2p] auto-seed after HTTP download approve failed', error)
   })
 
-  const sourceLinks = entry.sourceLinks ?? context.sourceLinks
+  const sourceLinks = publicSourceLinks(entry.sourceLinks ?? context.sourceLinks ?? [])
   void (async () => {
     // Link first: it creates the package row, so the install tags below never 404.
     if (sourceLinks?.length) {

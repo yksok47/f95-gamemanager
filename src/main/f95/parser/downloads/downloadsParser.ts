@@ -8,6 +8,7 @@ import type {
   DownloadSectionKind,
   DownloadSystem
 } from '@shared/types'
+import { isF95DownloadGate } from '@shared/download-providers'
 
 export type {
   DownloadContentType,
@@ -455,6 +456,17 @@ function isHosterLabel(raw: string): boolean {
   )
 }
 
+function mirrorFor(el: Cheerio<AnyNode>, label: string, url: string): DownloadMirror {
+  if (!isF95DownloadGate(url)) return { label, url }
+  const host = gateHost(el.attr('style') || '')
+  return host ? { label, url, host } : { label, url }
+}
+
+function gateHost(style: string): string {
+  const match = style.match(/external-content\.duckduckgo\.com\/ip3\/([a-z0-9.-]+?)\.ico/i)
+  return match ? match[1].toLowerCase().replace(/^www\./, '') : ''
+}
+
 function isMirrorUrl(url: string): boolean {
   if (!url || url.startsWith('javascript:')) return false
   if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(\?|$)/i.test(url)) return false
@@ -895,6 +907,7 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
     const unofficial = linkMarkedUnofficial($, node) || /\*$/.test(label)
     const cleanLabel = label.replace(/\*+$/, '').trim() || label
     const type = contentTypeFromLabel(cleanLabel, contentType)
+    const mirror = mirrorFor(el, cleanLabel, url)
 
     if (allowRelated || type !== 'game' || active.kind === 'extras' || active.kind === 'patches' || active.kind === 'other') {
       if (!isRelatedUrl(url) && !isMirrorUrl(url)) return
@@ -917,7 +930,7 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
           entryTitle = cleanLabel
           variants = [...new Set([...variants, 'compressed'])]
           flushEntry()
-          addMirror({ label: cleanLabel, url }, unofficial)
+          addMirror(mirror, unofficial)
           contentType = previousType
           systems = previousSystems
           entryTitle = previousTitle
@@ -925,7 +938,7 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
           flushEntry()
           return
         }
-        addRelated({ label: cleanLabel, url }, type, unofficial)
+        addRelated(mirror, type, unofficial)
         return
       }
     }
@@ -933,10 +946,10 @@ function collectSections($: CheerioAPI, nodes: AnyNode[]): MutableSection[] {
     if (!isMirrorUrl(url)) return
     // Skip obvious non-hoster related links accidentally accepted by broad http match.
     if (!isHosterLabel(cleanLabel) && /f95zone\.(?:to|com|ninja)\/(?:threads|posts)\b/i.test(url)) {
-      addRelated({ label: cleanLabel, url }, type === 'game' ? 'extra' : type, unofficial)
+      addRelated(mirror, type === 'game' ? 'extra' : type, unofficial)
       return
     }
-    addMirror({ label: cleanLabel, url }, unofficial)
+    addMirror(mirror, unofficial)
   }
 
   function walk(list: AnyNode[], nested: boolean): void {

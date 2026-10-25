@@ -41,6 +41,9 @@ import { sourceLinksFor } from '@shared/download-links'
 import { engineKind, isHtmlPlayableEngine, normalizeEngine } from '@shared/engines'
 import { engineFromPrefixIds, gameStatusFlags } from '@shared/prefixes'
 import {
+  forecastNextUpdate,
+  formatCadence,
+  formatNextUpdate,
   formatPlaytime,
   formatRelativeTime,
   formatSessionTime,
@@ -1188,6 +1191,19 @@ function GameDetailsPage({
     summary.playtimeMs || 0,
     files.reduce((sum, file) => sum + (file.playtimeMs || 0), 0)
   )
+  const versionHistory = details?.versionHistory
+  const updateForecast = useMemo(() => {
+    const historyDates = (versionHistory?.versions ?? []).map((item) => item.releasedAt)
+    return forecastNextUpdate(
+      {
+        cadenceDays: versionHistory?.cadenceDays,
+        releasedAt: historyDates.some(Boolean)
+          ? historyDates
+          : playedVersions.map((item) => item.releasedAt)
+      },
+      now
+    )
+  }, [versionHistory, playedVersions, now])
   const updates = gameUpdateState({
     latestVersion: version,
     installedVersion: latestInstalledVersion,
@@ -2848,6 +2864,26 @@ function GameDetailsPage({
                 <span className="muted">Updated</span>
                 <strong>{updatedLabel || 'Unknown'}</strong>
               </div>
+              {updateForecast ? (
+                <>
+                  <div
+                    title={
+                      versionHistory?.cadenceDays
+                        ? 'Average gap between versions, from F95zone'
+                        : 'Typical gap between the release dates we know'
+                    }
+                  >
+                    <span className="muted">New versions</span>
+                    <strong>{formatCadence(updateForecast.cadenceDays)}</strong>
+                  </div>
+                  <div
+                    title={`Last version ${formatUpdateDate(updateForecast.lastReleasedAt)} plus the usual gap`}
+                  >
+                    <span className="muted">Next update (guess)</span>
+                    <strong>{formatNextUpdate(updateForecast, now)}</strong>
+                  </div>
+                </>
+              ) : null}
               <div>
                 <span className="muted">Data checked</span>
                 <strong>
@@ -2957,6 +2993,22 @@ function GameDetailsPage({
                       </li>
                     )
                   })}
+                </ul>
+              </section>
+            ) : versionHistory?.versions.length ? (
+              <section className="played-versions">
+                <div className="played-versions-header">
+                  <h2>Versions</h2>
+                </div>
+                <ul className="played-versions-list">
+                  {versionHistory.versions.map((item) => (
+                    <li key={item.version}>
+                      <strong className="played-versions-version">{item.version}</strong>
+                      <span className="muted">
+                        {item.releasedAt ? `Released ${formatUpdateDate(item.releasedAt)}` : '—'}
+                      </span>
+                    </li>
+                  ))}
                 </ul>
               </section>
             ) : null}

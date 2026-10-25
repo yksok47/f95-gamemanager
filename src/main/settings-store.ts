@@ -9,10 +9,12 @@ import { capTagsPerTier } from '@shared/ranked-tags'
 import {
   DEFAULT_CATALOG_PAGE_SIZE,
   DEFAULT_CLOUD_SAVE_KEEP_COUNT,
+  DEFAULT_SANDBOXIE_DIR,
   TAG_QUERY_LIMIT,
   TAG_TIERS,
   isCatalogPageSize,
   isCloudSaveKeepCount,
+  normalizeSandboxieBox,
   type AppSettings,
   type CatalogPageSize,
   type CloudSaveKeepCount,
@@ -22,6 +24,7 @@ import {
 } from '@shared/types'
 import { P2P_ENV_DEFAULTS } from '@shared/p2p'
 import { normalizeExtraDirs } from './extra-library-dirs'
+import type { SandboxieLaunch } from './launch'
 import { getAppPaths } from './paths'
 import { sendToRenderer } from './windows'
 
@@ -181,6 +184,9 @@ function emptySettings(): AppSettings {
     downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER],
     autoApproveDownloads: false,
     autoInstallDownloads: false,
+    sandboxieEnabled: false,
+    sandboxieDir: DEFAULT_SANDBOXIE_DIR,
+    sandboxieBox: normalizeSandboxieBox(''),
     ...defaultFolders()
   }
 }
@@ -215,7 +221,10 @@ function normalizeSettings(value: unknown): AppSettings {
     quickFilters: parseQuickFilters(raw.quickFilters),
     downloadProviderOrder: normalizeDownloadProviderOrder(raw.downloadProviderOrder),
     autoApproveDownloads: Boolean(raw.autoApproveDownloads),
-    autoInstallDownloads: Boolean(raw.autoInstallDownloads)
+    autoInstallDownloads: Boolean(raw.autoInstallDownloads),
+    sandboxieEnabled: Boolean(raw.sandboxieEnabled),
+    sandboxieDir: normalizeDir(raw.sandboxieDir, DEFAULT_SANDBOXIE_DIR),
+    sandboxieBox: normalizeSandboxieBox(raw.sandboxieBox)
   }
 }
 
@@ -264,6 +273,13 @@ export function getAutoApproveDownloadsSync(): boolean {
 
 export function getAutoInstallDownloadsSync(): boolean {
   return Boolean(loaded?.autoInstallDownloads)
+}
+
+export function getSandboxieLaunchSync(): SandboxieLaunch | null {
+  if (process.platform !== 'win32' || !loaded?.sandboxieEnabled) return null
+  const dir = loaded.sandboxieDir
+  const startExe = /\.exe$/i.test(dir) ? dir : join(dir, 'Start.exe')
+  return { startExe, box: loaded.sandboxieBox }
 }
 
 export function getIncomingDownloadsDirSync(): string {

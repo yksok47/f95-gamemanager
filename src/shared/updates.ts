@@ -782,6 +782,68 @@ export function releasedAtFromDateInput(value: string | undefined | null): numbe
   return Number.isFinite(ms) ? ms : 0
 }
 
+export type UpdateForecast = {
+  cadenceDays: number
+  lastReleasedAt: number
+  nextAt: number
+  overdueDays: number
+}
+
+export function releaseCadenceDays(releasedAt: Iterable<number | undefined | null>): number | null {
+  const days = [
+    ...new Set(
+      [...releasedAt]
+        .map((at) => catalogTimestamp(at))
+        .filter((at) => at > 0)
+        .map(localCalendarDayUtc)
+    )
+  ].sort((a, b) => a - b)
+  if (days.length < 3) return null
+  const gaps = days.slice(1).map((day, index) => (day - days[index]) / MS_PER_DAY)
+  gaps.sort((a, b) => a - b)
+  const middle = Math.floor(gaps.length / 2)
+  const median = gaps.length % 2 ? gaps[middle] : (gaps[middle - 1] + gaps[middle]) / 2
+  return Math.max(1, Math.round(median))
+}
+
+export function forecastNextUpdate(
+  input: {
+    cadenceDays?: number | null
+    releasedAt?: Iterable<number | undefined | null> | null
+  },
+  now = Date.now()
+): UpdateForecast | null {
+  const known = [...(input.releasedAt ?? [])].map((at) => catalogTimestamp(at)).filter((at) => at > 0)
+  if (!known.length) return null
+  const cadenceDays =
+    input.cadenceDays && input.cadenceDays > 0 ? input.cadenceDays : releaseCadenceDays(known)
+  if (!cadenceDays) return null
+  const lastReleasedAt = Math.max(...known)
+  const nextAt = lastReleasedAt + cadenceDays * MS_PER_DAY
+  const overdueDays = nextAt < now ? (calendarDaysAgo(nextAt, now) ?? 0) : 0
+  return { cadenceDays, lastReleasedAt, nextAt, overdueDays }
+}
+
+export function formatCadence(days: number | null | undefined): string {
+  if (!days || days <= 0) return ''
+  const rounded = Math.round(days)
+  if (rounded <= 1) return 'every day'
+  if (rounded % 7 === 0 && rounded <= 28) return rounded === 7 ? 'every week' : `every ${rounded / 7} weeks`
+  return `every ${rounded} days`
+}
+
+export function formatNextUpdate(forecast: UpdateForecast | null, now = Date.now()): string {
+  if (!forecast) return ''
+  const date = formatUpdateDate(forecast.nextAt)
+  if (forecast.overdueDays > 0) {
+    return `${date} · ${forecast.overdueDays} ${forecast.overdueDays === 1 ? 'day' : 'days'} late`
+  }
+  const days = Math.round((localCalendarDayUtc(forecast.nextAt) - localCalendarDayUtc(now)) / MS_PER_DAY)
+  if (days <= 0) return `${date} · today`
+  if (days === 1) return `${date} · tomorrow`
+  return `${date} · in ${days} days`
+}
+
 export function formatPlaytime(ms: number): string {
   const totalMinutes = Math.floor(Math.max(0, ms) / 60_000)
   if (ms <= 0) return '0m'

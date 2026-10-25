@@ -240,6 +240,17 @@ export type AppSettings = {
   downloadProviderOrder: DownloadProviderId[]
   autoApproveDownloads: boolean
   autoInstallDownloads: boolean
+  sandboxieEnabled: boolean
+  sandboxieDir: string
+  sandboxieBox: string
+}
+
+export const DEFAULT_SANDBOXIE_DIR = 'C:\\Program Files\\Sandboxie-Plus'
+export const DEFAULT_SANDBOXIE_BOX = 'DefaultBox'
+
+export function normalizeSandboxieBox(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim().replace(/[^A-Za-z0-9_]/g, '').slice(0, 32) : ''
+  return name || DEFAULT_SANDBOXIE_BOX
 }
 
 export type RequestLogService = 'f95zone' | 'metadata' | 'tracker'
@@ -1262,6 +1273,7 @@ export type DownloadSectionKind =
 export type DownloadMirror = {
   label: string
   url: string
+  host?: string
   /** Set on the peer-to-peer alternative the app adds next to the posted hosts. */
   p2p?: P2pMirror
 }
@@ -1458,6 +1470,17 @@ export type NoteSection = {
   html: string
 }
 
+export type ThreadVersionRelease = {
+  version: string
+  previousVersion: string
+  releasedAt: number
+}
+
+export type ThreadVersionHistory = {
+  versions: ThreadVersionRelease[]
+  cadenceDays: number | null
+}
+
 /** A thread hidden via F95zone's Ignore Content list. */
 export type IgnoredThread = {
   threadId: number
@@ -1483,6 +1506,7 @@ export type ThreadDetails = {
   descriptionHtml: string
   notes: NoteSection[]
   changelog: ChangelogEntry[]
+  versionHistory: ThreadVersionHistory
   gallery: string[]
   downloads: DownloadSection[]
   reviews: ThreadReview[]

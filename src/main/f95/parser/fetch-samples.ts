@@ -106,7 +106,7 @@ function download(
     '%{http_code}',
     url
   ]
-  if (existsSync(COOKIES_FILE)) args.splice(args.length - 1, 0, '-b', COOKIES_FILE)
+  if (existsSync(COOKIES_FILE)) args.splice(args.length - 1, 0, '-b', COOKIES_FILE, '-c', COOKIES_FILE)
 
   const result = spawnSync(curlBin(), args, { encoding: 'utf8' })
   if (result.error) {

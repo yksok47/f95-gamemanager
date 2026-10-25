@@ -185,6 +185,7 @@ import {
   setSubscriptionArchived,
   setSubscriptionRarity,
   setSubscriptionVersionStatus,
+  recordSubscriptionVersionHistory,
   setSubscriptionVersionReleasedAt,
   addSubscriptionVersionAlias,
   removeSubscriptionVersionAlias,
@@ -589,7 +590,9 @@ export function registerIpc(): void {
 
   ipcMain.handle('threads:details', async (_event, threadId: number) => {
     try {
-      return await fetchThreadDetails(Number(threadId))
+      const details = await fetchThreadDetails(Number(threadId))
+      void recordSubscriptionVersionHistory(details.threadId, details.versionHistory).catch(() => {})
+      return details
     } catch (error) {
       throw toIpcError(error)
     }

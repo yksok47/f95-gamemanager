@@ -12,9 +12,11 @@ export function parseFirstPostDocument($: CheerioAPI): string {
   if (!post.length) return ''
 
   const wrapper = post.find('.message-body .bbWrapper').first()
-  const body = wrapper.length ? wrapper : post.find('.message-body').first()
-  if (!body.length) return ''
+  const found = wrapper.length ? wrapper : post.find('.message-body').first()
+  if (!found.length) return ''
 
+  const body = found.clone()
+  body.find('.u-hidden').remove()
   return stripCommonIndent(body.html() ?? '')
 }
 

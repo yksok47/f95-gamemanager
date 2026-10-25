@@ -17,9 +17,10 @@ describe('listHeaderDownloadPicks', () => {
     const picks = listHeaderDownloadPicks(sample, 'win', DEFAULT_DOWNLOAD_PROVIDER_ORDER)
     expect(picks.length).toBeGreaterThan(1)
     expect(picks.some((pick) => pick.source === 'VikingFile')).toBe(true)
-    expect(picks.some((pick) => pick.oneClick && pick.source === 'VikingFile')).toBe(true)
     const viking = picks.find((pick) => pick.source === 'VikingFile')
-    expect(viking?.mirror.url).toContain('vikingfile.com/f/')
+    expect(viking?.mirror.host).toBe('vikingfile.com')
+    expect(viking?.mirror.url).toContain('f95zone.to/dl/')
+    expect(viking?.oneClick).toBe(false)
   })
 
   test('puts the highest-ranked host first', () => {
@@ -28,6 +29,6 @@ describe('listHeaderDownloadPicks', () => {
       ...DEFAULT_DOWNLOAD_PROVIDER_ORDER.filter((id) => id !== 'vikingfile')
     ])
     expect(vikingFirst[0]?.source).toBe('VikingFile')
-    expect(vikingFirst[0]?.oneClick).toBe(true)
+    expect(vikingFirst[0]?.oneClick).toBe(false)
   })
 })

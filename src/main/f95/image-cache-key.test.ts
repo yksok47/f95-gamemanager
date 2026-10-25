@@ -34,6 +34,13 @@ describe('normalizeImageCacheUrl', () => {
       'https://preview.f95zone.to/cover.jpg?w=200'
     )
   })
+
+  test('drops per-user attachment signing so covers keep one cache entry', () => {
+    expect(
+      normalizeImageCacheUrl('https://attachments.f95zone.to/2026/02/1_a.jpg?h=AbC-1_x&e=1793012400&u=44323')
+    ).toBe('https://attachments.f95zone.to/2026/02/1_a.jpg')
+    expect(normalizeImageCacheUrl('https://example.com/a.jpg?h=1&e=2')).toBe('https://example.com/a.jpg?h=1&e=2')
+  })
 })
 
 describe('imageCacheFileName', () => {

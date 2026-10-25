@@ -9,7 +9,12 @@ import type {
   RosterGame,
   Subscription
 } from '@shared/types'
-import { DEFAULT_CATALOG_PAGE_SIZE, DEFAULT_CLOUD_SAVE_KEEP_COUNT } from '@shared/types'
+import {
+  DEFAULT_CATALOG_PAGE_SIZE,
+  DEFAULT_CLOUD_SAVE_KEEP_COUNT,
+  DEFAULT_SANDBOXIE_BOX,
+  DEFAULT_SANDBOXIE_DIR
+} from '@shared/types'
 import { DEFAULT_DOWNLOAD_PROVIDER_ORDER } from '@shared/download-providers'
 import AppNav, { type AppView } from './components/AppNav'
 import { ConfirmHost } from './components/ConfirmDialog'
@@ -229,7 +234,10 @@ export default function App(): JSX.Element {
     quickFilters: [],
     downloadProviderOrder: [...DEFAULT_DOWNLOAD_PROVIDER_ORDER],
     autoApproveDownloads: false,
-    autoInstallDownloads: false
+    autoInstallDownloads: false,
+    sandboxieEnabled: false,
+    sandboxieDir: DEFAULT_SANDBOXIE_DIR,
+    sandboxieBox: DEFAULT_SANDBOXIE_BOX
   })
   const [detailsWindows, setDetailsWindows] = useState<GameSummary[]>([])
   const [pinnedGames, setPinnedGames] = useState<TaskbarPin[]>(() => loadTaskbarPins())

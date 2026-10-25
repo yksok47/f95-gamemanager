@@ -50,7 +50,7 @@ function keepHidden(win: BrowserWindow): void {
 }
 
 /** Drop MEGA URLs that lost the fragment key — they cannot be decrypted. */
-function usableDestination(href: string | null | undefined, base?: string): string | null {
+export function usableDestination(href: string | null | undefined, base?: string): string | null {
   if (!href) return null
   const dest = normalizeUnmaskedUrl(href, base)
   if (!dest) return null

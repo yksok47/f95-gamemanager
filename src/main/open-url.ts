@@ -1,6 +1,6 @@
 import { app, BrowserWindow, session } from 'electron'
 import { isDirectFileHref } from '@shared/direct-file'
-import { isMaskedDownloadLink } from '@shared/download-providers'
+import { isF95DownloadGate, isMaskedDownloadLink } from '@shared/download-providers'
 import type { GameFileContext, ShellOpenResult } from '@shared/types'
 import {
   registerGuestContents,
@@ -16,6 +16,7 @@ import {
   setDownloadContext
 } from './download-context'
 import { resolveConnectorDownload } from './download-connectors'
+import { resolveF95DownloadGate } from './f95/download-gate'
 import { resolveF95MaskedUrl } from './f95/masked'
 import { isUsableWindow } from './windows'
 
@@ -267,9 +268,15 @@ export async function openInAppWindow(
     skipConnector?: boolean
   } = {}
 ): Promise<ShellOpenResult> {
-  const parsed = parseHttpUrl(url)
+  let parsed = parseHttpUrl(url)
   if (!parsed) {
     throw new Error('Invalid link')
+  }
+
+  if (isF95DownloadGate(parsed.href)) {
+    const passed = parseHttpUrl((await resolveF95DownloadGate(parsed.href)) || '')
+    if (!passed) return { downloaded: false }
+    parsed = passed
   }
 
   if (options.download || isDirectFileUrl(parsed)) {

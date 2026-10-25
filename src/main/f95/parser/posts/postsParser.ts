@@ -254,7 +254,7 @@ function attachmentsFromNode($: CheerioAPI, node: Cheerio<AnyNode>): ThreadAttac
 
 function postBodyHtml(node: Cheerio<AnyNode>): string {
   const body = node.find('.message-body').first().clone()
-  body.find('.message-signature, aside.message-signature, .js-selectToQuoteEnd').remove()
+  body.find('.message-signature, aside.message-signature, .js-selectToQuoteEnd, .u-hidden').remove()
   const wrapper = body.find('.bbWrapper').first()
   const html = wrapper.length ? wrapper.html() : body.html()
   return html?.trim() ?? ''

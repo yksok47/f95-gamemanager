@@ -24,6 +24,7 @@ function details(threadId: number, descriptionHtml: string): ThreadDetails {
     descriptionHtml,
     notes: [],
     changelog: [],
+    versionHistory: { versions: [], cadenceDays: null },
     gallery: ['https://attachments.example/shot.jpg'],
     downloads: [],
     reviews: [],

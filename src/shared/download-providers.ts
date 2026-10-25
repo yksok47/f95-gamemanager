@@ -140,6 +140,20 @@ export function isMaskedDownloadLink(url: string): boolean {
   return Boolean(parsed && maskedHost(parsed))
 }
 
+export function isF95DownloadGate(url: string): boolean {
+  const parsed = parseUrl(url)
+  return Boolean(parsed && isF95Host(hostnameOf(parsed.hostname)) && /^\/dl\/\d+\/?$/i.test(parsed.pathname))
+}
+
+function gateTarget(mirror: DownloadMirror): MirrorTarget {
+  const host = mirror.host ? hostnameOf(mirror.host) : ''
+  const byHost = host ? providerForHost(host) : null
+  if (byHost) return { kind: 'provider', provider: byHost.id }
+  const byLabel = providerForLabel(mirror.label)
+  if (byLabel) return { kind: 'provider', provider: byLabel.id }
+  return { kind: 'web', host }
+}
+
 function providerForHost(host: string): KnownProvider | null {
   for (const provider of DOWNLOAD_PROVIDERS) {
     const hosts: readonly string[] = provider.hosts
@@ -176,6 +190,7 @@ export function mirrorTarget(mirror: DownloadMirror): MirrorTarget {
   if (mirror.p2p) return { kind: 'provider', provider: 'p2p' }
   const parsed = parseUrl(mirror.url)
   if (!parsed) return { kind: 'web', host: '' }
+  if (isF95DownloadGate(parsed.href)) return gateTarget(mirror)
   const host = maskedHost(parsed) ?? hostnameOf(parsed.hostname)
   const byHost = providerForHost(host)
   if (byHost) return { kind: 'provider', provider: byHost.id }
@@ -208,6 +223,7 @@ export function mirrorUsesConnector(mirror: DownloadMirror): boolean {
 /** True when clicking the mirror starts a download without a browser window. */
 export function mirrorIsOneClick(mirror: DownloadMirror): boolean {
   if (mirror.p2p) return true
+  if (isF95DownloadGate(mirror.url)) return false
   const target = mirrorTarget(mirror)
   if (target.kind === 'file') return true
   return mirrorUsesConnector(mirror)

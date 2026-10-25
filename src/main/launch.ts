@@ -287,12 +287,37 @@ function spawnDetached(file: string, cwd: string): number {
   return child.pid
 }
 
-export async function launchExecutable(executablePath: string): Promise<{ pid: number }> {
+export type SandboxieLaunch = { startExe: string; box: string }
+
+function spawnSandboxed(sandbox: SandboxieLaunch, file: string, cwd: string): number {
+  if (!pathExists(sandbox.startExe)) {
+    throw new Error(`Sandboxie Start.exe was not found at ${sandbox.startExe}. Check Settings → Games.`)
+  }
+  const child = spawn(sandbox.startExe, [`/box:${sandbox.box}`, '/wait', file], {
+    cwd,
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: false
+  })
+  if (!child.pid) {
+    throw new Error('Sandboxie did not start the game.')
+  }
+  child.unref()
+  return child.pid
+}
+
+export async function launchExecutable(
+  executablePath: string,
+  sandbox?: SandboxieLaunch | null
+): Promise<{ pid: number }> {
   const target = resolveLaunchTarget(executablePath)
   if (!pathExists(target.file)) {
     throw new Error('The selected executable is missing.')
   }
   await makePathExecutable(target.file)
+  if (sandbox && process.platform === 'win32') {
+    return { pid: spawnSandboxed(sandbox, target.file, target.cwd) }
+  }
   if (process.platform === 'win32') {
     try {
       return { pid: await startWindowsProcess(target.file, target.cwd) }

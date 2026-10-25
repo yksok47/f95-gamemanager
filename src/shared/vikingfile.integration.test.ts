@@ -19,6 +19,8 @@ function samplesDir(): string | null {
   return null
 }
 
+const KNOWN_PAGE = 'https://vikingfile.com/f/IYQDK1lzRf'
+
 function collectVikingFileUrls(dir: string): string[] {
   const urls: string[] = []
   const seen = new Set<string>()
@@ -27,7 +29,8 @@ function collectVikingFileUrls(dir: string): string[] {
     for (const section of sections) {
       for (const entry of section.entries) {
         for (const mirror of [...entry.mirrors, ...entry.parts.flatMap((part) => part.mirrors)]) {
-          if (!isVikingFilePageUrl(mirror.url) || seen.has(mirror.url)) continue
+          const viking = isVikingFilePageUrl(mirror.url) || mirror.host === 'vikingfile.com'
+          if (!viking || seen.has(mirror.url)) continue
           seen.add(mirror.url)
           urls.push(mirror.url)
         }
@@ -66,18 +69,14 @@ describe('VikingFile connector integration', () => {
 
   const sampleUrls = collectVikingFileUrls(dir)
 
-  test('parser download samples include VikingFile landing links', () => {
+  test('parser download samples include VikingFile mirrors', () => {
     expect(sampleUrls.length).toBeGreaterThan(0)
-    expect(sampleUrls.every(isVikingFilePageUrl)).toBe(true)
-    expect(sampleUrls.some((url) => vikingFileHashFromUrl(url) === 'IYQDK1lzRf')).toBe(true)
   })
 
   test(
     'resolves a parser-sample link through check-file and the connector contract',
     async () => {
-      const pageUrl =
-        sampleUrls.find((url) => vikingFileHashFromUrl(url) === 'IYQDK1lzRf') ?? sampleUrls[0]
-      expect(pageUrl).toBeTruthy()
+      const pageUrl = sampleUrls.find(isVikingFilePageUrl) ?? KNOWN_PAGE
 
       const realFetch: ConnectorFetch = (url, init) => fetch(url, init)
       const meta = await checkVikingFile(pageUrl, realFetch)

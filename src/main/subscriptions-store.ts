@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname } from 'path'
-import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, type SubscriptionSource, type VersionPlayStatus } from '@shared/types'
+import { GAME_RARITIES, type CatalogGame, type GameRarity, type Subscription, type SubscriptionSource, type ThreadVersionHistory, type VersionPlayStatus } from '@shared/types'
 import { engineFromTitle } from '@shared/engines'
 import { engineFromPrefixIds } from '@shared/prefixes'
 import { asText } from '@shared/text'
@@ -614,6 +614,26 @@ export async function setSubscriptionVersionReleasedAt(
   return mutatePlayedVersions(threadId, (playedVersions) =>
     setVersionReleasedAt(playedVersions, key, releasedAt)
   )
+}
+
+export async function recordSubscriptionVersionHistory(
+  threadId: number,
+  history: ThreadVersionHistory
+): Promise<void> {
+  if (!history.versions.length) return
+  const games = await readStore()
+  const game = games.find((item) => item.threadId === threadId)
+  if (!game) return
+  let next = normalizeVersionPlayStats(game.playedVersions)
+  const before = JSON.stringify(next)
+  for (const release of [...history.versions].reverse()) {
+    next = ensureKnownVersion(next, release.version, release.releasedAt)
+  }
+  if (JSON.stringify(next) === before) return
+  game.playedVersions = next
+  await writeStore(games)
+  await touchSubscription(threadId)
+  notifyUserDataChanged('data')
 }
 
 export async function addSubscriptionVersionAlias(

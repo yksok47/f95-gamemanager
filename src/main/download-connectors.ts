@@ -1,6 +1,7 @@
 import type { GameFileContext } from '@shared/types'
 import {
   isConnectedProvider,
+  isF95DownloadGate,
   isMaskedDownloadLink,
   mirrorProvider,
   type ConnectedProviderId
@@ -16,6 +17,7 @@ import { resolvePixeldrainDownload } from './pixeldrain'
 import { resolveUploadHavenDownload } from './uploadhaven'
 import { resolveVikingFileDownload } from './vikingfile'
 import { resolveWorkuploadDownload } from './workupload'
+import { resolveF95DownloadGate } from './f95/download-gate'
 import { resolveF95MaskedUrl } from './f95/masked'
 
 /** `started` means the connector already handed a download to the session. */
@@ -46,6 +48,11 @@ export async function resolveConnectorDownload(
   context?: GameFileContext
 ): Promise<ConnectorDownloadResult> {
   let href = pageUrl
+  if (isF95DownloadGate(href)) {
+    const passed = await resolveF95DownloadGate(href)
+    if (!passed) return 'cancel'
+    href = passed
+  }
   if (isMaskedDownloadLink(href)) {
     const unmasked = await resolveF95MaskedUrl(href)
     if (!unmasked) return null

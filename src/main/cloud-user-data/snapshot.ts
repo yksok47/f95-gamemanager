@@ -248,6 +248,9 @@ function normalizeSettings(value: unknown): SyncedSettings {
     cloudUserDataEnabled: false,
     autoApproveDownloads: false,
     autoInstallDownloads: false,
+    sandboxieEnabled: false,
+    sandboxieDir: '',
+    sandboxieBox: '',
     quickFilters: [],
     ...raw
   } as AppSettings)
