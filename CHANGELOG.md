@@ -2,6 +2,12 @@
 
 To publish a release, add a section for the new version at the top of this file (`## 1.12.0 - YYYY-MM-DD`) and push it to `master`. The release workflow tags the version, builds every platform, and uses the section as the release notes.
 
+## 1.12.2 - 2026-11-04
+
+- Sign in with two-step verification: if your F95zone account has it turned on, enter the code from your authenticator app, email or a backup code after your password
+  - Switch to another verification method, or resend the email code, from the sign-in screen
+  - Choose "Don't ask again on this device" to skip the code on later sign-ins
+
 ## 1.12.1 - 2026-10-25
 
 - Fixed download links behind F95zone's new download check: the check opens in its own window, and once you pass it the download continues with the right host

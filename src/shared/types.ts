@@ -98,6 +98,28 @@ export type LoginPayload = {
   password: string
 }
 
+export type TwoStepProviderOption = {
+  id: string
+  label: string
+}
+
+export type TwoStepChallenge = {
+  provider: string
+  prompt: string | null
+  canTrust: boolean
+  providers: TwoStepProviderOption[]
+  error: string | null
+}
+
+export type TwoStepPayload = {
+  code: string
+  trust: boolean
+}
+
+export type LoginResult =
+  | { status: 'ok'; session: AuthSession }
+  | { status: 'two_step'; challenge: TwoStepChallenge }
+
 export type SubscriptionSource = 'manual' | 'watched' | 'bookmark'
 export type GameRarity = 'infamous' | 'regular' | 'rare' | 'epic' | 'legendary'
 export type TagTier = 'bronze' | 'silver' | 'gold'

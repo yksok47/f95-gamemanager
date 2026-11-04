@@ -32,6 +32,8 @@ import type {
   F95CheckerImportResult,
   ImportResult,
   LoginPayload,
+  LoginResult,
+  TwoStepPayload,
   PlaySessionStatus,
   RenpyInfo,
   RenpyInfoScope,
@@ -84,8 +86,13 @@ const api = {
   },
   auth: {
     getSession: (): Promise<AuthSession> => ipcRenderer.invoke('auth:session'),
-    login: (payload: LoginPayload): Promise<AuthSession> =>
+    login: (payload: LoginPayload): Promise<LoginResult> =>
       ipcRenderer.invoke('auth:login', payload),
+    submitTwoStep: (payload: TwoStepPayload): Promise<LoginResult> =>
+      ipcRenderer.invoke('auth:twoStep', payload),
+    switchTwoStepProvider: (providerId: string): Promise<LoginResult> =>
+      ipcRenderer.invoke('auth:twoStepProvider', providerId),
+    cancelTwoStep: (): Promise<AuthSession> => ipcRenderer.invoke('auth:cancelTwoStep'),
     logout: (): Promise<AuthSession> => ipcRenderer.invoke('auth:logout')
   },
   catalog: {

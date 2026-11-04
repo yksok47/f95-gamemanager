@@ -512,6 +512,54 @@ input[type='search']::-webkit-search-results-decoration {
   text-align: center;
 }
 
+.login-card .login-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+}
+
+.login-form .login-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-form .login-checkbox input {
+  margin: 0;
+  padding: 0;
+  width: auto;
+}
+
+.login-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.login-two-step-alt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 14px;
+}
+
+.login-two-step-alt .link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.login-two-step-alt .link-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.login-two-step-alt .link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .app-update-panel {
   margin-bottom: 22px;
   padding-bottom: 16px;

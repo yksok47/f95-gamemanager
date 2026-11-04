@@ -10,6 +10,7 @@ import type {
   GameFileContext,
   GameRarity,
   LoginPayload,
+  TwoStepPayload,
   RenpyInfoScope,
   RenpyToolId,
   ShellOpenOptions,
@@ -40,7 +41,14 @@ import {
   listRequestLog,
   onRequestLogChange
 } from './request-log'
-import { getAuthSession, login, logout } from './f95/auth'
+import {
+  cancelTwoStep,
+  getAuthSession,
+  login,
+  logout,
+  submitTwoStep,
+  switchTwoStepProvider
+} from './f95/auth'
 import { fetchCatalog, fetchCatalogFilters } from './f95/catalog'
 import { importBookmarks, importThreadLinks, importWatchedThreads } from './f95/import'
 import { defaultF95CheckerDbPath, importF95Checker } from './f95checker-import'
@@ -323,6 +331,30 @@ export function registerIpc(): void {
   ipcMain.handle('auth:login', async (_event, payload: LoginPayload) => {
     try {
       return await login(payload.username, payload.password)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('auth:twoStep', async (_event, payload: TwoStepPayload) => {
+    try {
+      return await submitTwoStep(payload)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('auth:twoStepProvider', async (_event, providerId: string) => {
+    try {
+      return await switchTwoStepProvider(providerId)
+    } catch (error) {
+      throw toIpcError(error)
+    }
+  })
+
+  ipcMain.handle('auth:cancelTwoStep', async () => {
+    try {
+      return await cancelTwoStep()
     } catch (error) {
       throw toIpcError(error)
     }

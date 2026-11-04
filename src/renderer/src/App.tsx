@@ -6,8 +6,10 @@ import type {
   DownloadRecord,
   GameRarity,
   GameSummary,
+  LoginResult,
   RosterGame,
-  Subscription
+  Subscription,
+  TwoStepChallenge
 } from '@shared/types'
 import {
   DEFAULT_CATALOG_PAGE_SIZE,
@@ -211,6 +213,7 @@ function overlayDetailsSummary(
 
 export default function App(): JSX.Element {
   const [session, setSession] = useState<AuthSession | null>(null)
+  const [twoStep, setTwoStep] = useState<TwoStepChallenge | null>(null)
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<AppView>('roster')
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([])
@@ -515,25 +518,55 @@ export default function App(): JSX.Element {
     }
   }, [])
 
-  async function handleLogin(username: string, password: string): Promise<void> {
+  async function applyLoginResult(result: LoginResult): Promise<void> {
+    if (result.status === 'two_step') {
+      setTwoStep(result.challenge)
+      return
+    }
+    setTwoStep(null)
+    setSession(result.session)
+    const [games] = await Promise.all([
+      window.api.subscriptions.list(),
+      loadSettings(),
+      loadRoster()
+    ])
+    setSubscriptions(games)
+    const pins = loadTaskbarPins()
+    setPinnedGames(pins)
+    setDetailsWindows(windowsFromPins(pins, games))
+    void window.api.subscriptions.startSync().catch(() => undefined)
+  }
+
+  async function runLoginStep(step: () => Promise<LoginResult>): Promise<void> {
     setBusy(true)
     try {
-      const next = await window.api.auth.login({ username, password })
-      setSession(next)
-      const [games] = await Promise.all([
-        window.api.subscriptions.list(),
-        loadSettings(),
-        loadRoster()
-      ])
-      setSubscriptions(games)
-      const pins = loadTaskbarPins()
-      setPinnedGames(pins)
-      setDetailsWindows(windowsFromPins(pins, games))
-      void window.api.subscriptions.startSync().catch(() => undefined)
+      await applyLoginResult(await step())
     } catch (err) {
       notifyError(errorMessage(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function handleLogin(username: string, password: string): Promise<void> {
+    setTwoStep(null)
+    await runLoginStep(() => window.api.auth.login({ username, password }))
+  }
+
+  async function handleTwoStepSubmit(code: string, trust: boolean): Promise<void> {
+    await runLoginStep(() => window.api.auth.submitTwoStep({ code, trust }))
+  }
+
+  async function handleTwoStepProvider(providerId: string): Promise<void> {
+    await runLoginStep(() => window.api.auth.switchTwoStepProvider(providerId))
+  }
+
+  async function handleTwoStepCancel(): Promise<void> {
+    setTwoStep(null)
+    try {
+      setSession(await window.api.auth.cancelTwoStep())
+    } catch (err) {
+      notifyError(errorMessage(err))
     }
   }
 
@@ -729,6 +762,10 @@ export default function App(): JSX.Element {
     <LoginPage
       busy={busy}
       onSubmit={handleLogin}
+      twoStep={twoStep}
+      onSubmitTwoStep={handleTwoStepSubmit}
+      onSwitchTwoStepProvider={handleTwoStepProvider}
+      onCancelTwoStep={handleTwoStepCancel}
       currentVersion={appUpdate.currentVersion}
       latestVersion={appUpdate.latestVersion}
     />
