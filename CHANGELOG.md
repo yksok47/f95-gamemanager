@@ -10,6 +10,7 @@ To publish a release, add a section for the new version at the top of this file 
 - Reviews work with F95zone's new reviews pages and show every review, not just the ones for the latest version
 - Unignoring threads works again, and ignored threads show as ignored on the game page
 - Gallery tiles and post images load the full-size picture once they're on screen, so they're no longer blurry
+- Catalog pages show every game again after signing back in, instead of stopping after the first 12
 - Your F95zone name shows in the app again instead of "User" and a number
 - Cleaner previous/next buttons in the full-screen gallery
 
