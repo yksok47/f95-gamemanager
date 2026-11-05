@@ -223,7 +223,6 @@ export function mirrorUsesConnector(mirror: DownloadMirror): boolean {
 /** True when clicking the mirror starts a download without a browser window. */
 export function mirrorIsOneClick(mirror: DownloadMirror): boolean {
   if (mirror.p2p) return true
-  if (isF95DownloadGate(mirror.url)) return false
   const target = mirrorTarget(mirror)
   if (target.kind === 'file') return true
   return mirrorUsesConnector(mirror)

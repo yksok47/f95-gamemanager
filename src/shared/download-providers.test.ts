@@ -211,9 +211,10 @@ describe('F95 download check links', () => {
     expect(mirrorTarget({ label: 'Mirror', url: gate, host: 'nopy.to' })).toEqual({ kind: 'web', host: 'nopy.to' })
   })
 
-  test('still uses a connector after the check, but is never one-click', () => {
+  test('is one-click when the host behind the check has a connector', () => {
     const mirror = { label: 'GOFILE', url: gate, host: 'gofile.io' }
     expect(mirrorUsesConnector(mirror)).toBe(true)
-    expect(mirrorIsOneClick(mirror)).toBe(false)
+    expect(mirrorIsOneClick(mirror)).toBe(true)
+    expect(mirrorIsOneClick({ label: 'Mirror', url: gate, host: 'nopy.to' })).toBe(false)
   })
 })

@@ -2,6 +2,10 @@
 
 To publish a release, add a section for the new version at the top of this file (`## 1.12.0 - YYYY-MM-DD`) and push it to `master`. The release workflow tags the version, builds every platform, and uses the section as the release notes.
 
+## 1.13.1 - 2026-11-05
+
+- One-click downloads work again: the app passes F95zone's "Continue to …" download page by itself, and only shows it when there's a captcha or check to solve
+
 ## 1.13.0 - 2026-11-05
 
 - Fixed the app staying "signed in" after F95zone ended the session, which broke tags, galleries, reviews and ignored threads

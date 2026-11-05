@@ -20,7 +20,7 @@ describe('listHeaderDownloadPicks', () => {
     const viking = picks.find((pick) => pick.source === 'VikingFile')
     expect(viking?.mirror.host).toBe('vikingfile.com')
     expect(viking?.mirror.url).toContain('f95zone.to/dl/')
-    expect(viking?.oneClick).toBe(false)
+    expect(viking?.oneClick).toBe(true)
   })
 
   test('puts the highest-ranked host first', () => {
@@ -29,6 +29,6 @@ describe('listHeaderDownloadPicks', () => {
       ...DEFAULT_DOWNLOAD_PROVIDER_ORDER.filter((id) => id !== 'vikingfile')
     ])
     expect(vikingFirst[0]?.source).toBe('VikingFile')
-    expect(vikingFirst[0]?.oneClick).toBe(false)
+    expect(vikingFirst[0]?.oneClick).toBe(true)
   })
 })

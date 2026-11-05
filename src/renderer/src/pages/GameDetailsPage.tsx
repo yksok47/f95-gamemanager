@@ -1400,7 +1400,13 @@ function GameDetailsPage({
       ? entryVersion || (requiresVersion ? version : '')
       : version
     const skipConnector = Boolean(options?.skipConnector)
-    const oneClick = !skipConnector && Boolean(entry) && mirrorIsOneClick({ label: '', url })
+    const clickedMirror = entry
+      ? [...entry.mirrors, ...entry.parts.flatMap((part) => part.mirrors)].find(
+          (mirror) => mirror.url === url
+        )
+      : undefined
+    const oneClick =
+      !skipConnector && Boolean(entry) && mirrorIsOneClick(clickedMirror ?? { label: '', url })
     if (oneClick) setStartingUrl(url)
     try {
       const result = await window.api.shell.open(
