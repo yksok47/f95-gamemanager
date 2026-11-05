@@ -29,6 +29,7 @@ const F95_HOST = 'f95zone.to'
 /** Chrome rejects cookies with a lifetime much longer than this. */
 const COOKIE_TTL_SEC = 60 * 60 * 24 * 400
 const AUTH_COOKIE_NAMES = new Set(['xf_user', 'xf_session', 'xf_csrf'])
+const KEPT_ON_CLEAR = new Set(['xf_tfa_trust'])
 
 const emptySession = (): PersistedSession => ({
   cookies: [],
@@ -232,20 +233,27 @@ export async function clearSession(): Promise<void> {
     clearTimeout(saveTimer)
     saveTimer = null
   }
-  persisted = emptySession()
-  await clearElectronCookies()
+  const kept = persisted.cookies.filter((cookie) => KEPT_ON_CLEAR.has(cookie.name))
+  persisted = { ...emptySession(), cookies: kept }
+  await clearElectronCookies((cookie) => !KEPT_ON_CLEAR.has(cookie.name))
+  if (kept.length) {
+    await saveSession()
+    return
+  }
   await flushCookieStore()
   await rm(getAppPaths().sessionFile, { force: true })
 }
 
+export async function removeCookies(names: string[]): Promise<void> {
+  const drop = new Set(names)
+  persisted = { ...persisted, cookies: persisted.cookies.filter((cookie) => !drop.has(cookie.name)) }
+  await clearElectronCookies((cookie) => drop.has(cookie.name))
+  await flushCookieStore()
+}
+
 export async function pullCookiesFromElectron(): Promise<void> {
   const cookies = await electronSession.defaultSession.cookies.get({})
-  const next = cookies.filter(isF95Cookie).map(toStoredCookie)
-  const byName = new Map(persisted.cookies.map((cookie) => [cookie.name, cookie]))
-  for (const cookie of next) {
-    byName.set(cookie.name, cookie)
-  }
-  const merged = [...byName.values()]
+  const merged = cookies.filter(isF95Cookie).map(toStoredCookie)
   persisted = {
     cookies: merged,
     userId: persisted.userId ?? userIdFromXfUser(merged.find((cookie) => cookie.name === 'xf_user')?.value),
@@ -253,11 +261,11 @@ export async function pullCookiesFromElectron(): Promise<void> {
   }
 }
 
-async function clearElectronCookies(): Promise<void> {
+async function clearElectronCookies(include: (cookie: Electron.Cookie) => boolean): Promise<void> {
   const cookies = await electronSession.defaultSession.cookies.get({})
   await Promise.all(
     cookies
-      .filter(isF95Cookie)
+      .filter((cookie) => isF95Cookie(cookie) && include(cookie))
       .map((cookie) =>
         electronSession.defaultSession.cookies.remove(cookieUrl(toStoredCookie(cookie)), cookie.name)
       )

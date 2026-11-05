@@ -120,6 +120,11 @@ export type LoginResult =
   | { status: 'ok'; session: AuthSession }
   | { status: 'two_step'; challenge: TwoStepChallenge }
 
+export type AuthChange =
+  | LoginResult
+  | { status: 'logged_out'; session: AuthSession }
+  | { status: 'session'; session: AuthSession }
+
 export type SubscriptionSource = 'manual' | 'watched' | 'bookmark'
 export type GameRarity = 'infamous' | 'regular' | 'rare' | 'epic' | 'legendary'
 export type TagTier = 'bronze' | 'silver' | 'gold'

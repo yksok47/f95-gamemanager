@@ -31,7 +31,7 @@ const reviewsInflight = new Map<string, Promise<ThreadReviewsPage>>()
 /**
  * Load thread details for the details modal.
  * One HTTP GET of the thread page; page chrome, first post, and page-1 reviews
- * are all parsed from that document. Dedicated `/br-reviews` is only fetched
+ * are all parsed from that document. Dedicated `/reviews` is only fetched
  * when paginating via `fetchThreadReviews`.
  */
 export async function fetchThreadDetails(threadId: number): Promise<ThreadDetails> {
@@ -101,7 +101,7 @@ async function loadThreadDetails(threadId: number): Promise<ThreadDetails> {
   const post = firstPostHtml ? composeFirstPost(firstPostHtml, threadId) : emptyFirstPost()
 
   const cover = resolveCover(post.banner, page.ogImage)
-  // Reviews from the thread document only — no /br-reviews fetch on modal open.
+  // Reviews from the thread document only — no /reviews fetch on modal open.
   // Multi-page listings are loaded later via fetchThreadReviews when needed.
   const reviews = reviewsPageFromDocument($, threadId, false, 1)
   const reviewsTotal = reviews.total || reviews.reviews.length
@@ -202,7 +202,7 @@ async function loadReviewsPage(
 
 function seedReviewsCache(details: ThreadDetails): void {
   // Only seed when the thread page already has the full listing; otherwise
-  // fetchThreadReviews(1) must hit /br-reviews so pagination stays aligned.
+  // fetchThreadReviews(1) must hit /reviews so pagination stays aligned.
   if (details.reviewsTotal > details.reviews.length) return
   const value: ThreadReviewsPage = {
     threadId: details.threadId,
@@ -220,13 +220,16 @@ function reviewsCacheKey(threadId: number, page: number): string {
 
 function reviewListPaths(threadId: number, page: number, canonical?: string): string[] {
   const extra = page > 1 ? `/page-${page}` : ''
+  const listing = page > 1 ? `/reviews/page-${page}` : '/reviews/'
   const bases = [`${HOST}/threads/${threadId}`]
   if (canonical) {
     bases.unshift(
       canonical.replace(/\/$/, '').replace(/\/(br-reviews|reviews)(?:\/page-\d+)?$/i, '')
     )
   }
-  return unique(bases.flatMap((base) => [`${base}/br-reviews${extra}`, `${base}/reviews${extra}`]))
+  return unique(
+    bases.flatMap((base) => [`${base}${listing}?sort=newest`, `${base}/br-reviews${extra}`])
+  )
 }
 
 // ---------------------------------------------------------------------------

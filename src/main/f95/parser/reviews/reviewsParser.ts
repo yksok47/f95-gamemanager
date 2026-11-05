@@ -7,7 +7,7 @@ import { f95AttachmentThumbUrl } from '@shared/f95-cdn-url'
 export type { ThreadReview } from '@shared/types'
 
 const REVIEW_NODE_SELECTOR =
-  '.lfsReview, .message--review, .structItem--review, [class*="br-review"]'
+  '.js-f95rvReview, .lfsReview, .message--review, .structItem--review, [class*="br-review"]'
 
 const HOST = 'https://f95zone.to'
 const LIGHTBOX_SELECTOR =
@@ -16,7 +16,7 @@ const EMBED_ID = /^[\w-]{2,64}$/
 const SHIM_PATH = /(?:^|\/)([a-z0-9_-]+?)(?:\.min)?\.html?$/i
 
 /**
- * Parse review cards from a dedicated `/br-reviews` (or `/reviews`) page HTML.
+ * Parse review cards from a dedicated `/reviews` (formerly `/br-reviews`) page HTML.
  * `html` is the full page document.
  */
 export function parseReviews(html: string, threadId = 0): ThreadReview[] {
@@ -32,6 +32,7 @@ export function parseReviewsDocument(
 ): ThreadReview[] {
   const reviews: ThreadReview[] = []
   const selectors = [
+    '.js-f95rvReview',
     '.lfsReview',
     '.structItem--review',
     '.message--review',
@@ -93,7 +94,7 @@ export function parseReviewsTotal(html: string, fallback: number): number {
 
 export function parseReviewsTotalDocument($: CheerioAPI, fallback: number): number {
   const tabText = $(
-    'a.tabs-tab[href*="br-reviews"], a.tabs-tab[href*="/reviews"], a[href*="br-reviews"]'
+    'a.f95rv-banner-count, a.tabs-tab[href*="br-reviews"], a.tabs-tab[href*="/reviews"], a[href*="br-reviews"]'
   )
     .first()
     .text()
@@ -147,6 +148,8 @@ function reviewFromNode(node: Cheerio<AnyNode>, threadId: number): ThreadReview 
   const text = reviewText(html)
   if (!author && !text) return null
   const ratingText =
+    normalize(node.find('.f95rv-card-rating').first().text()) ||
+    node.find('.f95rv-stars').first().attr('aria-label') ||
     node.find('.ratingStars, [data-score], [data-rating], .br-rating').first().attr('title') ||
     node.find('[data-score]').attr('data-score') ||
     node.find('[data-rating]').attr('data-rating') ||

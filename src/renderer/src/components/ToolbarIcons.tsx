@@ -11,6 +11,36 @@ export function ClearIcon(): JSX.Element {
   )
 }
 
+export function ChevronLeftIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M10 3 5 8l5 5"
+      />
+    </svg>
+  )
+}
+
+export function ChevronRightIcon(): JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m6 3 5 5-5 5"
+      />
+    </svg>
+  )
+}
+
 export function FullscreenIcon({ active = false }: { active?: boolean }): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true">

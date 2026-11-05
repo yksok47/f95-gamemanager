@@ -5741,16 +5741,26 @@ body.is-details-modal-dragging .details-modal-shell * {
 .lightbox-nav {
   position: absolute;
   top: 50%;
+  z-index: 2;
   transform: translateY(-50%);
   width: 44px;
   height: 44px;
-  border: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   background: rgba(18, 20, 26, 0.85);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   color: var(--text);
-  font-size: 1.8rem;
-  line-height: 1;
   cursor: pointer;
+}
+
+.lightbox-nav svg,
+.storage-save-lightbox-nav svg {
+  width: 20px;
+  height: 20px;
 }
 
 .lightbox-close {
@@ -9520,12 +9530,14 @@ body.is-save-dragging * {
 .storage-save-lightbox-nav {
   width: 40px;
   height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   border-radius: 999px;
   background: rgba(18, 20, 26, 0.85);
   color: var(--text);
-  font-size: 1.6rem;
-  line-height: 1;
   cursor: pointer;
 }
 

@@ -1,21 +1,37 @@
-import type { AuthSession, LoginResult, TwoStepChallenge, TwoStepPayload } from '@shared/types'
+import type {
+  AuthChange,
+  AuthSession,
+  LoginResult,
+  TwoStepChallenge,
+  TwoStepPayload
+} from '@shared/types'
 import {
   clearSession,
   getCookie,
   getSession,
   persistSessionNow,
+  removeCookies,
   setUserId,
   setUsername,
   userIdFromXfUser
 } from '../session-store'
+import { sendToRenderer } from '../windows'
 import { resetCatalogRequestState } from './catalog'
-import { F95Error, f95Fetch } from './http'
-import { parseTwoStepError, parseTwoStepForm, type TwoStepForm } from './two-step-parse'
+import { F95Error, f95Fetch, onSignedInPage, onSignedOutPage, type SignedOutPage } from './http'
+import {
+  parseTwoStepError,
+  parseTwoStepForm,
+  signedInAfterAuthStep,
+  signedInUsername,
+  type TwoStepForm
+} from './two-step-parse'
 
 const TOKEN_RE = /name="_xfToken"\s+value="([^"]+)"/
 const AUTH_ERROR_RE =
   /<div class="blockMessage blockMessage--error[^"]*"[^>]*>([\s\S]*?)<\/div>/i
 const TWO_STEP_URL = 'https://f95zone.to/login/two-step'
+const HOME_URL = 'https://f95zone.to/'
+const LOGGED_OUT: AuthSession = { loggedIn: false, userId: null, username: null }
 
 type PendingTwoStep = {
   loginName: string
@@ -23,11 +39,13 @@ type PendingTwoStep = {
 }
 
 let pendingTwoStep: PendingTwoStep | null = null
+let sessionLost = false
+let recovery: Promise<void> | null = null
 
 function currentSession(): AuthSession {
   const xfUser = getCookie('xf_user')
   return {
-    loggedIn: Boolean(xfUser),
+    loggedIn: Boolean(xfUser) && !sessionLost && !pendingTwoStep,
     userId: getSession().userId ?? userIdFromXfUser(xfUser),
     username: getSession().username
   }
@@ -36,7 +54,7 @@ function currentSession(): AuthSession {
 export async function getAuthSession(): Promise<AuthSession> {
   const xfUser = getCookie('xf_user')
   if (!xfUser) {
-    return { loggedIn: false, userId: null, username: null }
+    return LOGGED_OUT
   }
   if (!getSession().userId) {
     setUserId(userIdFromXfUser(xfUser))
@@ -58,14 +76,29 @@ function pageUrlOf(response: Response): string {
   return response.url || TWO_STEP_URL
 }
 
-async function completeLogin(loginName: string): Promise<LoginResult> {
+function landedSignedIn(response: Response, body: string): boolean {
+  return Boolean(getCookie('xf_user')) && signedInAfterAuthStep(body, response.url || HOME_URL)
+}
+
+function emitAuthChange(change: AuthChange): void {
+  sendToRenderer('auth:changed', change)
+}
+
+function usernameFor(loginName: string, page: string): string | null {
+  return signedInUsername(page) || (loginName && !loginName.includes('@') ? loginName : null)
+}
+
+async function completeLogin(loginName: string, page: string): Promise<LoginResult> {
   const xfUser = getCookie('xf_user')
   if (!xfUser) {
     throw new F95Error('Login failed. F95zone did not return a session.', 'auth_failed')
   }
   pendingTwoStep = null
+  sessionLost = false
+  resetCatalogRequestState()
   setUserId(userIdFromXfUser(xfUser))
-  setUsername(loginName)
+  const username = usernameFor(loginName, page)
+  if (username) setUsername(username)
   await persistSessionNow()
   return { status: 'ok', session: currentSession() }
 }
@@ -84,10 +117,11 @@ export async function login(username: string, password: string): Promise<LoginRe
   }
 
   pendingTwoStep = null
+  sessionLost = false
   await clearSession()
   resetCatalogRequestState()
 
-  const { body: loginPage } = await f95Fetch('/login/')
+  const { body: loginPage } = await f95Fetch('/login/', {}, { authFlow: true })
   const token = loginPage.match(TOKEN_RE)?.[1]
   if (!token) {
     throw new F95Error('Could not read the F95zone login form. The site layout may have changed.', 'parse')
@@ -101,21 +135,26 @@ export async function login(username: string, password: string): Promise<LoginRe
     _xfToken: token
   })
 
-  const { response, body } = await f95Fetch('/login/login', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Origin: 'https://f95zone.to',
-      Referer: 'https://f95zone.to/login/'
+  const { response, body } = await f95Fetch(
+    '/login/login',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: 'https://f95zone.to',
+        Referer: 'https://f95zone.to/login/'
+      },
+      body: form.toString()
     },
-    body: form.toString()
-  })
+    { authFlow: true }
+  )
 
-  if (getCookie('xf_user')) {
-    return completeLogin(loginName)
+  const pageUrl = pageUrlOf(response)
+  if (landedSignedIn(response, body)) {
+    return completeLogin(loginName, body)
   }
 
-  const twoStep = parseTwoStepForm(body, pageUrlOf(response))
+  const twoStep = parseTwoStepForm(body, pageUrl)
   if (twoStep) {
     pendingTwoStep = { loginName, form: twoStep }
     return { status: 'two_step', challenge: challengeFrom(twoStep, null) }
@@ -142,22 +181,27 @@ export async function submitTwoStep(payload: TwoStepPayload): Promise<LoginResul
   if (payload.trust && pending.form.canTrust) fields.set('trust', '1')
   if (!fields.has('confirm')) fields.set('confirm', '1')
 
-  const { response, body } = await f95Fetch(pending.form.action, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Origin: 'https://f95zone.to',
-      Referer: TWO_STEP_URL
+  const { response, body } = await f95Fetch(
+    pending.form.action,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Origin: 'https://f95zone.to',
+        Referer: TWO_STEP_URL
+      },
+      body: fields.toString()
     },
-    body: fields.toString()
-  })
+    { authFlow: true }
+  )
 
-  if (getCookie('xf_user')) {
-    return completeLogin(pending.loginName)
+  const pageUrl = pageUrlOf(response)
+  if (landedSignedIn(response, body)) {
+    return completeLogin(pending.loginName, body)
   }
 
   const error = parseTwoStepError(body) || 'The verification code was not accepted. Try again.'
-  const next = parseTwoStepForm(body, pageUrlOf(response))
+  const next = parseTwoStepForm(body, pageUrl)
   if (next) {
     pending.form = next
   }
@@ -183,9 +227,11 @@ export async function switchTwoStepProvider(providerId: string): Promise<LoginRe
     throw new F95Error('That verification method is not available for this account.', 'auth_failed')
   }
 
-  const { response, body } = await f95Fetch(url, {
-    headers: { Referer: TWO_STEP_URL }
-  })
+  const { response, body } = await f95Fetch(
+    url,
+    { headers: { Referer: TWO_STEP_URL } },
+    { authFlow: true }
+  )
   const next = parseTwoStepForm(body, pageUrlOf(response))
   if (!next) {
     const error = parseTwoStepError(body)
@@ -198,14 +244,76 @@ export async function switchTwoStepProvider(providerId: string): Promise<LoginRe
 
 export async function cancelTwoStep(): Promise<AuthSession> {
   pendingTwoStep = null
+  sessionLost = false
   await clearSession()
   resetCatalogRequestState()
-  return { loggedIn: false, userId: null, username: null }
+  return LOGGED_OUT
 }
 
 export async function logout(): Promise<AuthSession> {
   pendingTwoStep = null
+  sessionLost = false
   await clearSession()
   resetCatalogRequestState()
-  return { loggedIn: false, userId: null, username: null }
+  return LOGGED_OUT
 }
+
+/**
+ * F95zone sessions expire quickly and the remember cookie brings them back, but
+ * an account with two-step verification is sent to /login/two-step unless this
+ * device is trusted. Every later request on that guest session just looks signed
+ * out, so drop it and ask for a fresh challenge.
+ */
+async function rememberCookieChallenge(): Promise<TwoStepForm | { restored: string } | null> {
+  if (!getCookie('xf_user')) return null
+  await removeCookies(['xf_session'])
+  const { response, body } = await f95Fetch('/', {}, { authFlow: true })
+  const pageUrl = pageUrlOf(response)
+  const form = parseTwoStepForm(body, pageUrl)
+  if (form) return form
+  return landedSignedIn(response, body) ? { restored: body } : null
+}
+
+async function recoverSession(page: SignedOutPage): Promise<void> {
+  sessionLost = true
+  resetCatalogRequestState()
+  const outcome = parseTwoStepForm(page.body, page.url) ?? (await rememberCookieChallenge())
+  if (outcome && 'restored' in outcome) {
+    sessionLost = false
+    const username = signedInUsername(outcome.restored)
+    if (username) setUsername(username)
+    await persistSessionNow()
+    emitAuthChange({ status: 'ok', session: currentSession() })
+    return
+  }
+  if (outcome) {
+    pendingTwoStep = { loginName: getSession().username ?? '', form: outcome }
+    emitAuthChange({ status: 'two_step', challenge: challengeFrom(outcome, null) })
+    return
+  }
+  pendingTwoStep = null
+  await clearSession()
+  emitAuthChange({ status: 'logged_out', session: LOGGED_OUT })
+}
+
+onSignedInPage((page) => {
+  if (getSession().username || sessionLost || pendingTwoStep || !getCookie('xf_user')) return
+  const username = signedInUsername(page)
+  if (!username) return
+  setUsername(username)
+  void persistSessionNow().catch((error) => console.warn('[f95] could not save the username', error))
+  emitAuthChange({ status: 'session', session: currentSession() })
+})
+
+onSignedOutPage((page) => {
+  if (sessionLost || recovery) return
+  recovery = recoverSession(page)
+    .catch((error) => {
+      console.warn('[f95] could not recover the F95zone session', error)
+      pendingTwoStep = null
+      emitAuthChange({ status: 'logged_out', session: LOGGED_OUT })
+    })
+    .finally(() => {
+      recovery = null
+    })
+})

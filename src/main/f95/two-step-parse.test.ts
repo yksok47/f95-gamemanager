@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { parseTwoStepError, parseTwoStepForm } from './two-step-parse'
+import {
+  isLoginWall,
+  isTwoStepUrl,
+  looksSignedOut,
+  parseTwoStepError,
+  parseTwoStepForm,
+  signedInAfterAuthStep,
+  signedInUsername
+} from './two-step-parse'
 
 const PAGE_URL = 'https://f95zone.to/login/two-step?_xfRedirect=%2F&remember=1'
 
@@ -110,5 +118,81 @@ describe('parseTwoStepError', () => {
 
   test('returns null when there is no message', () => {
     expect(parseTwoStepError('<html><body></body></html>')).toBeNull()
+  })
+})
+
+const htmlPage = (loggedIn: boolean): string =>
+  `<!DOCTYPE html>\n<html id="XF" lang="en-US" dir="LTR"\n\t  data-xf="2.3"\n\t  data-template="thread_view"\n\t  data-logged-in="${loggedIn}"\n\t  data-cookie-prefix="xf_">\n<body></body></html>`
+
+const LOGIN_WALL_BODY =
+  '<pre>Sorry, you have to be <a href="/login">logged in</a> to access this page</a></pre>'
+
+describe('signed-out detection', () => {
+  test('a guest page is signed out', () => {
+    expect(looksSignedOut('https://f95zone.to/threads/1/', htmlPage(false))).toBe(true)
+  })
+
+  test('a member page is signed in', () => {
+    expect(looksSignedOut('https://f95zone.to/threads/1/', htmlPage(true))).toBe(false)
+  })
+
+  test('the SAM login wall is signed out', () => {
+    expect(isLoginWall(LOGIN_WALL_BODY)).toBe(true)
+    expect(looksSignedOut('https://f95zone.to/sam/latest_alpha/', LOGIN_WALL_BODY)).toBe(true)
+  })
+
+  test('a redirect to the two-step page is signed out', () => {
+    expect(isTwoStepUrl(PAGE_URL)).toBe(true)
+    expect(looksSignedOut(PAGE_URL, htmlPage(false))).toBe(true)
+    expect(isTwoStepUrl('https://f95zone.to/threads/two-step-lovers.123/')).toBe(false)
+  })
+
+  test('JSON responses are not treated as signed out', () => {
+    expect(looksSignedOut('https://f95zone.to/sam/latest_alpha/latest_data.php?cmd=list', '{"status":"ok"}')).toBe(false)
+  })
+
+  test('an auth step succeeds only when it lands on a member page', () => {
+    expect(signedInAfterAuthStep(htmlPage(true), 'https://f95zone.to/')).toBe(true)
+    expect(signedInAfterAuthStep(TOTP_PAGE, PAGE_URL)).toBe(false)
+    expect(signedInAfterAuthStep(htmlPage(false), 'https://f95zone.to/')).toBe(false)
+  })
+})
+
+describe('two-step page chrome', () => {
+  const page = `
+<div class="blockMessage blockMessage--important blockMessage--iconic u-noJsOnly">JavaScript is disabled.</div>
+<div class="blockMessage blockMessage--important blockMessage--iconic js-browserWarning" style="display: none">You are using an out of date browser.</div>
+<form action="/login/two-step" method="post">
+  <input type="text" name="code" />
+  <input type="hidden" name="provider" value="totp" />
+</form>
+<a href="/login/two-step?provider=backup&amp;remember=1">Use a backup code</a>
+<a href="/login/two-step?provider=backup&amp;remember=1">Backup codes</a>`
+
+  test('ignores the hidden browser and JavaScript warnings', () => {
+    expect(parseTwoStepError(page)).toBeNull()
+  })
+
+  test('drops the leading "Use" from provider links', () => {
+    expect(parseTwoStepForm(page, PAGE_URL)?.providers).toEqual([
+      {
+        id: 'backup',
+        label: 'a backup code',
+        href: 'https://f95zone.to/login/two-step?provider=backup&remember=1'
+      }
+    ])
+  })
+})
+
+describe('signed-in username', () => {
+  const header = (loggedIn: boolean): string =>
+    `<html id="XF"\n\t  data-logged-in="${loggedIn}">\n<body>\n<a href="/account/" class="p-navgroup-link u-ripple p-navgroup-link--iconic p-navgroup-link--user" title="Yksok">\n<span class="avatar avatar--xxs" data-user-id="44323"><img src="/data/avatars/s/44/44323.jpg" alt="Yksok" /></span>\n<span class="p-navgroup-linkText">Yksok</span>\n</a></body></html>`
+
+  test('reads the display name from the account button', () => {
+    expect(signedInUsername(header(true))).toBe('Yksok')
+  })
+
+  test('returns null on guest pages', () => {
+    expect(signedInUsername(header(false))).toBeNull()
   })
 })

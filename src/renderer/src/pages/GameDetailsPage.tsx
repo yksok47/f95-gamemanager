@@ -118,7 +118,7 @@ import {
 import ReviewCard from '../components/ReviewCard'
 import ThreadPostsPanel from '../components/ThreadPostsPanel'
 import { threadProseTarget } from '../lib/thread-prose'
-import { PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
+import { ChevronLeftIcon, ChevronRightIcon, PagerIcon, RefreshIcon, ClearIcon } from '../components/ToolbarIcons'
 import PackageMetaTags from '../components/PackageMetaTags'
 import { DelayedMount, InlineLoading, Spinner } from '../components/Spinner'
 import {
@@ -2489,7 +2489,7 @@ function GameDetailsPage({
                   type="button"
                   onClick={() => setLightbox(index)}
                 >
-                  <ProgressiveCdnImg src={url} />
+                  <ProgressiveCdnImg src={url} upgrade />
                 </button>
               ))}
             </div>
@@ -3076,7 +3076,7 @@ function GameDetailsPage({
                         setLightbox((index) => (index == null ? 0 : (index - 1 + gallery.length) % gallery.length))
                       }}
                     >
-                      ‹
+                      <ChevronLeftIcon />
                     </button>
                     <button
                       className="lightbox-nav lightbox-next"
@@ -3087,7 +3087,7 @@ function GameDetailsPage({
                         setLightbox((index) => (index == null ? 0 : (index + 1) % gallery.length))
                       }}
                     >
-                      ›
+                      <ChevronRightIcon />
                     </button>
                   </>
                 ) : null}

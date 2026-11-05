@@ -595,7 +595,31 @@ export default function App(): JSX.Element {
     setVisibleThreadIds([])
     windowOffsets.current.clear()
     setSession({ loggedIn: false, userId: null, username: null })
-    notifyError('The saved F95zone session could not be used. Please log in again.')
+    notifyError('Your F95zone session expired. Sign in again to continue.')
+  }, [])
+
+  const applyLoginResultRef = useRef(applyLoginResult)
+  applyLoginResultRef.current = applyLoginResult
+
+  useEffect(() => {
+    return window.api.auth.onChange((change) => {
+      if (change.status === 'ok') {
+        void applyLoginResultRef.current(change)
+        return
+      }
+      if (change.status === 'session') {
+        setSession((current) => (current?.loggedIn ? change.session : current))
+        return
+      }
+      setSubscriptions([])
+      setRoster([])
+      setView('roster')
+      setDetailsWindows([])
+      setVisibleThreadIds([])
+      windowOffsets.current.clear()
+      setSession({ loggedIn: false, userId: null, username: null })
+      setTwoStep(change.status === 'two_step' ? change.challenge : null)
+    })
   }, [])
 
   const handleToggleFollow = useCallback(async (game: CatalogGame): Promise<void> => {

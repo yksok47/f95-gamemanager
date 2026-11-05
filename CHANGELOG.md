@@ -2,6 +2,17 @@
 
 To publish a release, add a section for the new version at the top of this file (`## 1.12.0 - YYYY-MM-DD`) and push it to `master`. The release workflow tags the version, builds every platform, and uses the section as the release notes.
 
+## 1.13.0 - 2026-11-05
+
+- Fixed the app staying "signed in" after F95zone ended the session, which broke tags, galleries, reviews and ignored threads
+  - When F95zone asks for your two-step code again, the app now shows the code screen instead of loading pages as a guest
+  - "Don't ask again on this device" is now on by default and stays remembered when you sign out and back in
+- Reviews work with F95zone's new reviews pages and show every review, not just the ones for the latest version
+- Unignoring threads works again, and ignored threads show as ignored on the game page
+- Gallery tiles and post images load the full-size picture once they're on screen, so they're no longer blurry
+- Your F95zone name shows in the app again instead of "User" and a number
+- Cleaner previous/next buttons in the full-screen gallery
+
 ## 1.12.2 - 2026-11-04
 
 - Sign in with two-step verification: if your F95zone account has it turned on, enter the code from your authenticator app, email or a backup code after your password

@@ -908,7 +908,7 @@ function ThreadPostCard({
                 >
                   {item.isImage ? (
                     <a href={item.url} title={item.filename}>
-                      <ProgressiveCdnImg src={item.url} alt={item.filename} />
+                      <ProgressiveCdnImg src={item.url} alt={item.filename} upgrade />
                     </a>
                   ) : (
                     <a href={item.url} className="thread-post-attachment-file" title={item.filename}>

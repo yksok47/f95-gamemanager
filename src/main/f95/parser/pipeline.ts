@@ -6,7 +6,7 @@
  *   1. GET /threads/{id}/ once
  *   2. threadPage + firstPost from that document
  *   3. composeFirstPost runs the section parsers below on the first-post HTML
- *   4. reviews page 1 from the same thread document (no /br-reviews until pagination)
+ *   4. reviews page 1 from the same thread document (no /reviews until pagination)
  *
  *   firstPost
  *     ├─ banner, description, gallery, overview, notes
@@ -14,7 +14,7 @@
  *     └─ downloadsSection → downloads
  *
  *   threadPage  (same full-page HTML as firstPost; JSON page chrome)
- *   reviews     (separate root: /br-reviews pages; pagination only at runtime)
+ *   reviews     (separate root: /reviews?sort=newest pages; pagination only at runtime)
  *   posts       (same full-page HTML as firstPost; discussion posts, not the OP)
  *   postSearch  (separate root: /search/{id}/ results for a thread query)
  *   versionHistory (same full-page HTML as firstPost; Versions strip above the OP)

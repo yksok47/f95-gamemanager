@@ -8,6 +8,7 @@ import { extractThreadId, parseGameTitle, PREFIX_NODE_SELECTOR, threadUrl } from
 const HOST = 'https://f95zone.to'
 const TOKEN_RE = /name="_xfToken"\s+value="([^"]+)"/
 const IGNORE_PATH_RE = /\/tic-ignore\/(un)?ignore(?:\/|$)/i
+const IGNORE_RECORD_PATH_RE = /^\/tic-ignore\/\d+\/delete\/?$/i
 
 export type ThreadIgnoreAction = {
   ignored: boolean
@@ -64,8 +65,34 @@ export function isThreadIgnoreHref(href: string, threadId?: number): boolean {
   }
 }
 
+/** Unignore link for one saved ignore entry (`/tic-ignore/{id}/delete`); it names no thread. */
+export function isIgnoreRecordHref(href: string): boolean {
+  try {
+    const url = new URL(href, HOST)
+    return url.origin === HOST && IGNORE_RECORD_PATH_RE.test(url.pathname)
+  } catch {
+    return false
+  }
+}
+
+function recordRedirectThreadId(href: string): number | null {
+  try {
+    const redirect = new URL(href, HOST).searchParams.get('redirect')
+    return redirect ? extractThreadId(absUrl(redirect)) : null
+  } catch {
+    return null
+  }
+}
+
+export function isUnignoreHrefFor(href: string, threadId: number): boolean {
+  return (
+    isThreadIgnoreHref(href, threadId) ||
+    (isIgnoreRecordHref(href) && recordRedirectThreadId(href) === threadId)
+  )
+}
+
 function isIgnoredControl(href: string, text: string): boolean {
-  return /unignore/i.test(href) || /unignore/i.test(text)
+  return /unignore/i.test(href) || /unignore/i.test(text) || isIgnoreRecordHref(href)
 }
 
 export function parseThreadIgnoreActionFromDocument(
@@ -75,13 +102,14 @@ export function parseThreadIgnoreActionFromDocument(
   const nodes = [
     ...$('.block-outer-opposite a[href*="tic-ignore"]').toArray(),
     ...$(`a.tic--button[href*="content_id=${threadId}"]`).toArray(),
-    ...$(`a[href*="tic-ignore"][href*="content_id=${threadId}"]`).toArray()
+    ...$(`a[href*="tic-ignore"][href*="content_id=${threadId}"]`).toArray(),
+    ...$('a.tic-button[href*="tic-ignore"], a.tic--button[href*="tic-ignore"]').toArray()
   ]
 
   for (const el of nodes) {
     const node = $(el)
     const href = node.attr('href')?.trim()
-    if (!href || !isThreadIgnoreHref(href, threadId)) continue
+    if (!href || !isUnignoreHrefFor(href, threadId)) continue
     const text = node.text().replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim()
     return { ignored: isIgnoredControl(href, text), href }
   }
@@ -202,9 +230,11 @@ function unignoreHrefFromRow($: CheerioAPI, row: Cheerio<AnyNode>, threadId: num
   for (const el of links) {
     const node = $(el)
     const href = node.attr('href')?.trim()
-    if (!href || !isThreadIgnoreHref(href, threadId)) continue
+    if (!href) continue
+    if (isIgnoreRecordHref(href)) return href
+    if (!isThreadIgnoreHref(href, threadId)) continue
     const text = node.text().replace(/\s+/g, ' ').trim()
-    if (isIgnoredControl(href, text) || /unignore/i.test(href)) return href
+    if (isIgnoredControl(href, text)) return href
   }
   return null
 }

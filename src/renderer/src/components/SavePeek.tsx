@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { SaveFolderPeekShot } from '@shared/types'
 import { notifyCaught } from './ErrorNotifications'
 import { InlineLoading } from './Spinner'
+import { ChevronLeftIcon, ChevronRightIcon } from './ToolbarIcons'
 
 const peekCache = new Map<string, SaveFolderPeekShot[]>()
 
@@ -221,7 +222,7 @@ function SavePeekLightbox({
               aria-label="Previous screenshot"
               onClick={() => onChange((index - 1 + shots.length) % shots.length)}
             >
-              ‹
+              <ChevronLeftIcon />
             </button>
           ) : null}
           {shot ? <ShotImage url={shot.thumbnailUrl} className="storage-save-lightbox-img" /> : null}
@@ -232,7 +233,7 @@ function SavePeekLightbox({
               aria-label="Next screenshot"
               onClick={() => onChange((index + 1) % shots.length)}
             >
-              ›
+              <ChevronRightIcon />
             </button>
           ) : null}
         </div>

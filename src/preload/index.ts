@@ -33,6 +33,7 @@ import type {
   ImportResult,
   LoginPayload,
   LoginResult,
+  AuthChange,
   TwoStepPayload,
   PlaySessionStatus,
   RenpyInfo,
@@ -93,7 +94,14 @@ const api = {
     switchTwoStepProvider: (providerId: string): Promise<LoginResult> =>
       ipcRenderer.invoke('auth:twoStepProvider', providerId),
     cancelTwoStep: (): Promise<AuthSession> => ipcRenderer.invoke('auth:cancelTwoStep'),
-    logout: (): Promise<AuthSession> => ipcRenderer.invoke('auth:logout')
+    logout: (): Promise<AuthSession> => ipcRenderer.invoke('auth:logout'),
+    onChange: (listener: (change: AuthChange) => void): (() => void) => {
+      const wrapped = (_event: unknown, change: AuthChange): void => listener(change)
+      ipcRenderer.on('auth:changed', wrapped)
+      return () => {
+        ipcRenderer.removeListener('auth:changed', wrapped)
+      }
+    }
   },
   catalog: {
     list: (query: CatalogQuery = {}): Promise<CatalogPage> =>

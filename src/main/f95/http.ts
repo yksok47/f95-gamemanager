@@ -9,12 +9,31 @@ import { F95Error } from './errors'
 import { encodeMultipartForm, type MultipartFile } from './multipart'
 import { coalesceInflight, f95InflightGetKey } from './inflight'
 import { recordRequest } from '../request-log'
-import { pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
+import { getCookie, pullCookiesFromElectron, scheduleSaveSession } from '../session-store'
+import { isLoginWall, looksSignedIn, looksSignedOut } from './two-step-parse'
 
 const HOST = 'https://f95zone.to'
 
-const LOGIN_WALL =
-  '<pre>Sorry, you have to be <a href="/login">logged in</a> to access this page</a></pre>'
+export type SignedOutPage = { url: string; body: string }
+
+let signedOutListener: ((page: SignedOutPage) => void) | null = null
+
+export function onSignedOutPage(listener: (page: SignedOutPage) => void): void {
+  signedOutListener = listener
+}
+
+let signedInListener: ((body: string) => void) | null = null
+
+export function onSignedInPage(listener: (body: string) => void): void {
+  signedInListener = listener
+}
+
+type FetchOptions = {
+  timeoutMs?: number
+  skipChallenge?: boolean
+  preferBrowser?: boolean
+  authFlow?: boolean
+}
 
 const RATE_LIMIT_MARKERS = [
   '<title>429 Too Many Requests</title>',
@@ -101,7 +120,7 @@ function attemptLogger(
   }
 }
 
-function detectTransportError(status: number, body: string): void {
+function detectTransportError(status: number, body: string, url: string, authFlow = false): void {
   if (status === 429 || RATE_LIMIT_MARKERS.some((m) => body.includes(m))) {
     throw new F95Error('F95zone is rate-limiting requests. Try again in a moment.', 'rate_limited')
   }
@@ -111,9 +130,19 @@ function detectTransportError(status: number, body: string): void {
       'blocked'
     )
   }
-  if (body.includes(LOGIN_WALL)) {
+  if (authFlow) return
+  const hasSession = Boolean(getCookie('xf_user'))
+  if (hasSession && looksSignedOut(url, body)) {
+    signedOutListener?.({ url, body })
     throw new F95Error('Not logged in to F95zone.', 'login_required')
   }
+  if (isLoginWall(body)) {
+    throw new F95Error('Not logged in to F95zone.', 'login_required')
+  }
+}
+
+function finalUrl(result: FetchResult, requested: string): string {
+  return result.response.url || requested
 }
 
 async function sessionFetch(
@@ -154,25 +183,26 @@ async function browserFetchAsResponse(
     statusText: result.ok ? 'OK' : 'Error',
     headers: result.headers
   })
+  if (result.url) Object.defineProperty(response, 'url', { value: result.url })
   return { response, body: result.body }
 }
 
 export async function f95Fetch(
   path: string,
   init: RequestInit = {},
-  options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean } = {}
+  options: FetchOptions = {}
 ): Promise<FetchResult> {
   const url = f95Url(path)
   const method = requestMethod(init)
   const key = f95InflightGetKey(method, url)
-  if (!key) return f95FetchOnce(path, init, options)
+  if (!key || options.authFlow) return f95FetchOnce(path, init, options)
   return coalesceInflight(inFlightGets, key, () => f95FetchOnce(path, init, options))
 }
 
 async function f95FetchOnce(
   path: string,
   init: RequestInit,
-  options: { timeoutMs?: number; skipChallenge?: boolean; preferBrowser?: boolean }
+  options: FetchOptions
 ): Promise<FetchResult> {
   const url = f95Url(path)
   const method = requestMethod(init)
@@ -211,7 +241,12 @@ async function f95FetchOnce(
   }
 
   try {
-    detectTransportError(result.response.status, result.body)
+    detectTransportError(
+      result.response.status,
+      result.body,
+      finalUrl(result, url),
+      options.authFlow
+    )
   } catch (error) {
     log({ ok: false, error, result })
     if (error instanceof F95Error && error.code === 'blocked' && !options.skipChallenge) {
@@ -228,6 +263,7 @@ async function f95FetchOnce(
     throw error
   }
   log({ ok: result.response.ok, result })
+  if (!options.authFlow && looksSignedIn(result.body)) signedInListener?.(result.body)
   return result
 }
 
@@ -280,7 +316,7 @@ export async function f95PostForm(
   scheduleSaveSession()
   const body = await response.text()
   try {
-    detectTransportError(response.status, body)
+    detectTransportError(response.status, body, response.url || url)
   } catch (error) {
     log({ ok: false, error, result: { response, body } })
     throw error

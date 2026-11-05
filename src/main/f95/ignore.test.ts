@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  isIgnoreRecordHref,
   isThreadIgnoreHref,
   nextIgnoredPageHref,
   parseConfirmationForm,
@@ -149,5 +150,69 @@ describe('ignored thread list', () => {
     expect(nextIgnoredPageHref(html, 'https://f95zone.to/account/ignored?key=thread')).toBe(
       'https://f95zone.to/account/ignored?key=thread&page=2'
     )
+  })
+})
+
+const RECORD_LIST_HTML = `
+<div class="p-body-pageContent">
+  <div class="contentRow ticContentRow">
+    <div class="contentRow-main">
+      <h3 class="contentRow-title">
+        <a href="/threads/summer-vacation-v0-9-10-erwinvn.82435/">Summer Vacation [v0.9.10] [ErwinVN]</a>
+      </h3>
+    </div>
+    <a href="/tic-ignore/8489526/delete?redirect=%2Faccount%2Fignored%3Fkey%3Dthread" class="button button--icon button--link button--small" data-xf-click="overlay"><span class="button-text"><i class="fa--xf far fa-trash "></i></span></a>
+  </div>
+</div>`
+
+const IGNORED_THREAD_HTML = `
+<div class="block-outer-opposite">
+  <a href="/tic-ignore/8489526/delete?redirect=%2Fthreads%2Fsummer-vacation-v0-9-10-erwinvn.82435%2F" class="tic-button button button--link"
+     title="Unignore thread" data-xf-click="overlay">Unignore thread</a>
+</div>`
+
+const DELETE_CONFIRM_HTML = `
+<form action="/tic-ignore/8489526/delete" method="post" class="block">
+  <div class="block-body">Please confirm that you want to unignore: Summer Vacation</div>
+  <button type="submit" class="button--primary button">Unignore</button>
+  <input type="hidden" name="_xfToken" value="1793884000,abc" />
+  <input type="hidden" name="redirect" value="https://f95zone.to/threads/82435/" />
+</form>`
+
+describe('ignore records (/tic-ignore/{id}/delete)', () => {
+  test('keeps the delete link as the unignore link of a list row', () => {
+    expect(scrapeIgnoredThreads(RECORD_LIST_HTML)).toEqual([
+      {
+        threadId: 82435,
+        title: 'Summer Vacation',
+        threadUrl: 'https://f95zone.to/threads/82435/',
+        unignoreHref: '/tic-ignore/8489526/delete?redirect=%2Faccount%2Fignored%3Fkey%3Dthread'
+      }
+    ])
+  })
+
+  test('reads an ignored thread from its record unignore button', () => {
+    expect(parseThreadIgnoreAction(IGNORED_THREAD_HTML, 82435)).toEqual({
+      ignored: true,
+      href: '/tic-ignore/8489526/delete?redirect=%2Fthreads%2Fsummer-vacation-v0-9-10-erwinvn.82435%2F'
+    })
+  })
+
+  test('ignores a record button that redirects to another thread', () => {
+    expect(parseThreadIgnoreAction(IGNORED_THREAD_HTML, 99999)).toBeNull()
+  })
+
+  test('recognises record links and nothing else', () => {
+    expect(isIgnoreRecordHref('/tic-ignore/8489526/delete?redirect=%2F')).toBe(true)
+    expect(isIgnoreRecordHref('https://evil.example/tic-ignore/1/delete')).toBe(false)
+    expect(isIgnoreRecordHref('/tic-ignore/unignore-all?content_type=thread')).toBe(false)
+  })
+
+  test('posts the unignore confirmation form', () => {
+    const form = parseConfirmationForm(DELETE_CONFIRM_HTML, 'https://f95zone.to/tic-ignore/8489526/delete')
+    expect(form?.action).toBe('https://f95zone.to/tic-ignore/8489526/delete')
+    expect(form?.method).toBe('post')
+    expect(form?.fields.get('_xfToken')).toBe('1793884000,abc')
+    expect(form?.fields.get('_xfConfirm')).toBe('1')
   })
 })

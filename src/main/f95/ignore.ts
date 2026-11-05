@@ -5,6 +5,7 @@ import { sleep, threadUrl } from './parse'
 import {
   absUrl,
   asHtml,
+  isIgnoreRecordHref,
   isThreadIgnoreHref,
   looksLikeThreadPage,
   nextIgnoredPageHref,
@@ -21,6 +22,10 @@ import {
 
 const HOST = 'https://f95zone.to'
 const PAGE_DELAY_MS = 1200
+
+function acceptsIgnoreHref(href: string, threadId: number, wantIgnored: boolean): boolean {
+  return isThreadIgnoreHref(href, threadId) || (!wantIgnored && isIgnoreRecordHref(href))
+}
 const MAX_PAGES = 80
 
 export {
@@ -64,7 +69,7 @@ async function followIgnoreLink(
   threadId: number,
   wantIgnored: boolean
 ): Promise<void> {
-  if (!isThreadIgnoreHref(href, threadId)) {
+  if (!acceptsIgnoreHref(href, threadId, wantIgnored)) {
     throw new F95Error('That ignore link does not match this thread.', 'parse')
   }
 
@@ -128,7 +133,7 @@ export async function setThreadIgnored(
   }
 
   if (href) {
-    if (!isThreadIgnoreHref(href, threadId)) {
+    if (!acceptsIgnoreHref(href, threadId, ignored)) {
       throw new F95Error('That ignore link does not match this thread.', 'parse')
     }
     await followIgnoreLink(href, threadId, ignored)

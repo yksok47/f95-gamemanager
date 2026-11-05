@@ -44,7 +44,7 @@ function TwoStepForm({
   onCancel: () => Promise<void>
 }): JSX.Element {
   const [code, setCode] = useState('')
-  const [trust, setTrust] = useState(false)
+  const [trust, setTrust] = useState(true)
 
   useEffect(() => {
     setCode('')

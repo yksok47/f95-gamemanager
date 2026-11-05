@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import ProgressiveCdnImg from './ProgressiveCdnImg'
-import { ClearIcon } from './ToolbarIcons'
+import { ChevronLeftIcon, ChevronRightIcon, ClearIcon } from './ToolbarIcons'
 
 type ThreadGalleryProps = {
   images: string[]
@@ -53,7 +53,7 @@ export default function ThreadGallery({ images }: ThreadGalleryProps): JSX.Eleme
             type="button"
             onClick={() => setLightbox(index)}
           >
-            <ProgressiveCdnImg src={url} />
+            <ProgressiveCdnImg src={url} upgrade />
           </button>
         ))}
       </div>
@@ -91,7 +91,7 @@ export default function ThreadGallery({ images }: ThreadGalleryProps): JSX.Eleme
                         )
                       }}
                     >
-                      ‹
+                      <ChevronLeftIcon />
                     </button>
                     <button
                       className="lightbox-nav lightbox-next"
@@ -102,7 +102,7 @@ export default function ThreadGallery({ images }: ThreadGalleryProps): JSX.Eleme
                         setLightbox((index) => (index == null ? 0 : (index + 1) % images.length))
                       }}
                     >
-                      ›
+                      <ChevronRightIcon />
                     </button>
                   </>
                 ) : null}
